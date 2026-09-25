@@ -458,6 +458,16 @@ export class OpenCodeService {
       this.busySessions.delete(event.properties.sessionID)
       this.releaseSession(event.properties.sessionID)
     }
+
+    if (event.type === "session.error") {
+      // خطأ OpenCode بيقفل الشغل من غير ما يبعت idle بعدها، فبدون السطر ده
+      // الجلسة هتفضل متسجّلة "شغّال" للأبد في قائمة المحادثات النشطة.
+      const sessionId = event.properties.sessionID
+      if (sessionId) {
+        this.busySessions.delete(sessionId)
+        this.releaseSession(sessionId)
+      }
+    }
   }
 
   // فيه شغل معلّق على الجلسة دي (طلب شغّال أو طلبات مستنية في الطابور)؟
@@ -514,8 +524,8 @@ export class OpenCodeService {
     return true
   }
 
-  // شبكة أمان: لو الـ SSE اتقطع日和 الطابور اتقفل، من polling للحالات
-  // ونبعث الطلبات اللي اتقفلت من غير ما حد يبعتها.
+  // Safety net: when the SSE drops and the queue stalls, poll the statuses and
+  // release the prompts that stalled without anyone sending them.
   private startQueueWatchdog(): void {
     if (this.queueWatchdog) {
       return
@@ -746,9 +756,20 @@ export class OpenCodeService {
       this.todos(id),
       this.sessionQuestions(id),
     ])
-    const status = this.effectiveStatus(id, rawStatuses[id] || { type: "idle" })
-    const busy = status.type === "busy" || status.type === "retry"
     const turns = this.turns(messages)
+    const lastTurn = turns[turns.length - 1]
+    const rawStatus = rawStatuses[id] || { type: "idle" }
+    // حالة OpenCode أحيانًا بتتأخر، والحدث اللي بيقول "خلص" ممكن يضيع خالص
+    // لو الـ SSE اتقطع (انقطاع شبكة، قفل شاشة، ريزارت للسيرفر). فبنقيسها على
+    // حقيقة أقوى من الحدث: هل آخر طلب خلص فعلًا؟ لو الرد الأخير اتقفل
+    // (completedAt اتسجل) يبقى الطلب خلص مهما OpenCode لسه بيقول "شغّال"،
+    // غير لو في طلبات مستنية في الطابور فالساعتها الشغل لسه بيكمل فعلًا.
+    const staleBusy = (rawStatus.type === "busy" || rawStatus.type === "retry")
+      && lastTurn !== undefined
+      && lastTurn.completedAt > 0
+      && !this.hasPendingWork(id)
+    const status = this.effectiveStatus(id, staleBusy ? { type: "idle" } : rawStatus)
+    const busy = status.type === "busy" || status.type === "retry"
     const runningIndex = busy ? turns.length - 1 : -1
     const activeTodo = todos.find((todo) => todo.status === "in_progress")
     const completedTodos = todos.filter((todo) => todo.status === "completed").length
@@ -1111,14 +1132,19 @@ export class OpenCodeService {
     // بيرجع فاضي والمحادثات النشطة مش بتظهر في أي حتة.
     const directories = [...new Set(relevant.map((session) => session.directory as string))].slice(0, 30)
     const settled = await Promise.allSettled(
-      directories.map(async (directory) =>
-        unwrap(await this.clientFor(directory).session.status({ query: { directory } })),
-      ),
+      directories.map(async (directory) => ({
+        directory,
+        values: unwrap(await this.clientFor(directory).session.status({ query: { directory } })),
+      })),
     )
     const statuses: Record<string, SessionStatus> = {}
+    // الـ directories اللي نجحنا نسألها فعلًا — غيرها سيبنا سجلّ الـ events هي
+    // المصدر الوحيد اللي متاح، فما ننضبطش عليه.
+    const polled = new Set<string>()
     for (const entry of settled) {
       if (entry.status === "fulfilled" && entry.value) {
-        Object.assign(statuses, entry.value)
+        Object.assign(statuses, entry.value.values)
+        polled.add(entry.value.directory)
       }
     }
     // احتياطي أخير: حالة السيرفر الافتراضية (قد تنفع لمشروع واحد)
@@ -1128,6 +1154,20 @@ export class OpenCodeService {
         Object.assign(statuses, fallback)
       } catch {
         // تجاهل — busySessions من الـ event stream يكفي كمصدر احتياطي
+      }
+    }
+
+    // This poll is the source of truth, so use it to reconcile busySessions: when
+    // the event stream loses the idle event (dropped stream, locked screen), those
+    // sessions stay flagged working in every project forever. Sessions in a directory
+    // we could not poll are left alone: the event log is all we have for them.
+    for (const session of relevant) {
+      if (!polled.has(session.directory as string)) {
+        continue
+      }
+      const status = statuses[session.id]
+      if (status?.type !== "busy" && status?.type !== "retry") {
+        this.busySessions.delete(session.id)
       }
     }
 

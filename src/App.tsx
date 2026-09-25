@@ -511,6 +511,64 @@ function PermissionCard({ permission, onReply, t }: { permission: Permission; on
 }
 
 const RECENT_PROJECTS_KEY = "opencode.recentProjects"
+// آخر محادثة فتحناها لكل مشروع — بنرجعلها بعد الـ refresh بدل أول محادثة في القائمة
+const LAST_SESSION_KEY = "opencode.lastSessionByProject"
+
+// ترتيب المحادثات: الأحدث إنشاءً فوق. بنقارن وقت الإنشاء مش وقت آخر تعديل،
+// عشان مجرد فتح محادثة قديمة ما يرفعهاش فوق المحادثات اللي اتعملت بعده.
+function sortSessionsByCreated(list: Session[]): Session[] {
+  return [...list].sort((a, b) => (b.time.created - a.time.created) || (b.time.updated - a.time.updated))
+}
+
+function loadLastSessions(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(LAST_SESSION_KEY)
+    if (!raw) {
+      return {}
+    }
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {}
+    }
+    const result: Record<string, string> = {}
+    for (const [worktree, sessionId] of Object.entries(parsed)) {
+      if (typeof sessionId === "string" && sessionId) {
+        result[normalizeProjectPath(worktree)] = sessionId
+      }
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
+
+function saveLastSession(worktree: string, sessionId: string): void {
+  const key = normalizeProjectPath(worktree)
+  try {
+    const all = loadLastSessions()
+    if (all[key] === sessionId) {
+      return
+    }
+    all[key] = sessionId
+    localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(all))
+  } catch {
+    // تجاهل — التخزين اختياري
+  }
+}
+
+function forgetLastSession(worktree: string): void {
+  const key = normalizeProjectPath(worktree)
+  try {
+    const all = loadLastSessions()
+    if (all[key] === undefined) {
+      return
+    }
+    delete all[key]
+    localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(all))
+  } catch {
+    // تجاهل — التخزين اختياري
+  }
+}
 
 // مهلة النشاط: بعد ما المحادثة تخلص شغل بتفضل في "المحادثات النشطة" ٥ دقايق
 // وبعدين لوحدها بتنتقل لـ "غير النشطة" (من غير ما تحتاج تعمل refresh).
@@ -1312,6 +1370,8 @@ function App() {
   const localRequestId = useRef(0)
   const sessionsRef = useRef<Session[]>([])
   sessionsRef.current = sessions
+  const activeSessionItemRef = useRef<HTMLDivElement | null>(null)
+  const eventsConnectedOnce = useRef(false)
   const workspaceScrollRef = useRef<HTMLDivElement | null>(null)
   const showHistoryRef = useRef(false)
   showHistoryRef.current = showHistory
@@ -1327,6 +1387,10 @@ function App() {
 
   // في طلبات مستنية في الطابور؟ لو أيوه لازم نفضل نحدّث لحد ما تخلص كلها
   const hasQueuedRequests = useMemo(() => requests.some((request) => request.state === "queued"), [requests])
+  // كارت واقف على "شغّال" لازم يفضل يسأل السيرفر لحد ما السيرفر نفسه يقول
+  // إنه خلص. الاعتماد على حالة الجلسة بس كان بيخلي الكارت يعلق شغّال للأبد
+  // لما الـ SSE يفصل (قفل الشاشة/الشبكة) والحالة في الموبايل تتأخر عن OpenCode.
+  const hasRunningRequests = useMemo(() => requests.some((request) => request.state === "running"), [requests])
 
   // سجّل/جدّد وقت آخر نشاط لكل محادثة شغالة، ونضّف اللي عدّت مهلتهم.
   const rememberActive = useCallback((next: Record<string, SessionStatus>) => {
@@ -1502,7 +1566,7 @@ function App() {
       listSessions(),
       getStatuses().catch(() => null),
     ])
-    const sorted = [...nextSessions].sort((a, b) => b.time.updated - a.time.updated)
+    const sorted = sortSessionsByCreated(nextSessions)
     setSessions(sorted)
     if (nextStatuses) {
       setStatuses(nextStatuses)
@@ -1545,11 +1609,16 @@ function App() {
         return next
       })
       const [nextSessions, nextStatuses] = await Promise.all([listSessions(), getStatuses()])
-      const sorted = [...nextSessions].sort((a, b) => b.time.updated - a.time.updated)
-      // لو جاي من "شغال الآن" روح للمحادثة المطلوبة بدل أول جلسة
+      const sorted = sortSessionsByCreated(nextSessions)
+      // أولوية للمحادثة المطلوبة من "شغال الآن"، بعدين آخر محادثة فتحناها في المشروع ده،
+      // وأخيرًا الأحدث — عشان الـ refresh يرجّعك لنفس المكان اللي كنت فيه
+      const remembered = loadLastSessions()[normalizeProjectPath(result.project.worktree)]
+      const fallback = remembered && sorted.some((session) => session.id === remembered)
+        ? remembered
+        : sorted[0]?.id || null
       const nextActive = targetSessionId && sorted.some((session) => session.id === targetSessionId)
         ? targetSessionId
-        : sorted[0]?.id || null
+        : fallback
       setSessions(sorted)
       setStatuses(nextStatuses)
       rememberActive(nextStatuses)
@@ -1602,6 +1671,27 @@ function App() {
       void refreshRequests(activeId).catch((error: unknown) => addToast(error instanceof Error ? error.message : t.summaryLoadFailed, "error"))
     }
   }, [activeId, authState, addToast, refreshRequests, t])
+
+  // احفظ آخر محادثة فتحناها لكل مشروع — بعد الـ refresh نرجعلها بدل ما نرجع لأول واحدة
+  useEffect(() => {
+    if (authState !== "signedIn" || !selectedProject) {
+      return
+    }
+    if (activeId) {
+      saveLastSession(selectedProject.worktree, activeId)
+    } else {
+      // مسودة جديدة: امسح المحادثة المحفوظة عشان الـ refresh ما يرجعش ليها
+      forgetLastSession(selectedProject.worktree)
+    }
+  }, [activeId, authState, selectedProject])
+
+  // القائمة بترتّب بتاريخ الإنشاء، فالمحادثة الحالية ممكن تكون تحت — نبصّ عليها في الشاشة
+  useEffect(() => {
+    if (authState !== "signedIn" || !activeId || !showSessions) {
+      return
+    }
+    activeSessionItemRef.current?.scrollIntoView({ block: "nearest" })
+  }, [activeId, authState, showSessions, sessions])
 
   // القائمة حية من opencode نفسه — بتتغير حسب المتاح فعلًا (نعيد تحميلها مع كل مشروع/فتح للقائمة)
   const loadModels = useCallback(async (silent = false) => {
@@ -1717,14 +1807,14 @@ function App() {
 
   // حدّث الكارتات طول ما فيه طلب شغّال أو طلبات مستنية في الطابور
   useEffect(() => {
-    if (authState !== "signedIn" || !activeId || (!isBusy && !hasQueuedRequests)) {
+    if (authState !== "signedIn" || !activeId || (!isBusy && !hasQueuedRequests && !hasRunningRequests)) {
       return
     }
     const timer = window.setInterval(() => {
       void refreshRequests(activeId)
     }, 2500)
     return () => window.clearInterval(timer)
-  }, [authState, activeId, isBusy, hasQueuedRequests, refreshRequests])
+  }, [authState, activeId, isBusy, hasQueuedRequests, hasRunningRequests, refreshRequests])
 
   useEffect(() => {
     if (authState !== "signedIn" || !selectedProject) {
@@ -1829,7 +1919,22 @@ function App() {
       return
     }
     const source = new EventSource("/api/events", { withCredentials: true })
-    source.addEventListener("ready", () => setEventConnected(true))
+    source.addEventListener("ready", () => {
+      setEventConnected(true)
+      // First connection: the mount effects already fetch. Any later one means the
+      // stream dropped (screen lock, network change) and every event in that window
+      // is gone, so re-sync now instead of waiting for the next poll tick.
+      if (!eventsConnectedOnce.current) {
+        eventsConnectedOnce.current = true
+        return
+      }
+      void refreshStatuses()
+      void refreshActivity()
+      const id = activeIdRef.current
+      if (id) {
+        void refreshRequests(id).catch(() => undefined)
+      }
+    })
     source.addEventListener("opencode", (rawEvent) => {
       try {
         handleOpenCodeEvent(JSON.parse((rawEvent as MessageEvent<string>).data) as ClientEvent)
@@ -1842,7 +1947,7 @@ function App() {
       source.close()
       setEventConnected(false)
     }
-  }, [authState, addToast, handleOpenCodeEvent, t])
+  }, [authState, addToast, handleOpenCodeEvent, refreshActivity, refreshRequests, refreshStatuses, t])
 
   useEffect(() => {
     if (authState !== "signedIn") {
@@ -2092,7 +2197,7 @@ function App() {
       if (!sessionId) {
         const created = await createSession(undefined, true)
         sessionId = created.id
-        setSessions((current) => [created, ...current])
+        setSessions((current) => sortSessionsByCreated([created, ...current]))
         setActiveId(created.id)
         activeIdRef.current = created.id
         if (modelForNewSession) {
@@ -2388,7 +2493,7 @@ function App() {
                     const working = isSessionWorking(session.id)
                     const graceLeft = activeGraceLeft(session.id)
                     return (
-                      <div className={`session-item ${working ? "is-working" : "just-active"} ${session.id === activeId ? "active" : ""}${needsPermission ? " needs-permission" : ""}`} key={session.id}>
+                      <div ref={session.id === activeId ? activeSessionItemRef : undefined} className={`session-item ${working ? "is-working" : "just-active"} ${session.id === activeId ? "active" : ""}${needsPermission ? " needs-permission" : ""}`} key={session.id}>
                         <button className="session-select" onClick={() => void selectSession(session.id)}>
                           <span className="session-title-row">
                             <span className="session-title">{displayTitle(session.title, t)}</span>
@@ -2398,7 +2503,7 @@ function App() {
                             {working ? <span className="working-spinner" aria-hidden /> : <span className="status-dot" aria-hidden />}
                             <span>{working ? statusLabel(statuses[session.id], t) : t.activeRecently}</span>
                             <span aria-hidden>·</span>
-                            <span>{formatDate(session.time.updated, lang)} · {formatTime(session.time.updated, lang)}</span>
+                            <span>{formatDate(session.time.created, lang)} · {formatTime(session.time.created, lang)}</span>
                             {!working && graceLeft > 0 ? <><span aria-hidden>·</span><span className="session-grace-timer">{formatCountdown(graceLeft)}</span></> : null}
                           </span>
                         </button>
@@ -2419,13 +2524,13 @@ function App() {
                   sidebarInactiveSessions.map((session) => {
                     const needsPermission = permissions.some((permission) => permission.sessionID === session.id)
                     return (
-                      <div className={`session-item ${session.id === activeId ? "active" : ""}${needsPermission ? " needs-permission" : ""}`} key={session.id}>
+                      <div ref={session.id === activeId ? activeSessionItemRef : undefined} className={`session-item ${session.id === activeId ? "active" : ""}${needsPermission ? " needs-permission" : ""}`} key={session.id}>
                         <button className="session-select" onClick={() => void selectSession(session.id)}>
                           <span className="session-title-row">
                             <span className="session-title">{displayTitle(session.title, t)}</span>
                             {needsPermission ? <span className="permission-badge">{t.needsPermission}</span> : null}
                           </span>
-                          <span className="session-meta"><span className="status-dot" aria-hidden /><span>{statusLabel(statuses[session.id], t)}</span><span aria-hidden>·</span><span>{formatDate(session.time.updated, lang)} · {formatTime(session.time.updated, lang)}</span></span>
+                          <span className="session-meta"><span className="status-dot" aria-hidden /><span>{statusLabel(statuses[session.id], t)}</span><span aria-hidden>·</span><span>{formatDate(session.time.created, lang)} · {formatTime(session.time.created, lang)}</span></span>
                         </button>
                         <button className="session-delete" onClick={() => void handleDeleteSession(session)} aria-label={t.deleteSession}>⌫</button>
                       </div>
