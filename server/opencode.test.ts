@@ -1,5 +1,5 @@
 import type { Event, Message, Part, SessionStatus } from "@opencode-ai/sdk"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { OpenCodeService } from "./opencode.js"
 
 const SESSION = "ses_test"
@@ -64,6 +64,9 @@ interface Internals {
   globalClient: unknown
   trackEvent: (event: Event) => void
   busySessions: Set<string>
+  runningSessions: Set<string>
+  idlePolls: Map<string, number>
+  startQueueWatchdog: () => void
 }
 
 function createService() {
@@ -79,6 +82,8 @@ function createService() {
     fake,
     raw,
     busySessions: internals.busySessions,
+    runningSessions: internals.runningSessions,
+    internals,
     emit: (event: Event) => internals.trackEvent(event),
   }
 }
@@ -159,6 +164,106 @@ describe("parallel request queue", () => {
     expect(afterAbort.requests).toEqual([])
     expect(afterAbort.queued).toBe(0)
   })
+
+  it("removes a single queued request and keeps the rest in order", async () => {
+    const { service, fake, emit } = createService()
+
+    await service.prompt(SESSION, "الأول")
+    await service.prompt(SESSION, "التاني")
+    await service.prompt(SESSION, "التالت")
+    await service.prompt(SESSION, "الرابع")
+    emit(idleEvent())
+
+    const before = await service.requests(SESSION)
+    expect(before.requests.map((request) => request.prompt)).toEqual(["التالت", "الرابع"])
+    const target = before.requests[0]!.id
+
+    // الواجهة بتبعته بالبادئة — لازم يتشال من الطابور من غير ما يمسّ اللي شغّال
+    expect(service.removeQueued(SESSION, target)).toEqual({ removed: true, remaining: 1 })
+    expect(service.removeQueued(SESSION, target)).toEqual({ removed: false, remaining: 1 })
+    expect(fake.abortCalls).toBe(0)
+    expect(fake.dispatched).toEqual(["الأول", "التاني"])
+
+    emit(idleEvent())
+    expect(fake.dispatched).toEqual(["الأول", "التاني", "الرابع"])
+  })
+
+  it("skips the running request and lets the queue continue", async () => {
+    const { service, fake } = createService()
+
+    await service.prompt(SESSION, "الأول")
+    await service.prompt(SESSION, "التاني")
+    await service.prompt(SESSION, "التالت")
+
+    await expect(service.skip(SESSION)).resolves.toEqual({ skipped: true, remaining: 1 })
+    expect(fake.abortCalls).toBe(1)
+    // الطلب اللي بعده اتبعت على طول من غير ما الطابور يتمسح
+    expect(fake.dispatched).toEqual(["الأول", "التاني"])
+    expect(service.hasPendingWork(SESSION)).toBe(true)
+  })
+
+  it("does not send the next request from the idle of the skipped one", async () => {
+    const { service, fake, emit } = createService()
+
+    await service.prompt(SESSION, "الأول")
+    await service.prompt(SESSION, "التاني")
+
+    const skipping = service.skip(SESSION)
+    // الـ idle بيوصل قبل ما يخلص الإيقاف — لازم ما تبعتش طلب وانت لسه بتوقف
+    emit(idleEvent())
+    await skipping
+
+    expect(fake.dispatched).toEqual(["الأول", "التاني"])
+    // الـ idle القديم اللي وصل بعدين ما يبعثش تاني
+    emit(idleEvent())
+    expect(fake.dispatched).toEqual(["الأول", "التاني"])
+  })
+
+  it("ignores a skip when nothing is running", async () => {
+    const { service, fake } = createService()
+
+    await expect(service.skip(SESSION)).resolves.toEqual({ skipped: false, remaining: 0 })
+    expect(fake.abortCalls).toBe(0)
+  })
+
+  it("runs a queued request now by stopping the running one", async () => {
+    const { service, fake } = createService()
+
+    await service.prompt(SESSION, "الأول")
+    await service.prompt(SESSION, "التاني")
+    await service.prompt(SESSION, "التالت")
+
+    // آخر طلب في الطابور هو اللي عايز ينفّذ حالًا
+    await expect(service.runQueued(SESSION, "queued:q3")).resolves.toEqual({ started: true, remaining: 1 })
+    // اللي كان شغّال اتوقّف، والمطلوب اتبعّ قبل أي طلب تاني مستني
+    expect(fake.abortCalls).toBe(1)
+    expect(fake.dispatched).toEqual(["الأول", "التالت"])
+  })
+
+  it("does not send twice from the idle of the request it stopped for run-now", async () => {
+    const { service, fake, emit } = createService()
+
+    await service.prompt(SESSION, "الأول")
+    await service.prompt(SESSION, "التاني")
+
+    const running = service.runQueued(SESSION, "queued:q2")
+    // الـ idle بيوصل قبل ما يخلص الإيقاف — لازم ما تبعتش طلب وانت لسه بتوقف
+    emit(idleEvent())
+    await running
+
+    expect(fake.dispatched).toEqual(["الأول", "التاني"])
+    emit(idleEvent())
+    expect(fake.dispatched).toEqual(["الأول", "التاني"])
+  })
+
+  it("ignores run-now for a request that is not queued", async () => {
+    const { service, fake } = createService()
+
+    await service.prompt(SESSION, "الأول")
+    await expect(service.runQueued(SESSION, "queued:q1")).resolves.toEqual({ started: false, remaining: 0 })
+    expect(fake.abortCalls).toBe(0)
+    expect(fake.dispatched).toEqual(["الأول"])
+  })
 })
 
 describe("stale busy status", () => {
@@ -219,5 +324,47 @@ describe("stale busy status", () => {
     // الخطأ بيقفل الشغل من غير idle بعدها — الجلسة كانت هتفضل شغّال للأبد
     emit(errorEvent())
     expect(busySessions.has(SESSION)).toBe(false)
+  })
+
+  it("stops showing a finished request as running while OpenCode stays busy", async () => {
+    const { service, fake, raw, runningSessions } = createService()
+
+    fake.messages = [
+      userMessage("msg_u1", "الطلب", 1_000),
+      assistantMessage("msg_a1", "النتيجة", 1_100, 1_200),
+    ]
+    await service.prompt(SESSION, "الطلب")
+    expect(runningSessions.has(SESSION)).toBe(true)
+    // Task خلصت على الديسكتوب، بس OpenCode واقف على busy والـ idle ضاع
+    raw.status = { type: "busy" }
+
+    const result = await service.requests(SESSION)
+    expect(runningSessions.has(SESSION)).toBe(false)
+    expect(result.status).toEqual({ type: "idle" })
+    expect(result.requests[0]?.state).toBe("done")
+  })
+
+  it("releases a session stuck as running when its idle event was lost", async () => {
+    vi.useFakeTimers()
+    try {
+      const { service, raw, internals, runningSessions } = createService()
+
+      // الطلب اتبعث قبل ما السيرفر يقفل (فلج "شغّال" اتسيب وراه) وسيرفر OpenCode
+      // بيقوله idle — من غير حد يوصّلنا حدث الـ idle
+      internals.runningSessions.add(SESSION)
+      raw.status = { type: "idle" }
+
+      internals.startQueueWatchdog()
+      // أول poll مش كفاية — طلب لسه بيلفّ حالته لـ busy مينفعش يتحرّك من أول مرة
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(runningSessions.has(SESSION)).toBe(true)
+
+      // تاني poll بيأكد إن الجلسة idle فعلًا
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(runningSessions.has(SESSION)).toBe(false)
+      expect(service.hasPendingWork(SESSION)).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

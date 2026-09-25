@@ -15,7 +15,7 @@ import type {
   SessionStatus,
   Todo,
 } from "@opencode-ai/sdk"
-import type { GlobalSession, OpencodeClient as OpencodeV2Client, QuestionAnswer, QuestionRequest } from "@opencode-ai/sdk/v2"
+import type { GlobalSession, OpencodeClient as OpencodeV2Client, QuestionAnswer, QuestionRequest, VcsFileStatus } from "@opencode-ai/sdk/v2"
 import { setTimeout as sleep } from "node:timers/promises"
 import { serverMessage, type ServerLang } from "./i18n.js"
 
@@ -29,6 +29,19 @@ export interface ServiceOptions {
 
 interface MobileSessionFile {
   sessions: string[]
+}
+
+export interface GitChangeFile {
+  path: string
+  status: "added" | "deleted" | "modified"
+  added: number
+  removed: number
+}
+
+export interface GitChanges {
+  branch: string
+  available: boolean
+  files: GitChangeFile[]
 }
 
 type EventListener = (event: Event) => void | Promise<void>
@@ -217,6 +230,8 @@ export interface ModelInfo {
   free: boolean
   enabled: boolean
   status?: string
+  // الـ variants اللي OpenCode بيسمح بيها للموديل ده (مثل high / max / low)
+  variants?: string[]
 }
 
 export interface ActiveSession {
@@ -255,8 +270,19 @@ function parseModelString(value: string | undefined | null): SessionModelRef | n
 
 const MAX_FILE_DOWNLOAD_BYTES = 25 * 1024 * 1024
 
+// قائمة الـ variants نادرًا ما تتغير، فبنخزّنها 5 دقايق بدل ما نطلبها كل مرة
+const VARIANTS_CACHE_MS = 5 * 60 * 1000
+
 // بعد كام محاولة فاشلة بنسقط الطلب من الطابور بدل ما نفضل نعيد تجربته
 const MAX_PROMPT_ATTEMPTS = 3
+
+// بادئة الـ id اللي بتظهر بيه الطلبات المستنية في كروت المحادثة
+const QUEUED_ID_PREFIX = "queued:"
+
+// الواجهة بتبع الـ id بالبادئة دي، فبنشيلها قبل ما نطابقه بالـ id الداخلي
+function queuedItemId(requestId: string): string {
+  return requestId.startsWith(QUEUED_ID_PREFIX) ? requestId.slice(QUEUED_ID_PREFIX.length) : requestId
+}
 
 const mimeByExtension: Record<string, string> = {
   ".pdf": "application/pdf",
@@ -310,12 +336,19 @@ export class OpenCodeService {
   private readonly promptQueues = new Map<string, QueuedPrompt[]>()
   // جلسات عندنا طلب اتبعت بالفعل ومستنيين الـ idle عشان نبعث اللي بعده
   private readonly runningSessions = new Set<string>()
+  // جلسات بنوقف طلبها الشغّال دلوقتي (تخطّي): بنستخدمها عشان الـ idle اللي
+  // جاي من الإيقاف ما يعيدش بناء الطابور قبل ما الإيقاف يخلص فعلًا
+  private readonly skippingSessions = new Set<string>()
+  // عدد مرات poll متتالية OpenCode بيقول فيها "idle" لجلسة شغّالة عندنا
+  private readonly idlePolls = new Map<string, number>()
   private promptSeq = 0
   private queueWatchdog: NodeJS.Timeout | null = null
   private readonly pendingPermissions = new Map<string, Permission>()
   private readonly mobileSessions = new Set<string>()
   private readonly mobileSessionsPath = resolve(process.cwd(), "data", "mobile-sessions.json")
   private eventsStarted = false
+  // كاش Variants:endpoint واحد بس وبطيء، والقائمة مش بتتغير كتير
+  private variantsCache: { directory: string; expiresAt: number; map: Map<string, string[]> } | null = null
 
   constructor(private readonly options: ServiceOptions) {
     this.selectedProjectDirectory = options.projectDirectory
@@ -477,6 +510,21 @@ export class OpenCodeService {
     return this.runningSessions.has(sessionId) || (this.promptQueues.get(sessionId)?.length ?? 0) > 0
   }
 
+  // جلسة مسجّلة "شغّالة" عندنا بس ردّها خلص فعلًا (OpenCode سجّل completedAt):
+  // يا إما حدث الـ idle ضاع (سيرفر اتقفل / الـ SSE اتقطع) يا إما OpenCode واقف
+  // على busy. في الحالتين الفلاج بتاعنا مبقاش صح، ولو فضل مسجّل كان هيخلي
+  // الـ staleBusy ماتشتغلش والكارت يفضل "شغّال" للأبد. بنشيله بس لو مفيش
+  // طلبات مستنية وراه، عشان الـ idle الحقيقي هو اللي يبعتهم.
+  private releaseFinishedRun(sessionId: string, lastTurn: RequestTurn | undefined): void {
+    if (!this.runningSessions.has(sessionId) || lastTurn === undefined || lastTurn.completedAt === 0) {
+      return
+    }
+    if ((this.promptQueues.get(sessionId)?.length ?? 0) > 0) {
+      return
+    }
+    this.runningSessions.delete(sessionId)
+  }
+
   private effectiveStatus(sessionId: string, status: SessionStatus): SessionStatus {
     if (status.type === "idle" && this.hasPendingWork(sessionId)) {
       return { type: "busy" }
@@ -487,6 +535,11 @@ export class OpenCodeService {
   // الجلسة خلصت: ابعت الطلب اللي مستني في الطابور (لو فيه).
   private releaseSession(sessionId: string): void {
     this.runningSessions.delete(sessionId)
+    if (this.skippingSessions.has(sessionId)) {
+      // تخطّي شغّال: الـ idle ده بتاع الطلب القديم، والـ skip نفسه هيبني
+      // الطابور تاني لما الإيقاف يخلص.
+      return
+    }
     this.pumpQueue(sessionId)
   }
 
@@ -531,7 +584,7 @@ export class OpenCodeService {
       return
     }
     this.queueWatchdog = setInterval(() => {
-      if (this.promptQueues.size === 0) {
+      if (this.promptQueues.size === 0 && this.runningSessions.size === 0) {
         return
       }
       void this.rawStatuses().then((statuses) => {
@@ -541,6 +594,26 @@ export class OpenCodeService {
             this.busySessions.delete(sessionId)
             this.releaseSession(sessionId)
           }
+        }
+        // جلسة مسجّلة "شغّالة" عندنا والطابور بتاعها فاضي، بس OpenCode بيقولها
+        // idle: يعني حدث الـ idle بتاعها ضاع (السيرفر اتقفل أو الـ SSE اتقطع).
+        // من غير السطور دي كانت هتفضل "شغّال" للأبد وكارت الطلب ميفصلش عنها.
+        for (const sessionId of [...this.runningSessions]) {
+          const status = statuses[sessionId]
+          const queued = (this.promptQueues.get(sessionId)?.length ?? 0) > 0
+          if (!status || status.type !== "idle" || queued) {
+            this.idlePolls.delete(sessionId)
+            continue
+          }
+          // تأكيد مرّتين: طلب لسه بيلفّ حالته لـ busy مينفعش يتحرّك من أول poll
+          const seen = (this.idlePolls.get(sessionId) ?? 0) + 1
+          this.idlePolls.set(sessionId, seen)
+          if (seen < 2) {
+            continue
+          }
+          this.idlePolls.delete(sessionId)
+          this.busySessions.delete(sessionId)
+          this.releaseSession(sessionId)
         }
       }).catch(() => undefined)
     }, 5000)
@@ -759,6 +832,9 @@ export class OpenCodeService {
     const turns = this.turns(messages)
     const lastTurn = turns[turns.length - 1]
     const rawStatus = rawStatuses[id] || { type: "idle" }
+    // لو ردّنا الأخير خلص فعلًا مش لازم فضل محسوبين "شغّالين": الـ idle ضاع أو
+    // OpenCode واقف على busy. من غير السطر ده الـ staleBusy تحت ماتشتغلش.
+    this.releaseFinishedRun(id, lastTurn)
     // حالة OpenCode أحيانًا بتتأخر، والحدث اللي بيقول "خلص" ممكن يضيع خالص
     // لو الـ SSE اتقطع (انقطاع شبكة، قفل شاشة، ريزارت للسيرفر). فبنقيسها على
     // حقيقة أقوى من الحدث: هل آخر طلب خلص فعلًا؟ لو الرد الأخير اتقفل
@@ -827,7 +903,7 @@ export class OpenCodeService {
     const queue = this.promptQueues.get(id) ?? []
     for (const [offset, item] of queue.entries()) {
       requests.push({
-        id: `queued:${item.id}`,
+        id: `${QUEUED_ID_PREFIX}${item.id}`,
         index: turns.length + offset + 1,
         prompt: item.text,
         state: "queued",
@@ -1025,7 +1101,13 @@ export class OpenCodeService {
         parts: [{ type: "text", text: item.text }],
         ...(item.agent ? { agent: item.agent } : {}),
         ...(item.model?.providerID && item.model?.modelID
-          ? { model: { providerID: item.model.providerID, modelID: item.model.modelID } }
+          ? {
+            model: {
+              providerID: item.model.providerID,
+              modelID: item.model.modelID,
+              ...(item.model.variant ? { variant: item.model.variant } : {}),
+            } as { providerID: string; modelID: string },
+          }
           : {}),
       },
       query: this.directoryQuery(),
@@ -1094,8 +1176,86 @@ export class OpenCodeService {
     const cleared = this.promptQueues.get(id)?.length ?? 0
     this.promptQueues.delete(id)
     this.runningSessions.delete(id)
+    this.skippingSessions.delete(id)
     const aborted = unwrap(await this.clientFor().session.abort({ path: { id }, query: this.directoryQuery() }))
     return { aborted, cleared }
+  }
+
+  // تخطّي الطلب الشغّال: بيوقفه بس وبيسيب باقي الطابور يكمل عادي، يعني
+  // مختلف عن الإيقاف اليدوي اللي بيشيل الطابور كله.
+  async skip(id: string): Promise<{ skipped: boolean; remaining: number }> {
+    if (!this.runningSessions.has(id)) {
+      return { skipped: false, remaining: this.promptQueues.get(id)?.length ?? 0 }
+    }
+
+    this.runningSessions.delete(id)
+    this.skippingSessions.add(id)
+    let skipped = false
+    try {
+      skipped = unwrap(await this.clientFor().session.abort({ path: { id }, query: this.directoryQuery() }))
+    } finally {
+      this.skippingSessions.delete(id)
+      this.pumpQueue(id)
+    }
+    // بعد ما الطلب اللي بعده اتبعث، فـ remaining بتعد اللي فاضل في الطابور فعلًا
+    return { skipped, remaining: this.promptQueues.get(id)?.length ?? 0 }
+  }
+
+  // حذف طلب واحد من الطابور من غير ما نوقف اللي شغّال. الواجهة بتبعته
+  // بالشكل "queued:q1" فبنشيل البادئة قبل المقارنة.
+  removeQueued(id: string, requestId: string): { removed: boolean; remaining: number } {
+    const queue = this.promptQueues.get(id)
+    const target = queuedItemId(requestId)
+    if (!queue || queue.length === 0) {
+      return { removed: false, remaining: 0 }
+    }
+
+    const index = queue.findIndex((item) => item.id === target)
+    if (index < 0) {
+      return { removed: false, remaining: queue.length }
+    }
+
+    queue.splice(index, 1)
+    if (queue.length === 0) {
+      this.promptQueues.delete(id)
+    }
+    return { removed: true, remaining: queue.length }
+  }
+
+  // تنفيذ طلب مستني حالًا بدل ما يستنى: بنوقّف الطلب الشغّال دلوقتي وبنبعث
+  // المطلوب ده هو اللي بعده، فبيسبق أي طلب تاني مستني.
+  async runQueued(id: string, requestId: string): Promise<{ started: boolean; remaining: number }> {
+    const queue = this.promptQueues.get(id)
+    const target = queuedItemId(requestId)
+    const index = queue ? queue.findIndex((item) => item.id === target) : -1
+    const item = index < 0 ? undefined : queue?.splice(index, 1)[0]
+    if (!queue || !item) {
+      return { started: false, remaining: queue?.length ?? 0 }
+    }
+
+    // هنقله أول الطابور عشان هو ده اللي يتنفذ أول ما الطلب الشغّال يتوقّف
+    queue.unshift(item)
+    this.promptQueues.set(id, queue)
+    const left = (): number => this.promptQueues.get(id)?.length ?? 0
+
+    if (!this.runningSessions.has(id)) {
+      // مفيش حاجة شغّالة — الطابور واقف أصلًا فبنبعثه على طول
+      this.pumpQueue(id)
+      return { started: true, remaining: left() }
+    }
+
+    // فيه طلب شغّال: نوقّفه ونخلي المطلوب ده هو اللي يكمّل بدل اللي بعده.
+    // الـ skippingSessions بيمنع الـ idle القديم من إنهاء الطابور مرّتين.
+    this.runningSessions.delete(id)
+    this.skippingSessions.add(id)
+    let started = false
+    try {
+      unwrap(await this.clientFor().session.abort({ path: { id }, query: this.directoryQuery() }))
+    } finally {
+      this.skippingSessions.delete(id)
+      started = this.pumpQueue(id)
+    }
+    return { started, remaining: left() }
   }
 
   async statuses(): Promise<Record<string, SessionStatus>> {
@@ -1211,7 +1371,42 @@ export class OpenCodeService {
     return unwrap(await this.clientFor().session.todo({ path: { id }, query: this.directoryQuery() }))
   }
 
+  // خريطة variants لكل موديل — بتجيبها من كتالوج v2 لأنها مش موجودة في /config/providers
+  private async modelVariants(): Promise<Map<string, string[]>> {
+    const directory = this.selectedProjectDirectory
+    const cached = this.variantsCache
+    if (cached && cached.directory === directory && cached.expiresAt > Date.now()) {
+      return cached.map
+    }
+    const map = new Map<string, string[]>()
+    try {
+      const response = unwrap(await this.globalClient.v2.model.list({ location: { directory } }))
+      const list = Array.isArray(response) ? response : response?.data
+      if (Array.isArray(list)) {
+        for (const model of list) {
+          const variants: Array<{ id?: unknown }> = Array.isArray(model.variants) ? model.variants : []
+          const ids = variants
+            .map((variant) => (typeof variant?.id === "string" ? variant.id.trim() : ""))
+            .filter((id) => id.length > 0)
+          if (ids.length > 0) {
+            map.set(`${model.providerID}/${model.id}`, [...new Set(ids)])
+          }
+        }
+      }
+      this.variantsCache = { directory, expiresAt: Date.now() + VARIANTS_CACHE_MS, map }
+    } catch (error) {
+      console.error("v2 model variants failed", errorMessage(error))
+    }
+    return map
+  }
+
   async models(): Promise<ModelInfo[]> {
+    const variantMap = await this.modelVariants()
+    const withVariants = (infos: ModelInfo[]): ModelInfo[] => infos.map((info) => {
+      const variants = variantMap.get(`${info.providerID}/${info.id}`)
+      return variants && variants.length > 0 ? { ...info, variants } : info
+    })
+
     // المصدر الأساسي: settings opencode (/config/providers) — الموديلات المسموحة فعلًا
     // عند المستخدم ده provider واحد (opencode) فيه ~8 موديلات مجانية، مش كتالوج models.dev الكامل.
     try {
@@ -1233,7 +1428,7 @@ export class OpenCodeService {
         }
       }
       if (infos.length > 0) {
-        return infos.sort((a, b) => a.providerID.localeCompare(b.providerID) || a.id.localeCompare(b.id))
+        return withVariants(infos).sort((a, b) => a.providerID.localeCompare(b.providerID) || a.id.localeCompare(b.id))
       }
     } catch (error) {
       console.error("config providers failed, falling back to model catalog", errorMessage(error))
@@ -1258,21 +1453,23 @@ export class OpenCodeService {
       const response = unwrap(await this.globalClient.v2.model.list({ location: { directory: this.selectedProjectDirectory } }))
       const list = Array.isArray(response) ? response : response?.data
       if (Array.isArray(list)) {
-        return list
-          .filter((model) => !settingsProviders || settingsProviders.has(model.providerID))
-          .map((model) => {
-            const costs = Array.isArray(model.cost) ? model.cost : []
-            const free = costs.length > 0 && costs.every((tier: { input: number; output: number; cache?: { read: number; write: number } }) => isFreeCost(tier.input, tier.output, tier.cache?.read ?? 0, tier.cache?.write ?? 0))
-            return {
-              id: model.id,
-              providerID: model.providerID,
-              name: model.name || model.id,
-              free,
-              enabled: model.enabled !== false,
-              status: model.status,
-            } satisfies ModelInfo
-          })
-          .sort((a, b) => a.providerID.localeCompare(b.providerID) || a.id.localeCompare(b.id))
+        return withVariants(
+          list
+            .filter((model) => !settingsProviders || settingsProviders.has(model.providerID))
+            .map((model) => {
+              const costs = Array.isArray(model.cost) ? model.cost : []
+              const free = costs.length > 0 && costs.every((tier: { input: number; output: number; cache?: { read: number; write: number } }) => isFreeCost(tier.input, tier.output, tier.cache?.read ?? 0, tier.cache?.write ?? 0))
+              return {
+                id: model.id,
+                providerID: model.providerID,
+                name: model.name || model.id,
+                free,
+                enabled: model.enabled !== false,
+                status: model.status,
+              } satisfies ModelInfo
+            })
+            .sort((a, b) => a.providerID.localeCompare(b.providerID) || a.id.localeCompare(b.id)),
+        )
       }
     } catch (error) {
       console.error("v2 model list failed", errorMessage(error))
@@ -1316,7 +1513,7 @@ export class OpenCodeService {
     return { model, defaultModel }
   }
 
-  async switchSessionModel(id: string, providerID: string, modelID: string): Promise<SessionModelRef> {
+  async switchSessionModel(id: string, providerID: string, modelID: string, variant?: string): Promise<SessionModelRef> {
     const cleanProvider = (providerID || "").trim()
     const cleanModel = (modelID || "").trim()
     if (!cleanProvider || !cleanModel) {
@@ -1328,14 +1525,18 @@ export class OpenCodeService {
     if (!match) {
       throw new Error("Model not found")
     }
+    const cleanVariant = (variant || "").trim()
+    if (cleanVariant && !(match.variants || []).includes(cleanVariant)) {
+      throw new Error("Variant not found")
+    }
     const result = await this.globalClient.v2.session.switchModel({
       sessionID: id,
-      model: { id: cleanModel, providerID: cleanProvider },
+      model: { id: cleanModel, providerID: cleanProvider, ...(cleanVariant ? { variant: cleanVariant } : {}) },
     })
     if (result.error) {
       throw new Error(errorMessage(result.error))
     }
-    return { providerID: cleanProvider, modelID: cleanModel }
+    return { providerID: cleanProvider, modelID: cleanModel, ...(cleanVariant ? { variant: cleanVariant } : {}) }
   }
 
   private mapQuestionRequest(request: QuestionRequest): ConversationQuestionRequest {
@@ -1415,6 +1616,45 @@ export class OpenCodeService {
     return unwrap(await this.clientFor().session.diff({ path: { id }, query: this.directoryQuery() }))
   }
 
+  // حالة git للمشروع الحالي: الملفات المتغيّرة + اسم الفرع.
+  // لازم v2 هنا: endpoint "/file/status" في v1 بيرجع [] دايمًا (حتى لمشاريع
+  // عندها ملفات متغيّرة فعلًا)، بينما "/vcs/status" في v2 بيرجّع القائمة صح.
+  // لو المشروع مش مستودع git، بنرجّع available=false بدل ما نرمي خطأ.
+  async gitChanges(): Promise<GitChanges> {
+    const query = { directory: this.selectedProjectDirectory }
+
+    let statusFiles: VcsFileStatus[]
+    try {
+      statusFiles = unwrap(await this.globalClient.vcs.status({ directory: query.directory }))
+    } catch {
+      return { branch: "", available: false, files: [] }
+    }
+
+    let branch = ""
+    try {
+      const info = await this.globalClient.vcs.get({ directory: query.directory })
+      if (!info.error && typeof info.data?.branch === "string") {
+        branch = info.data.branch
+      }
+    } catch {
+      branch = ""
+    }
+
+    const files = (Array.isArray(statusFiles) ? statusFiles : [])
+      .filter((file) => typeof file?.file === "string" && file.file.trim().length > 0)
+      .map((file) => ({
+        path: file.file.replace(/\\/g, "/"),
+        status: file.status,
+        added: Number.isFinite(file.additions) ? file.additions : 0,
+        removed: Number.isFinite(file.deletions) ? file.deletions : 0,
+      }))
+      .sort((left, right) => left.path.localeCompare(right.path))
+
+    // مشروع مش مستودع git بيرجّع v2 قائمة فاضية و branch فاضي — نميّزه عن
+    // مستودع نضيف عشان الواجهة متقولش "الشجرة نضيفة" لمفيش git أصلًا
+    return { branch, available: branch !== "" || files.length > 0, files }
+  }
+
   async replyPermission(id: string, permissionId: string, response: "once" | "always" | "reject"): Promise<boolean> {
     const result = await this.clientFor().postSessionIdPermissionsPermissionId({
       path: { id, permissionID: permissionId },
@@ -1442,6 +1682,8 @@ export class OpenCodeService {
     }
     this.promptQueues.clear()
     this.runningSessions.clear()
+    this.skippingSessions.clear()
+    this.idlePolls.clear()
     this.closeServer?.()
     this.listeners.clear()
     this.clients.clear()

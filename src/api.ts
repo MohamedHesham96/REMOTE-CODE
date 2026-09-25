@@ -1,4 +1,4 @@
-import type { ActiveSession, AppConfig, ConversationQuestionAnswers, FileDiff, HistoryTurn, ModelInfo, Part, Permission, Project, ProjectResponse, PushSubscriptionJson, ResultFile, Session, SessionMessage, SessionModelRef, SessionModelState, SessionRequests, SessionStatus, Todo } from "./types"
+import type { ActiveSession, AppConfig, ConversationQuestionAnswers, FileDiff, GitChanges, HistoryTurn, ModelInfo, Part, Permission, Project, ProjectResponse, PushSubscriptionJson, ResultFile, Session, SessionMessage, SessionModelRef, SessionModelState, SessionRequests, SessionStatus, Todo } from "./types"
 
 export class ApiError extends Error {
   constructor(
@@ -117,12 +117,28 @@ export function abortSession(id: string): Promise<{ aborted: boolean; cleared: n
   return request<{ aborted: boolean; cleared: number }>(`/api/session/${encodeURIComponent(id)}/abort`, { method: "POST" })
 }
 
+export function skipRunningRequest(id: string): Promise<{ skipped: boolean; remaining: number }> {
+  return request<{ skipped: boolean; remaining: number }>(`/api/session/${encodeURIComponent(id)}/skip`, { method: "POST" })
+}
+
+export function removeQueuedRequest(id: string, requestId: string): Promise<{ removed: boolean; remaining: number }> {
+  return request<{ removed: boolean; remaining: number }>(`/api/session/${encodeURIComponent(id)}/request/${encodeURIComponent(requestId)}`, { method: "DELETE" })
+}
+
+export function runQueuedRequest(id: string, requestId: string): Promise<{ started: boolean; remaining: number }> {
+  return request<{ started: boolean; remaining: number }>(`/api/session/${encodeURIComponent(id)}/request/${encodeURIComponent(requestId)}/run`, { method: "POST" })
+}
+
 export function getTodos(id: string): Promise<Todo[]> {
   return request<Todo[]>(`/api/session/${encodeURIComponent(id)}/todo`)
 }
 
 export function getDiff(id: string): Promise<FileDiff[]> {
   return request<FileDiff[]>(`/api/session/${encodeURIComponent(id)}/diff`)
+}
+
+export function getGitChanges(): Promise<GitChanges> {
+  return request<GitChanges>("/api/git/changes")
 }
 
 export function fileDownloadUrl(sessionId: string, file: Pick<ResultFile, "path" | "downloadUrl">): string {

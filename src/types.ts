@@ -119,6 +119,7 @@ export interface ModelInfo {
   free: boolean
   enabled: boolean
   status?: string
+  variants?: string[]
 }
 
 export interface SessionModelRef {
@@ -151,4 +152,20 @@ export interface HistoryTurn {
   completedAt: number
   steps: number
   files: ResultFile[]
+}
+
+export type GitChangeStatus = "added" | "deleted" | "modified"
+
+export interface GitChangeFile {
+  path: string
+  status: GitChangeStatus
+  added: number
+  removed: number
+}
+
+// حالة git للمشروع المختار — available = false لما المشروع مش مستودع git.
+export interface GitChanges {
+  branch: string
+  available: boolean
+  files: GitChangeFile[]
 }

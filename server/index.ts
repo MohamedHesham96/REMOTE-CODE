@@ -348,9 +348,15 @@ app.post("/api/session/:id/message", async (request, response) => {
   try {
     const text = typeof request.body?.text === "string" ? request.body.text.trim() : ""
     const agent = typeof request.body?.agent === "string" ? request.body.agent.trim().slice(0, 100) : undefined
-    const rawModel = request.body?.model as { providerID?: unknown; modelID?: unknown } | undefined
+    const rawModel = request.body?.model as { providerID?: unknown; modelID?: unknown; variant?: unknown } | undefined
     const model = rawModel && typeof rawModel.providerID === "string" && typeof rawModel.modelID === "string"
-      ? { providerID: rawModel.providerID.trim().slice(0, 100), modelID: rawModel.modelID.trim().slice(0, 200) }
+      ? {
+        providerID: rawModel.providerID.trim().slice(0, 100),
+        modelID: rawModel.modelID.trim().slice(0, 200),
+        ...(typeof rawModel.variant === "string" && rawModel.variant.trim()
+          ? { variant: rawModel.variant.trim().slice(0, 100) }
+          : {}),
+      }
       : undefined
     if (!text) {
       response.status(400).json({ error: "EMPTY_MESSAGE", message: serverMessage("emptyMessage", getServerLang(request)) })
@@ -387,11 +393,12 @@ app.post("/api/session/:id/model", async (request, response) => {
   try {
     const providerID = typeof request.body?.providerID === "string" ? request.body.providerID : ""
     const modelID = typeof request.body?.modelID === "string" ? request.body.modelID : ""
+    const variant = typeof request.body?.variant === "string" ? request.body.variant : undefined
     if (!providerID.trim() || !modelID.trim()) {
       response.status(400).json({ error: "MODEL_REQUIRED", message: serverMessage("modelRequired", getServerLang(request)) })
       return
     }
-    response.json({ model: await openCode.switchSessionModel(request.params.id, providerID, modelID) })
+    response.json({ model: await openCode.switchSessionModel(request.params.id, providerID, modelID, variant) })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to switch model"
     const status = /not found/i.test(message) ? 404 : /required/i.test(message) ? 400 : 500
@@ -402,6 +409,43 @@ app.post("/api/session/:id/model", async (request, response) => {
 app.post("/api/session/:id/abort", async (request, response) => {
   try {
     response.json(await openCode.abort(request.params.id))
+  } catch (error) {
+    handleError(error, response, request)
+  }
+})
+
+// تخطّي الطلب الشغّال: بيوقفه بس والطابور بيكمل بعده
+app.post("/api/session/:id/skip", async (request, response) => {
+  try {
+    response.json(await openCode.skip(request.params.id))
+  } catch (error) {
+    handleError(error, response, request)
+  }
+})
+
+// حذف طلب واحد من الطابور من غير ما نوقف اللي شغّال
+app.delete("/api/session/:id/request/:requestId", async (request, response) => {
+  try {
+    const requestId = request.params.requestId.trim()
+    if (!requestId) {
+      response.status(400).json({ error: "REQUEST_REQUIRED", message: serverMessage("requestRequired", getServerLang(request)) })
+      return
+    }
+    response.json(openCode.removeQueued(request.params.id, requestId))
+  } catch (error) {
+    handleError(error, response, request)
+  }
+})
+
+// تنفيذ طلب مستني حالًا: بيوقّف اللي شغّال وبيبعث المطلوب ده على طول
+app.post("/api/session/:id/request/:requestId/run", async (request, response) => {
+  try {
+    const requestId = request.params.requestId.trim()
+    if (!requestId) {
+      response.status(400).json({ error: "REQUEST_REQUIRED", message: serverMessage("requestRequired", getServerLang(request)) })
+      return
+    }
+    response.json(await openCode.runQueued(request.params.id, requestId))
   } catch (error) {
     handleError(error, response, request)
   }
@@ -446,6 +490,14 @@ app.post("/api/session/:id/question/:requestId/reject", async (request, response
 app.get("/api/session/:id/diff", async (request, response) => {
   try {
     response.json(await openCode.diff(request.params.id))
+  } catch (error) {
+    handleError(error, response, request)
+  }
+})
+
+app.get("/api/git/changes", async (request, response) => {
+  try {
+    response.json(await openCode.gitChanges())
   } catch (error) {
     handleError(error, response, request)
   }

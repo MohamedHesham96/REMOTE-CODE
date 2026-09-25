@@ -44,6 +44,10 @@ const messages = {
     ar: "مسار الملف مطلوب",
     en: "A file path is required",
   },
+  requestRequired: {
+    ar: "الطلب مطلوب",
+    en: "A request is required",
+  },
   invalidPermissionResponse: {
     ar: "رد الإذن غير صالح",
     en: "Invalid permission response",

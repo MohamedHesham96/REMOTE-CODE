@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
 import {
   ApiError,
   abortSession,
@@ -9,6 +9,7 @@ import {
   fileDownloadUrl,
   getActivity,
   getConfig,
+  getGitChanges,
   getHistory,
   getModels,
   getProjects,
@@ -19,18 +20,21 @@ import {
   listSessions,
   login,
   logout,
+  removeQueuedRequest,
   renameSession,
   replyPermission,
   replyQuestion,
   rejectQuestion,
+  runQueuedRequest,
   selectProject,
   sendMessage,
   setSessionModel,
   shareResultFile,
+  skipRunningRequest,
   subscribePush,
   unsubscribePush,
 } from "./api"
-import type { ActiveSession, AppConfig, ClientEvent, ConversationQuestionAnswers, ConversationQuestionRequest, HistoryTurn, ModelInfo, Permission, Project, RequestState, ResultFile, Session, SessionModelRef, SessionRequest, SessionStatus, Todo } from "./types"
+import type { ActiveSession, AppConfig, ClientEvent, ConversationQuestionAnswers, ConversationQuestionRequest, GitChangeFile, GitChangeStatus, GitChanges, HistoryTurn, ModelInfo, Permission, Project, RequestState, ResultFile, Session, SessionModelRef, SessionRequest, SessionStatus, Todo } from "./types"
 import { isSoundEnabled, playAttentionSound, playCompletionSound, setSoundEnabled, unlockAudio, vibrate } from "./sound"
 import { applyTheme, getSavedTheme, nextTheme, saveTheme, THEMES, THEME_META, type AppTheme } from "./theme"
 import { applyLanguage, getSavedLanguage, getStrings, localeOf, saveLanguage, type Language, type Strings } from "./i18n"
@@ -133,7 +137,8 @@ function modelLabel(ref: SessionModelRef | null | undefined, t: Strings): string
   if (!ref) {
     return t.defaultModel
   }
-  return `${ref.providerID}/${ref.modelID}`
+  const base = `${ref.providerID}/${ref.modelID}`
+  return ref.variant ? `${base} · ${ref.variant}` : base
 }
 
 function shortModelName(model: ModelInfo): string {
@@ -156,7 +161,7 @@ function ModelPicker({
   current: SessionModelRef | null
   busy: boolean
   switching: string | null
-  onSelect: (model: ModelInfo) => void
+  onSelect: (model: ModelInfo, variant?: string) => void
   onRefresh: () => void
   onClose: () => void
   t: Strings
@@ -174,6 +179,14 @@ function ModelPicker({
     )
   }, [freeOnly, query])
 
+  // خيارات الـ variety بتتغير حسب الموديل المختار — بنجيبها من الموديل نفسه
+  const currentModel = useMemo(
+    () => models.find((model) => model.providerID === current?.providerID && model.id === current?.modelID) ?? null,
+    [models, current],
+  )
+  const variants = currentModel?.variants || []
+  const activeVariant = current?.variant || ""
+
   return (
     <div className="drawer-backdrop" onClick={onClose}>
       <aside className="drawer model-drawer" onClick={(event) => event.stopPropagation()}>
@@ -181,6 +194,39 @@ function ModelPicker({
           <div><div className="eyebrow">{t.currentModel}: {modelLabel(current, t)}</div><h2>{t.chooseFreeModel} 🆓</h2></div>
           <button className="icon-button" onClick={onClose} aria-label={t.close}>×</button>
         </div>
+        {variants.length > 0 && currentModel ? (
+          <div className="variant-picker">
+            <div className="variant-label">
+              <span>{t.modelVariety}</span>
+              <small dir="ltr">{currentModel.providerID}/{currentModel.id}</small>
+            </div>
+            <div className="variant-chips" role="radiogroup" aria-label={t.modelVariety}>
+              {activeVariant ? (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked="true"
+                  className="variant-chip active"
+                  onClick={() => onSelect(currentModel, "")}
+                >
+                  {t.varietyDefault}
+                </button>
+              ) : null}
+              {variants.map((variant) => (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={activeVariant === variant}
+                  className={`variant-chip${activeVariant === variant ? " active" : ""}`}
+                  key={variant}
+                  onClick={() => onSelect(currentModel, variant)}
+                >
+                  {variant}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <div className="model-toolbar">
           <input
             className="model-search"
@@ -202,18 +248,22 @@ function ModelPicker({
               const key = `${model.providerID}/${model.id}`
               const isCurrent = current?.providerID === model.providerID && current?.modelID === model.id
               const isSwitching = switching === key
+              const modelVariants = model.variants || []
               return (
                 <button
                   className={`model-card${isCurrent ? " selected" : ""}`}
                   key={key}
                   disabled={busy || Boolean(switching)}
-                  onClick={() => onSelect(model)}
+                  onClick={() => onSelect(model, "")}
                 >
                   <span className="model-card-body">
                     <strong>{shortModelName(model)}</strong>
-                    <small dir="ltr">{key}</small>
+                    <small dir="ltr">{isCurrent && activeVariant ? `${key} · ${activeVariant}` : key}</small>
                   </span>
                   <span className="model-card-side">
+                    {modelVariants.length > 0 ? (
+                      <span className="variant-badge">{isCurrent && activeVariant ? activeVariant : `${modelVariants.length} ${t.varietyOptions}`}</span>
+                    ) : null}
                     <span className="free-badge">FREE 🆓</span>
                     {isCurrent ? <span className="current-badge">{t.current} ✓</span> : null}
                     {isSwitching ? <span className="loader small" /> : null}
@@ -340,6 +390,110 @@ function ActiveSessionsPanel({ items, recent, graceLeft, activeId, jumpingId, on
           </div>
         )}
         <div className="model-footnote">{t.activityLiveNote}</div>
+      </aside>
+    </div>
+  )
+}
+
+const EMPTY_GIT_FILES: GitChangeFile[] = []
+
+function splitChangePath(path: string): { name: string; dir: string } {
+  const index = path.lastIndexOf("/")
+  if (index < 0) {
+    return { name: path, dir: "" }
+  }
+  return { name: path.slice(index + 1), dir: path.slice(0, index) }
+}
+
+function gitStatusMeta(status: GitChangeStatus, t: Strings): { label: string; glyph: string; className: string } {
+  if (status === "added") {
+    return { label: t.gitChangesAdded, glyph: "＋", className: "git-status-added" }
+  }
+  if (status === "deleted") {
+    return { label: t.gitChangesDeleted, glyph: "－", className: "git-status-deleted" }
+  }
+  return { label: t.gitChangesModified, glyph: "✎", className: "git-status-modified" }
+}
+
+function GitBranchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="6" cy="5" r="2.2" />
+      <circle cx="6" cy="19" r="2.2" />
+      <circle cx="18" cy="9" r="2.2" />
+      <path d="M6 7.2v9.6" />
+      <path d="M18 11.2c0 3.4-2.3 4.6-5.2 5.2" />
+    </svg>
+  )
+}
+
+function GitChangesPanel({ changes, loading, onRefresh, onClose, t }: {
+  changes: GitChanges | null
+  loading: boolean
+  onRefresh: () => void
+  onClose: () => void
+  t: Strings
+}) {
+  // قائمة الملفات المتغيّرة في git للمشروع الحالي، مع ملخص سريع فوقها
+  const files = changes?.files ?? EMPTY_GIT_FILES
+  const summary = useMemo(() => files.reduce((total, file) => {
+    if (file.status === "added") {
+      total.added += 1
+    } else if (file.status === "deleted") {
+      total.deleted += 1
+    } else {
+      total.modified += 1
+    }
+    return total
+  }, { added: 0, modified: 0, deleted: 0 }), [files])
+
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside className="drawer git-drawer" onClick={(event) => event.stopPropagation()}>
+        <div className="drawer-header">
+          <div>
+            <div className="eyebrow">
+              <span aria-hidden>⑂</span> {t.gitChangesBranch}: <span dir="ltr">{changes?.branch || t.gitChangesNoBranch}</span>
+            </div>
+            <h2>{t.gitChangesTitle}</h2>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label={t.close}>×</button>
+        </div>
+        <div className="git-toolbar">
+          <div className="git-summary">
+            <span className="git-summary-pill git-status-added">＋{summary.added}</span>
+            <span className="git-summary-pill git-status-modified">✎{summary.modified}</span>
+            <span className="git-summary-pill git-status-deleted">－{summary.deleted}</span>
+          </div>
+          <button className="icon-button" onClick={onRefresh} aria-label={t.refreshList} title={`${t.refreshList} ↻`} disabled={loading}>↻</button>
+        </div>
+        {changes && !changes.available ? (
+          <div className="empty-state">{t.gitChangesNotRepo}</div>
+        ) : files.length === 0 ? (
+          <div className="empty-state">{loading ? "…" : t.gitChangesClean}</div>
+        ) : (
+          <div className="git-file-list">
+            {files.map((file) => {
+              const meta = gitStatusMeta(file.status, t)
+              const { name, dir } = splitChangePath(file.path)
+              return (
+                <div className="git-file-item" key={file.path}>
+                  <span className={`git-status-mark ${meta.className}`} aria-hidden>{meta.glyph}</span>
+                  <span className="git-file-body">
+                    <strong dir="ltr" title={file.path}>{name}</strong>
+                    <small dir="ltr">{dir || "—"}</small>
+                  </span>
+                  <span className="git-file-stats">
+                    <span className="git-file-label">{meta.label}</span>
+                    {file.added > 0 ? <span className="git-diff git-diff-added">+{file.added}</span> : null}
+                    {file.removed > 0 ? <span className="git-diff git-diff-removed">−{file.removed}</span> : null}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        <div className="model-footnote">{t.gitChangesNote}</div>
       </aside>
     </div>
   )
@@ -573,6 +727,22 @@ function forgetLastSession(worktree: string): void {
 // مهلة النشاط: بعد ما المحادثة تخلص شغل بتفضل في "المحادثات النشطة" ٥ دقايق
 // وبعدين لوحدها بتنتقل لـ "غير النشطة" (من غير ما تحتاج تعمل refresh).
 const ACTIVE_GRACE_MS = 5 * 60 * 1000
+
+// أقصى عدد سطور لصندوق كتابة الرسالة — بيقف عنده ولا يكبر تاني (بيعمل scroll جوه)
+const COMPOSER_MAX_LINES = 6
+
+// نفس استعلام الـ media المستخدَم في styles.css للّمس، عشان سلوك Enter
+// يطابق نفس تعريف "جهاز لمس" اللي الأزرار بتبني عليه
+const TOUCH_QUERY = "(hover: none), (pointer: coarse)"
+
+// Enter يبعت بس على الأجهزة اللي فيها لوحة مفاتيح فعلية؛ على الموبايل
+// (والكيبورد على الشاشة) Enter ياخد سطر جديد والإرسال بزر الإرسال
+function isTouchComposer(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false
+  }
+  return window.matchMedia(TOUCH_QUERY).matches
+}
 
 function formatCountdown(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000))
@@ -1195,7 +1365,7 @@ function useActivityGrace(items: ActiveSession[], graceMs: number, ticking: bool
 const REQUEST_STATE_LABEL: Record<RequestState, keyof Strings> = {
   queued: "inQueue",
   running: "running",
-  done: "ready",
+  done: "done",
   stopped: "stopped",
 }
 
@@ -1221,22 +1391,58 @@ const REQUEST_STATE_MARK: Record<RequestState, string> = {
   stopped: "×",
 }
 
-function RequestRow({ request, expanded, onToggle, sessionId, onCopy, onToast, t, lang }: { request: SessionRequest; expanded: boolean; onToggle: () => void; sessionId: string | null; onCopy: (text: string) => void; onToast: (message: string, kind?: ToastKind) => void; t: Strings; lang: Language }) {
+function RequestRow({ request, expanded, onToggle, sessionId, onCopy, onToast, onSkip, onRunNow, onRemove, busyAction, t, lang }: { request: SessionRequest; expanded: boolean; onToggle: () => void; sessionId: string | null; onCopy: (text: string) => void; onToast: (message: string, kind?: ToastKind) => void; onSkip: () => void; onRunNow: () => void; onRemove: () => void; busyAction: string | null; t: Strings; lang: Language }) {
   const running = request.state === "running"
+  const queued = request.state === "queued"
+  // الكارت المتفائل لسه ما وصلش السيرفر، فمعندناش id نبعته له
+  const notSentYet = request.id.startsWith("local-")
   const now = useNowTick(running && expanded)
   const hasTodos = request.totalTodos > 0
   const progress = hasTodos ? Math.round((request.completedTodos / request.totalTodos) * 100) : 0
   const steps = request.stepsCompleted ?? 0
   const elapsed = running ? formatElapsed(request.startedAt, t, now) : ""
+  // تخطّي للطلب الشغّال، وتنفيذ حالًا وحذف من الطابور لكل طلب مستني بس
+  const actions = running || queued ? (
+    <span className="request-row-actions">
+      {running ? (
+        <button type="button" className="request-action request-action-skip" onClick={onSkip} disabled={busyAction === request.id} title={t.skipCurrent}>
+          <svg className="request-action-icon" viewBox="0 0 24 24" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M6 4.5v15l10.5-7.5L6 4.5z" fill="currentColor" stroke="none" />
+            <path d="M19 5v14" />
+          </svg>
+          <span className="request-action-label">{t.skipCurrent}</span>
+        </button>
+      ) : null}
+      {queued ? (
+        <>
+          <button type="button" className="request-action request-action-run" onClick={onRunNow} disabled={busyAction === request.id || notSentYet} title={t.runNow}>
+            <svg className="request-action-icon" viewBox="0 0 24 24" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 4.5v15l12-7.5-12-7.5z" fill="currentColor" stroke="none" />
+            </svg>
+            <span className="request-action-label">{t.runNow}</span>
+          </button>
+          <button type="button" className="request-action request-action-remove" onClick={onRemove} disabled={busyAction === request.id} title={t.removeFromQueue}>
+            <svg className="request-action-icon" viewBox="0 0 24 24" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+            <span className="request-action-label">{t.removeFromQueue}</span>
+          </button>
+        </>
+      ) : null}
+    </span>
+  ) : null
   return (
     <li className={`request-row ${REQUEST_STATE_ROW[request.state]}${expanded ? " is-open" : ""}`}>
-      <button type="button" className="request-row-head" onClick={onToggle} aria-expanded={expanded}>
-        <span className="request-row-mark" aria-hidden>{REQUEST_STATE_MARK[request.state]}</span>
-        <span className="request-row-index">{t.requestNumber} {request.index}</span>
-        <span className="request-row-prompt">{request.prompt || t.yourRequest}</span>
-        <span className="request-row-state">{t[REQUEST_STATE_LABEL[request.state]]}</span>
-        <span className="request-row-caret" aria-hidden>{expanded ? "▾" : "▸"}</span>
-      </button>
+      <div className="request-row-head">
+        <button type="button" className="request-row-toggle" onClick={onToggle} aria-expanded={expanded}>
+          <span className="request-row-mark" aria-hidden>{REQUEST_STATE_MARK[request.state]}</span>
+          <span className="request-row-index">{t.requestNumber} {request.index}</span>
+          <span className="request-row-prompt">{request.prompt || t.yourRequest}</span>
+          <span className="request-row-state">{t[REQUEST_STATE_LABEL[request.state]]}</span>
+          <span className="request-row-caret" aria-hidden>{expanded ? "▾" : "▸"}</span>
+        </button>
+        {actions}
+      </div>
       {expanded ? (
         <div className="request-row-body">
           <div className="task-activity">
@@ -1273,7 +1479,7 @@ function RequestRow({ request, expanded, onToggle, sessionId, onCopy, onToast, t
 }
 
 // كارت واحد للمحادثة كلها: كل الطلبات قائمة جواه، والطلب الأخير هو المفتوح.
-function RequestCard({ requests, sessionId, onCopy, onToast, t, lang }: { requests: SessionRequest[]; sessionId: string | null; onCopy: (text: string) => void; onToast: (message: string, kind?: ToastKind) => void; t: Strings; lang: Language }) {
+function RequestCard({ requests, sessionId, onCopy, onToast, onSkip, onRunNow, onRemove, busyAction, t, lang }: { requests: SessionRequest[]; sessionId: string | null; onCopy: (text: string) => void; onToast: (message: string, kind?: ToastKind) => void; onSkip: (request: SessionRequest) => void; onRunNow: (request: SessionRequest) => void; onRemove: (request: SessionRequest) => void; busyAction: string | null; t: Strings; lang: Language }) {
   const [openId, setOpenId] = useState<string | null>(null)
   const latest = requests[requests.length - 1]
   // الطلب الشغّال هو المفتوح افتراضيًا؛ بعد ما يخلص آخر طلب هو اللي يفضل مفتوح.
@@ -1286,7 +1492,7 @@ function RequestCard({ requests, sessionId, onCopy, onToast, t, lang }: { reques
           <div className="eyebrow">{t.taskStatus} · {t.requestsInSession} {requests.length}</div>
           <h2>{latest ? t[REQUEST_STATE_TITLE[latest.state]] : t.taskFinished}</h2>
         </div>
-        <span className="task-summary-state">{latest ? t[REQUEST_STATE_LABEL[latest.state]] : t.ready}</span>
+        <span className="task-summary-state">{latest ? t[REQUEST_STATE_LABEL[latest.state]] : t.done}</span>
       </div>
       <ul className="request-list">
         {requests.map((request) => (
@@ -1298,6 +1504,10 @@ function RequestCard({ requests, sessionId, onCopy, onToast, t, lang }: { reques
             sessionId={sessionId}
             onCopy={onCopy}
             onToast={onToast}
+            onSkip={() => onSkip(request)}
+            onRunNow={() => onRunNow(request)}
+            onRemove={() => onRemove(request)}
+            busyAction={busyAction}
             t={t}
             lang={lang}
           />
@@ -1324,13 +1534,13 @@ function App() {
   const [requests, setRequests] = useState<SessionRequest[]>([])
   const [requestQuestions, setRequestQuestions] = useState<ConversationQuestionRequest[]>([])
   const [statuses, setStatuses] = useState<Record<string, SessionStatus>>({})
-  // آخر لحظة شُوهدت فيها كل محادثة "بتشتغل" — بتتحكم في مهلة الـ ٥ دقايق
-  // اللي بتفضل فيها في قسم "المحادثات النشطة" بعد ما تخلص.
-  const [lastActiveAt, setLastActiveAt] = useState<Record<string, number>>({})
   const [permissions, setPermissions] = useState<Permission[]>([])
   const [composer, setComposer] = useState("")
+  const composerRef = useRef<HTMLTextAreaElement>(null)
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
+  // معرّف الطلب اللي شغّال عليه فعل في الطابور دلوقتي (تخطّي/حذف) عشان نمنع ضغط مزدوج
+  const [queueAction, setQueueAction] = useState<string | null>(null)
   const [loginError, setLoginError] = useState("")
   const [eventConnected, setEventConnected] = useState(false)
   const [showSessions, setShowSessions] = useState(false)
@@ -1361,10 +1571,21 @@ function App() {
   const [historyError, setHistoryError] = useState("")
   const [activity, setActivity] = useState<ActiveSession[]>([])
   const [jumpingId, setJumpingId] = useState<string | null>(null)
+  // حالة git: الأيقونة بتجيب العدد من غير ما تفتح القائمة، والقائمة بتجيبها لما تفتحها
+  const [showGitChanges, setShowGitChanges] = useState(false)
+  const [gitChanges, setGitChanges] = useState<GitChanges | null>(null)
+  const [gitLoading, setGitLoading] = useState(false)
   const toastId = useRef(0)
   const prevStatusesRef = useRef<Record<string, SessionStatus>>({})
   // الجلسات اللي المستخدم وقفها بنفسه — منطلعش لها toast إتمام لما تبقى idle
   const abortedRef = useRef<Set<string>>(new Set())
+  // آخر مفتاح طلب اتنبّه عليه لكل جلسة — عشان نفس المهمة ما تتكررش
+  const notifiedRef = useRef<Map<string, string>>(new Map())
+  // الجلسات اللي اتنبّه عليها بحالة "شغّال → خلص" وهي في الخلفية. لما تفتح
+  // الجلسة دي بعدها، نفس الإتمام ده ملاقيش تنبيه تاني (مفتاحين مختلفين لنفس المهمة).
+  const notifiedViaStatusRef = useRef<Set<string>>(new Set())
+  // عدّاد "شغلانة" لكل جلسة: كل مرة تبدأ تشغلانة جديدة الرقم بيزيد، وبيدي
+  const busyPeriodsRef = useRef<Map<string, number>>(new Map())
   // عدّاد تسلسلي بيرفض ردود قديمة لو رجعت بترتيب غلط
   const requestsSeq = useRef(0)
   const localRequestId = useRef(0)
@@ -1392,60 +1613,10 @@ function App() {
   // لما الـ SSE يفصل (قفل الشاشة/الشبكة) والحالة في الموبايل تتأخر عن OpenCode.
   const hasRunningRequests = useMemo(() => requests.some((request) => request.state === "running"), [requests])
 
-  // سجّل/جدّد وقت آخر نشاط لكل محادثة شغالة، ونضّف اللي عدّت مهلتهم.
-  const rememberActive = useCallback((next: Record<string, SessionStatus>) => {
-    const stamp = Date.now()
-    setLastActiveAt((current) => {
-      let result = current
-      for (const [id, at] of Object.entries(current)) {
-        if (stamp - at >= ACTIVE_GRACE_MS) {
-          if (result === current) {
-            result = { ...current }
-          }
-          delete result[id]
-        }
-      }
-      for (const [id, status] of Object.entries(next)) {
-        if (status.type !== "busy" && status.type !== "retry") {
-          continue
-        }
-        if (result[id] === undefined || stamp - result[id] >= ACTIVE_GRACE_MS) {
-          if (result === current) {
-            result = { ...current }
-          }
-          result[id] = stamp
-        }
-      }
-      return result
-    })
-  }, [])
-
-  // عدّاد كل ثانية طول ما فيه محادثات في مهلة النشاط، عشان تختفي في معادها بالظبط
-  const gracePending = useMemo(
-    () => Object.values(lastActiveAt).some((at) => Date.now() - at < ACTIVE_GRACE_MS),
-    [lastActiveAt],
-  )
-  const nowTick = useNowTick(gracePending)
-
-  // محادثة "نشطة" = شغالة دلوقتي، أو اشتغلت في آخر ٥ دقايق
-  const isSessionActive = useCallback((id: string) => {
-    if (isSessionWorking(id)) {
-      return true
-    }
-    const at = lastActiveAt[id]
-    return at !== undefined && nowTick - at < ACTIVE_GRACE_MS
-  }, [isSessionWorking, lastActiveAt, nowTick])
-
-  const activeGraceLeft = useCallback((id: string) => {
-    const at = lastActiveAt[id]
-    if (at === undefined || isSessionWorking(id)) {
-      return 0
-    }
-    return ACTIVE_GRACE_MS - (nowTick - at)
-  }, [isSessionWorking, lastActiveAt, nowTick])
-
-  const sidebarActiveSessions = useMemo(() => sessions.filter((session) => isSessionActive(session.id)), [sessions, isSessionActive])
-  const sidebarInactiveSessions = useMemo(() => sessions.filter((session) => !isSessionActive(session.id)), [sessions, isSessionActive])
+  // القائمة الجانبية: "النشطة" = الشغالة دلوقتي بس. مهلة الـ ٥ دقايق
+  // ("نشط أخيرًا") موجودة في لوحة "المحادثات النشطة" بس.
+  const sidebarActiveSessions = useMemo(() => sessions.filter((session) => isSessionWorking(session.id)), [sessions, isSessionWorking])
+  const sidebarInactiveSessions = useMemo(() => sessions.filter((session) => !isSessionWorking(session.id)), [sessions, isSessionWorking])
 
   // في لوحة "المحادثات النشطة": اللي شغالة دلوقتي، واللي كانت نشطة في آخر ٥ دقايق
   const { track: trackActivity, recent: activityRecent, graceLeft: activityGraceLeft } = useActivityGrace(activity, ACTIVE_GRACE_MS, showActivity)
@@ -1456,19 +1627,27 @@ function App() {
     window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 6000)
   }, [])
 
-  const notifyCompletion = useCallback((sessionId: string) => {
+  // إتمام المهمة: صوت واهتزاز بس — منظّمش توست عشان المستخدم مش عايزه يطلع
+  const notifyCompletion = useCallback(() => {
     playCompletionSound()
     vibrate([180, 100, 180, 100, 320])
-    const match = sessionsRef.current.find((session) => session.id === sessionId)
-    const name = match ? displayTitle(match.title, t) : t.taskStatus
-    addToast(`${t.taskCompletedOpen} ✅ ${name}`, "success")
-  }, [addToast, t])
+  }, [])
 
   const notifyAttention = useCallback((message: string) => {
     playAttentionSound()
     vibrate([120, 80, 120])
     addToast(message, "info")
   }, [addToast])
+
+  // التنبيه لازم يطلع مرة واحدة بس لكل مهمة: نفس المفتاح = نفس المهمة، فمهما
+  // تكرّرنا في الحالة أو وصلنا الحدث مرتين، الصوت والـ toast هيبانوا مرة واحدة.
+  const notifyOnce = useCallback((sessionId: string, taskKey: string) => {
+    if (notifiedRef.current.get(sessionId) === taskKey) {
+      return
+    }
+    notifiedRef.current.set(sessionId, taskKey)
+    notifyCompletion()
+  }, [notifyCompletion])
 
   // فتح الصوت مع أول لمسة (شرط المتصفحات على الموبايل)
   useEffect(() => {
@@ -1501,24 +1680,57 @@ function App() {
     setTheme((current) => nextTheme(current))
   }
 
-  // لما أي جلسة تتحول من شغالة → خلصت: صوت مميز + اهتزاز + تنبيه
+  // الجلسة المفتوحة: بننبّه على آخر طلب خلص فعلًا. الاعتماد على حالة الجلسة
+  // لوحدها مبيكفّيش: لو OpenCode واقف على busy بعد ما خلص، الـ poll بيعكس
+  // الحالة دي شغّال/خلص شغّال/خلص فيتكرر التنبيه لنفس المهمة.
+  useEffect(() => {
+    const last = requests[requests.length - 1]
+    if (!activeId || !last || !last.completedAt || last.state === "queued") {
+      return
+    }
+    if (abortedRef.current.delete(activeId)) {
+      return
+    }
+    // الإتمام ده اتنبّه عليه قبل كده وانت في شاشة تانية — متكرّرش
+    if (notifiedViaStatusRef.current.delete(activeId)) {
+      return
+    }
+    notifyOnce(activeId, `req:${last.id}:${last.completedAt}`)
+  }, [activeId, requests, notifyOnce])
+
+  // باقي الجلسات (اللي مش مفتوحة): انتقال شغّال → خلص، مرة واحدة لكل شغلانة
   useEffect(() => {
     const prev = prevStatusesRef.current
-    const hadPrev = Object.keys(prev).length > 0
-    if (hadPrev) {
+    if (Object.keys(prev).length > 0) {
       for (const [id, status] of Object.entries(statuses)) {
-        const wasBusy = prev[id]?.type === "busy" || prev[id]?.type === "retry"
-        if (wasBusy && status.type === "idle") {
-          if (abortedRef.current.has(id)) {
-            abortedRef.current.delete(id)
-            continue
-          }
-          notifyCompletion(id)
+        if (id === activeId) {
+          continue
         }
+        const busy = status.type === "busy" || status.type === "retry"
+        const wasBusy = prev[id]?.type === "busy" || prev[id]?.type === "retry"
+        if (busy) {
+          // الرقم بيزيد مرة واحدة بس لما الجلسة تتحوّل idle → شغّال.
+          // قبل كده كان بيزيد مع كل poll (كل ٤ ثواني) فالرقم كان بيتغيّر
+          // والمفتاح `busy:N` كان بيتحدّد جديد فالتنبيه بيتكرّر لنفس المهمة.
+          if (!wasBusy) {
+            busyPeriodsRef.current.set(id, (busyPeriodsRef.current.get(id) ?? 0) + 1)
+          }
+          continue
+        }
+        if (!wasBusy) {
+          continue
+        }
+        if (abortedRef.current.delete(id)) {
+          continue
+        }
+        notifyOnce(id, `busy:${busyPeriodsRef.current.get(id) ?? 0}`)
+        // علّم الجلسة إن اتنبّه على إتمامها، عشان لو فتحتها دلوقتي
+        // الـ effect بتاع الجلسة المفتوحة ما يكرّرش نفس التنبيه
+        notifiedViaStatusRef.current.add(id)
       }
     }
     prevStatusesRef.current = statuses
-  }, [statuses, notifyCompletion])
+  }, [activeId, statuses, notifyOnce])
 
   const refreshRequests = useCallback(async (id = activeIdRef.current) => {
     if (!id) {
@@ -1536,19 +1748,17 @@ function App() {
     setRequests(next.requests)
     setRequestQuestions(next.questions)
     setStatuses((current) => ({ ...current, [id]: next.status }))
-    rememberActive({ [id]: next.status })
     setPermissions(nextPermissions)
-  }, [rememberActive])
+  }, [])
 
   const refreshStatuses = useCallback(async () => {
     try {
       const nextStatuses = await getStatuses()
       setStatuses(nextStatuses)
-      rememberActive(nextStatuses)
     } catch {
       // Keep last known statuses when the poll fails (offline / reconnecting).
     }
-  }, [rememberActive])
+  }, [])
 
   // المحادثات الشغالة في كل المشاريع — بتتحدث مع نفس poll الحالات
   const refreshActivity = useCallback(async () => {
@@ -1561,6 +1771,25 @@ function App() {
     }
   }, [trackActivity])
 
+  // حالة git للمشروع المختار — بنجيبها صامتة عشان الأيقونة في الهيدر محدّثة
+  const refreshGitChanges = useCallback(async () => {
+    setGitLoading(true)
+    try {
+      setGitChanges(await getGitChanges())
+    } catch {
+      // نسيب آخر حالة معروفة — الخادم لسه بيوصل أو المشروع مش git
+    } finally {
+      setGitLoading(false)
+    }
+  }, [])
+
+  const openGitChanges = useCallback(() => {
+    setShowGitChanges(true)
+    void refreshGitChanges()
+  }, [refreshGitChanges])
+
+  const gitChangedCount = gitChanges?.available ? gitChanges.files.length : 0
+
   const refreshSessions = useCallback(async () => {
     const [nextSessions, nextStatuses] = await Promise.all([
       listSessions(),
@@ -1570,7 +1799,6 @@ function App() {
     setSessions(sorted)
     if (nextStatuses) {
       setStatuses(nextStatuses)
-      rememberActive(nextStatuses)
     }
     setActiveId((current) => {
       // لو في مسودة جديدة (null) نحافظ عليها ومنرجعش لأول جلسة تلقائيًا
@@ -1582,7 +1810,7 @@ function App() {
       activeIdRef.current = next
       return next
     })
-  }, [rememberActive])
+  }, [])
 
   const openProject = useCallback(async (project: Project, targetSessionId?: string) => {
     // لو دايس على الحالي خلاص — مفيش داعي للتحميل
@@ -1621,11 +1849,12 @@ function App() {
         : fallback
       setSessions(sorted)
       setStatuses(nextStatuses)
-      rememberActive(nextStatuses)
       setActiveId(nextActive)
       activeIdRef.current = nextActive
       setComposer("")
       setShowSessions(false)
+      setGitChanges(null)
+      void refreshGitChanges()
       addToast(`${t.movedTo} ${projectName(result.project)} ✅`, "success")
       await refreshRequests(nextActive)
     } catch (error: unknown) {
@@ -1633,7 +1862,7 @@ function App() {
     } finally {
       setSwitchingProject(null)
     }
-  }, [addToast, refreshRequests, rememberActive, selectedProject, t])
+  }, [addToast, refreshRequests, refreshGitChanges, selectedProject, t])
 
   const enterApp = useCallback(async () => {
     const [nextConfig, projectResponse] = await Promise.all([getConfig(), getProjects()])
@@ -1824,6 +2053,7 @@ function App() {
     // which chats OpenCode is actively working in, even in background.
     void refreshStatuses()
     void refreshActivity()
+    void refreshGitChanges()
     const timer = window.setInterval(() => {
       void refreshStatuses()
       void refreshActivity()
@@ -1835,6 +2065,7 @@ function App() {
       if (document.visibilityState === "visible") {
         void refreshStatuses()
         void refreshActivity()
+        void refreshGitChanges()
         void loadModels(true)
         const id = activeIdRef.current
         if (id) {
@@ -1849,12 +2080,11 @@ function App() {
       document.removeEventListener("visibilitychange", onVisible)
       window.removeEventListener("focus", onVisible)
     }
-  }, [authState, selectedProject, refreshStatuses, refreshRequests, loadModels, refreshActivity])
+  }, [authState, selectedProject, refreshStatuses, refreshRequests, loadModels, refreshActivity, refreshGitChanges])
 
   const handleOpenCodeEvent = useCallback((event: ClientEvent) => {
     if (event.type === "session.status") {
       setStatuses((current) => ({ ...current, [event.properties.sessionID]: event.properties.status }))
-      rememberActive({ [event.properties.sessionID]: event.properties.status })
       // حالة شغل اتغيرت في أي مشروع — حدّث شريط "شغال الآن" فورًا
       void refreshActivity()
       if (event.properties.sessionID === activeIdRef.current) {
@@ -1912,7 +2142,7 @@ function App() {
     if (event.type === "session.error" && event.properties.sessionID === activeIdRef.current) {
       notifyAttention(t.taskStoppedWithError)
     }
-  }, [notifyAttention, refreshSessions, refreshRequests, refreshActivity, rememberActive, t])
+  }, [notifyAttention, refreshSessions, refreshRequests, refreshActivity, t])
 
   useEffect(() => {
     if (authState !== "signedIn") {
@@ -2000,6 +2230,7 @@ function App() {
     setActiveId(null)
     setRequests([])
     setRequestQuestions([])
+    setGitChanges(null)
     setAccessToken("")
   }
 
@@ -2240,7 +2471,6 @@ function App() {
       // immediately without a manual refresh. The backend flips to busy
       // asynchronously, so the first refreshRequests may still see idle.
       setStatuses((current) => ({ ...current, [sessionId]: { type: "busy" } }))
-      rememberActive({ [sessionId]: { type: "busy" } })
       await refreshRequests(sessionId).catch(() => undefined)
       // Re-assert busy if the backend hasn't flipped yet; delayed refreshes
       // below plus SSE plus polling will correct to the real status.
@@ -2251,7 +2481,6 @@ function App() {
         }
         return current
       })
-      rememberActive({ [sessionId]: { type: "busy" } })
       // The backend names the session based on the first question (like
       // desktop) — refresh the list so the new name appears immediately.
       await refreshSessions().catch(() => undefined)
@@ -2274,11 +2503,29 @@ function App() {
   }
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
+    // Enter يبعت على الديسكتوب بس. على الموبايل سيبه يسلك سطر جديد عادي.
+    // isComposing: لو المستخدم بيكمّل كلمة بلغة تانية (إixes عربي/إنجليزي)
+    // Enter بيسجّل الكلمة مش يبعت الطلب.
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !isTouchComposer()) {
       event.preventDefault()
       void handleSend()
     }
   }
+
+  // البوكس بيكبر مع كل سطر جديد لحد 6 سطور بس، وبعدها بيفتح 스크ول جوه
+  useLayoutEffect(() => {
+    const element = composerRef.current
+    if (!element) {
+      return
+    }
+    element.style.height = "auto"
+    const styles = window.getComputedStyle(element)
+    const lineHeight = Number.parseFloat(styles.lineHeight) || Number.parseFloat(styles.fontSize) * 1.5 || 22
+    const maxHeight = Math.round(lineHeight * COMPOSER_MAX_LINES)
+    const contentHeight = element.scrollHeight
+    element.style.height = `${Math.min(contentHeight, maxHeight)}px`
+    element.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden"
+  }, [composer])
 
   const handleAbort = async () => {
     if (!activeId) {
@@ -2299,6 +2546,79 @@ function App() {
     }
   }
 
+  const handleSkip = async (request: SessionRequest) => {
+    if (!activeId || queueAction) {
+      return
+    }
+    const id = activeId
+    setQueueAction(request.id)
+    try {
+      const result = await skipRunningRequest(id)
+      if (result.skipped) {
+        addToast(t.requestSkipped, "info")
+        // الطلب القديم لسه بيكمل إنهاء بلاشته، فبنمنع صوت الإتمام بتاعه
+        abortedRef.current.add(id)
+      }
+      await refreshRequests(id).catch(() => undefined)
+    } catch (error: unknown) {
+      addToast(error instanceof Error ? error.message : t.skipFailed, "error")
+    } finally {
+      setQueueAction(null)
+    }
+  }
+
+  const handleRunNow = async (request: SessionRequest) => {
+    if (!activeId || queueAction) {
+      return
+    }
+    const id = activeId
+    setQueueAction(request.id)
+    try {
+      const result = await runQueuedRequest(id, request.id)
+      if (!result.started) {
+        addToast(t.queuedRunFailed, "error")
+      } else {
+        addToast(t.requestStartedNow, "info")
+        // الطلب اللي كان شغّال اتوقّف، فنمنع صوت الإتمام بتاعه
+        abortedRef.current.add(id)
+      }
+      await refreshRequests(id).catch(() => undefined)
+    } catch (error: unknown) {
+      addToast(error instanceof Error ? error.message : t.queuedRunFailed, "error")
+      await refreshRequests(id).catch(() => undefined)
+    } finally {
+      setQueueAction(null)
+    }
+  }
+
+  const handleRemoveQueued = async (request: SessionRequest) => {
+    if (!activeId || queueAction) {
+      return
+    }
+    const id = activeId
+    // الكارت المتفائل لسه مش موجود عند السيرفر — نشيله من الواجهة بس
+    if (request.id.startsWith("local-")) {
+      setRequests((current) => current.filter((item) => item.id !== request.id))
+      return
+    }
+    setQueueAction(request.id)
+    setRequests((current) => current.filter((item) => item.id !== request.id))
+    try {
+      const result = await removeQueuedRequest(id, request.id)
+      if (!result.removed) {
+        addToast(t.queuedRemoveFailed, "error")
+      } else {
+        addToast(t.queuedRequestRemoved, "info")
+      }
+      await refreshRequests(id).catch(() => undefined)
+    } catch (error: unknown) {
+      addToast(error instanceof Error ? error.message : t.queuedRemoveFailed, "error")
+      await refreshRequests(id).catch(() => undefined)
+    } finally {
+      setQueueAction(null)
+    }
+  }
+
   const handlePermission = async (permission: Permission, response: "once" | "always" | "reject") => {
     try {
       await replyPermission(permission.sessionID, permission.id, response)
@@ -2311,15 +2631,21 @@ function App() {
 
   const displayedModel: SessionModelRef | null = activeId ? currentModel : (pendingModel || currentModel || defaultModel)
 
-  const handleSelectModel = async (model: ModelInfo) => {
-    const ref: SessionModelRef = { providerID: model.providerID, modelID: model.id }
+  const handleSelectModel = async (model: ModelInfo, variant?: string) => {
+    const cleanVariant = (variant || "").trim()
+    const ref: SessionModelRef = { providerID: model.providerID, modelID: model.id, ...(cleanVariant ? { variant: cleanVariant } : {}) }
+    // الموديل ده عنده خيارات variety — نسيب الدروير مفتوح عشان المستخدم يختار منهم
+    const keepOpen = (model.variants?.length || 0) > 0
     const sessionId = activeIdRef.current
+    const label = modelLabel(ref, t)
     // مسودة جديدة: احفظ الاختيار وهيتطبق مع أول رسالة
     if (!sessionId) {
       setPendingModel(ref)
       setCurrentModel(ref)
-      setShowModels(false)
-      addToast(`${t.switchedTo} ${ref.providerID}/${ref.modelID} 🆓 — ${t.willUseInNewConversation}`, "success")
+      if (!keepOpen) {
+        setShowModels(false)
+      }
+      addToast(`${t.switchedTo} ${label} 🆓 — ${t.willUseInNewConversation}`, "success")
       return
     }
     if (isBusy) {
@@ -2331,8 +2657,10 @@ function App() {
     try {
       const result = await setSessionModel(sessionId, ref)
       setCurrentModel(result.model)
-      setShowModels(false)
-      addToast(`${t.switchedTo} ${result.model.providerID}/${result.model.modelID} 🆓`, "success")
+      if (!keepOpen) {
+        setShowModels(false)
+      }
+      addToast(`${t.switchedTo} ${modelLabel(result.model, t)} 🆓`, "success")
       await refreshRequests(sessionId).catch(() => undefined)
     } catch (error: unknown) {
       addToast(error instanceof Error ? error.message : t.modelChangeFailed, "error")
@@ -2490,21 +2818,18 @@ function App() {
                   </div>
                   {sidebarActiveSessions.map((session) => {
                     const needsPermission = permissions.some((permission) => permission.sessionID === session.id)
-                    const working = isSessionWorking(session.id)
-                    const graceLeft = activeGraceLeft(session.id)
                     return (
-                      <div ref={session.id === activeId ? activeSessionItemRef : undefined} className={`session-item ${working ? "is-working" : "just-active"} ${session.id === activeId ? "active" : ""}${needsPermission ? " needs-permission" : ""}`} key={session.id}>
+                      <div ref={session.id === activeId ? activeSessionItemRef : undefined} className={`session-item is-working ${session.id === activeId ? "active" : ""}${needsPermission ? " needs-permission" : ""}`} key={session.id}>
                         <button className="session-select" onClick={() => void selectSession(session.id)}>
                           <span className="session-title-row">
                             <span className="session-title">{displayTitle(session.title, t)}</span>
                             {needsPermission ? <span className="permission-badge">{t.needsPermission}</span> : null}
                           </span>
                           <span className="session-meta">
-                            {working ? <span className="working-spinner" aria-hidden /> : <span className="status-dot" aria-hidden />}
-                            <span>{working ? statusLabel(statuses[session.id], t) : t.activeRecently}</span>
+                            <span className="working-spinner" aria-hidden />
+                            <span>{statusLabel(statuses[session.id], t)}</span>
                             <span aria-hidden>·</span>
                             <span>{formatDate(session.time.created, lang)} · {formatTime(session.time.created, lang)}</span>
-                            {!working && graceLeft > 0 ? <><span aria-hidden>·</span><span className="session-grace-timer">{formatCountdown(graceLeft)}</span></> : null}
                           </span>
                         </button>
                         <button className="session-delete" onClick={() => void handleDeleteSession(session)} aria-label={t.deleteSession}>⌫</button>
@@ -2579,6 +2904,7 @@ function App() {
               <span className="free-badge">FREE</span>
             </button>
             <button className="icon-button activity-button" onClick={() => setShowActivity(true)} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activity.length > 0 ? <span className="count-badge">{activity.length}</span> : null}</button>
+            <button className="icon-button activity-button git-button" onClick={openGitChanges} aria-label={t.gitChangesAria} title={`${t.gitChangesAria} ⑂`}><GitBranchIcon />{gitChangedCount > 0 ? <span className="count-badge">{gitChangedCount}</span> : null}</button>
             <button className="icon-button" onClick={toggleTheme} aria-label={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`} title={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`}>{THEME_META[theme].icon}</button>
             <button className="icon-button lang-button" onClick={toggleLanguage} aria-label={t.language} title={t.language}>{lang === "ar" ? "EN" : "ع"}</button>
             <button className="icon-button" onClick={() => setShowHistory(true)} aria-label={t.historyAria} title={`${t.historyAria} 🕘`}>🕘</button>
@@ -2590,7 +2916,7 @@ function App() {
           <div className="workspace-scroll" ref={workspaceScrollRef}>
             {requests.length > 0 ? (
               <div className="request-stack">
-                <RequestCard requests={requests} sessionId={activeId} onCopy={copyText} onToast={addToast} t={t} lang={lang} />
+                <RequestCard requests={requests} sessionId={activeId} onCopy={copyText} onToast={addToast} onSkip={(request) => void handleSkip(request)} onRunNow={(request) => void handleRunNow(request)} onRemove={(request) => void handleRemoveQueued(request)} busyAction={queueAction} t={t} lang={lang} />
               </div>
             ) : (
               <div className="welcome-state">
@@ -2615,7 +2941,7 @@ function App() {
 
           <div className="composer-wrap">
             <form className="composer" onSubmit={handleSend}>
-              <textarea value={composer} onChange={(event) => setComposer(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder={isBusy ? t.composerPlaceholderBusy : t.composerPlaceholder} rows={1} />
+              <textarea ref={composerRef} value={composer} onChange={(event) => setComposer(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder={t.composerPlaceholder} rows={1} />
               <div className="composer-actions">
                 <span className="composer-hint">{t.composerHint}</span>
                 {isBusy || hasQueuedRequests ? <button type="button" className="stop-button" onClick={() => void handleAbort()}>■ {t.stop}</button> : null}
@@ -2659,6 +2985,15 @@ function App() {
           lang={lang}
         />
       ) : null}
+      {showGitChanges ? (
+        <GitChangesPanel
+          changes={gitChanges}
+          loading={gitLoading}
+          onRefresh={() => void refreshGitChanges()}
+          onClose={() => setShowGitChanges(false)}
+          t={t}
+        />
+      ) : null}
       {showHistory ? (
         <HistoryPanel
           turns={historyTurns}
@@ -2679,7 +3014,7 @@ function App() {
           current={displayedModel}
           busy={isBusy}
           switching={switchingKey}
-          onSelect={(model) => void handleSelectModel(model)}
+          onSelect={(model, variant) => void handleSelectModel(model, variant)}
           onRefresh={() => void loadModels()}
           onClose={() => setShowModels(false)}
           t={t}

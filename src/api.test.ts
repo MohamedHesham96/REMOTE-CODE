@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { getRequests, rejectQuestion, renameSession, replyQuestion, sendMessage } from "./api"
+import { getRequests, rejectQuestion, removeQueuedRequest, renameSession, replyQuestion, runQueuedRequest, sendMessage, skipRunningRequest } from "./api"
 import type { Session, SessionRequest, SessionRequests } from "./types"
 
 function decodeBase64(value: string): Uint8Array {
@@ -118,6 +118,48 @@ describe("parallel requests", () => {
 
     await expect(getRequests("session/id", "en")).resolves.toEqual(payload)
     expect(fetchMock).toHaveBeenCalledWith("/api/session/session%2Fid/requests?lang=en", expect.objectContaining({
+      credentials: "include",
+    }))
+  })
+
+  it("removes one queued request by its card id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ removed: true, remaining: 0 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(removeQueuedRequest("session/id", queued.id)).resolves.toEqual({ removed: true, remaining: 0 })
+    expect(fetchMock).toHaveBeenCalledWith("/api/session/session%2Fid/request/queued%3Aq2", expect.objectContaining({
+      method: "DELETE",
+      credentials: "include",
+    }))
+  })
+
+  it("skips the running request and reports what is left in the queue", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ skipped: true, remaining: 2 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(skipRunningRequest("session/id")).resolves.toEqual({ skipped: true, remaining: 2 })
+    expect(fetchMock).toHaveBeenCalledWith("/api/session/session%2Fid/skip", expect.objectContaining({
+      method: "POST",
+      credentials: "include",
+    }))
+  })
+
+  it("runs a queued request now through its card id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ started: true, remaining: 1 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(runQueuedRequest("session/id", queued.id)).resolves.toEqual({ started: true, remaining: 1 })
+    expect(fetchMock).toHaveBeenCalledWith("/api/session/session%2Fid/request/queued%3Aq2/run", expect.objectContaining({
+      method: "POST",
       credentials: "include",
     }))
   })
