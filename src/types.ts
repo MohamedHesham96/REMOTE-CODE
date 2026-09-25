@@ -1,0 +1,141 @@
+import type { Event, FileDiff, Message, Part, Permission, Project, Session, SessionStatus, Todo } from "@opencode-ai/sdk"
+
+export type { Event, FileDiff, Message, Part, Permission, Project, Session, SessionStatus, Todo }
+
+export interface ProjectResponse {
+  projects: Project[]
+  selected: Project | null
+}
+
+export interface ConversationQuestionOption {
+  label: string
+  description: string
+}
+
+export interface ConversationQuestion {
+  question: string
+  header: string
+  options: ConversationQuestionOption[]
+  multiple: boolean
+  custom: boolean
+}
+
+export interface ConversationQuestionRequest {
+  id: string
+  sessionID: string
+  questions: ConversationQuestion[]
+}
+
+export type ConversationQuestionAnswers = string[][]
+
+export type QuestionClientEventType =
+  | "question.asked"
+  | "question.replied"
+  | "question.rejected"
+  | "question.v2.asked"
+  | "question.v2.replied"
+  | "question.v2.rejected"
+
+export interface QuestionClientEvent {
+  type: QuestionClientEventType
+  properties: {
+    sessionID: string
+    requestID?: string
+  }
+}
+
+export type ClientEvent = Event | QuestionClientEvent
+
+export interface SessionSummary {
+  status: SessionStatus
+  activity: string
+  finalResult: string
+  prompt: string
+  completedTodos: number
+  totalTodos: number
+  todos: Todo[]
+  questions: ConversationQuestionRequest[]
+  updatedAt: number
+  resultFiles: ResultFile[]
+  stepsCompleted: number
+  activeTool: string | null
+  startedAt: number
+}
+
+export interface ResultFile {
+  id: string
+  name: string
+  mime: string
+  path: string
+  url: string
+  downloadUrl: string
+  source: "attachment" | "output"
+  size?: number
+}
+
+export interface AppConfig {
+  openCode: {
+    healthy: boolean
+    version: string
+  }
+  push: {
+    enabled: boolean
+    publicKey: string | null
+  }
+  secureContext: boolean
+}
+
+export interface SessionMessage {
+  info: Message
+  parts: Part[]
+}
+
+export interface PushSubscriptionJson {
+  endpoint: string
+  expirationTime?: number | null
+  keys: {
+    auth: string
+    p256dh: string
+  }
+}
+
+export interface ModelInfo {
+  id: string
+  providerID: string
+  name: string
+  free: boolean
+  enabled: boolean
+  status?: string
+}
+
+export interface SessionModelRef {
+  providerID: string
+  modelID: string
+  variant?: string
+}
+
+export interface SessionModelState {
+  model: SessionModelRef | null
+  defaultModel: SessionModelRef | null
+}
+
+export interface ActiveSession {
+  id: string
+  title: string
+  directory: string
+  worktree: string
+  projectName: string
+  status: SessionStatus
+  updatedAt: number
+}
+
+export interface HistoryTurn {
+  id: string
+  index: number
+  prompt: string
+  finalResult: string
+  createdAt: number
+  completedAt: number
+  steps: number
+  files: ResultFile[]
+}

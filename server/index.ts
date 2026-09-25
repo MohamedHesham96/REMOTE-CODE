@@ -1,0 +1,618 @@
+import express, { type NextFunction, type Request, type Response } from "express"
+import { createServer as createHttpServer } from "node:http"
+import { createServer as createHttpsServer } from "node:https"
+import { readFileSync, existsSync } from "node:fs"
+import { networkInterfaces } from "node:os"
+import { join, resolve } from "node:path"
+import { setTimeout as sleep } from "node:timers/promises"
+import { config } from "./config.js"
+import { clearSessionCookie, isValidAccessToken, requireAuthentication, setSessionCookie } from "./auth.js"
+import { OpenCodeService, type SessionSummary } from "./opencode.js"
+import { PushService } from "./push.js"
+import type { Event } from "@opencode-ai/sdk"
+
+const app = express()
+const openCode = new OpenCodeService(config.openCode)
+const push = new PushService(config.push)
+const eventClients = new Set<Response>()
+
+function questionEvent(event: Event): { type: string; properties: { sessionID: string; requestID?: string } } | null {
+  const candidate = event as unknown as { type?: unknown; properties?: unknown; data?: unknown }
+  if (typeof candidate.type !== "string") {
+    return null
+  }
+  if (
+    candidate.type !== "question.asked"
+    && candidate.type !== "question.replied"
+    && candidate.type !== "question.rejected"
+    && candidate.type !== "question.v2.asked"
+    && candidate.type !== "question.v2.replied"
+    && candidate.type !== "question.v2.rejected"
+  ) {
+    return null
+  }
+  const source = (candidate.properties ?? candidate.data) as { sessionID?: unknown; id?: unknown; requestID?: unknown } | undefined
+  if (!source || typeof source.sessionID !== "string") {
+    return null
+  }
+  const requestID = typeof source.id === "string" ? source.id : typeof source.requestID === "string" ? source.requestID : undefined
+  return { type: candidate.type, properties: requestID ? { sessionID: source.sessionID, requestID } : { sessionID: source.sessionID } }
+}
+
+function clientEvent(event: Event): Record<string, unknown> | null {
+  const question = questionEvent(event)
+  if (question) {
+    return question
+  }
+  if (event.type === "session.status" || event.type === "session.idle" || event.type === "session.error") {
+    return { type: event.type, properties: event.properties }
+  }
+  if (event.type === "todo.updated") {
+    return { type: event.type, properties: { sessionID: event.properties.sessionID, todos: event.properties.todos } }
+  }
+  if (event.type === "permission.updated") {
+    return { type: event.type, properties: event.properties }
+  }
+  if (event.type === "permission.replied") {
+    return { type: event.type, properties: event.properties }
+  }
+  if (event.type === "session.created" || event.type === "session.updated" || event.type === "session.deleted") {
+    return { type: event.type, properties: event.properties }
+  }
+  // مزامنة فورية بين الأجهزة: أي رسالة تُكتب في اللاب (PWA أو TUI على نفس السيرفر)
+  // تتبث فورًا لكل عملاء الموبايل الفاتحين نفس المحادثة.
+  if (event.type === "message.updated") {
+    return { type: event.type, properties: { info: event.properties.info } }
+  }
+  if (event.type === "message.removed") {
+    return { type: event.type, properties: event.properties }
+  }
+  if (event.type === "message.part.updated") {
+    return { type: event.type, properties: event.properties }
+  }
+  if (event.type === "message.part.removed") {
+    return { type: event.type, properties: event.properties }
+  }
+  if (event.type === "session.diff") {
+    return { type: event.type, properties: event.properties }
+  }
+  if (event.type === "session.compacted") {
+    return { type: event.type, properties: event.properties }
+  }
+  return null
+}
+
+app.disable("x-powered-by")
+app.use(express.json({ limit: "2mb" }))
+
+app.use((request, response, next) => {
+  response.setHeader("X-Content-Type-Options", "nosniff")
+  response.setHeader("X-Frame-Options", "DENY")
+  response.setHeader("Referrer-Policy", "no-referrer")
+  response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+  next()
+})
+
+function handleError(error: unknown, response: Response): void {
+  const message = error instanceof Error ? error.message : "Unexpected server error"
+  // لو OpenCode لسه بيقوم أو وقع مؤقتًا رجّع 503 برسالة عربية واضحة بدل 500 مبهم
+  if (!openCodeReady && /ECONNREFUSED|connect|fetch failed|OpenCode/i.test(message)) {
+    openCodeUnavailable(response)
+    return
+  }
+  response.status(500).json({ error: "SERVER_ERROR", message })
+}
+
+// ── ضمان عدم موت الباك إند: حالة اتصال OpenCode + retry تلقائي ──
+let openCodeReady = false
+let openCodeLastError = "جارٍ الاتصال بـ OpenCode…"
+
+function openCodeUnavailable(response: Response): void {
+  response.status(503).json({
+    error: "OPENCODE_UNAVAILABLE",
+    message: `خدمة OpenCode غير متاحة حاليًا (${openCodeLastError}). سيرفر الموبايل شغال وبيعاود المحاولة تلقائيًا — استنى ثواني وحدّث الصفحة.`,
+  })
+}
+
+async function connectWithRetry(): Promise<void> {
+  while (!openCodeReady) {
+    try {
+      await openCode.connect()
+      await openCode.startEvents()
+      openCodeReady = true
+      openCodeLastError = ""
+      console.log("OpenCode connected ✓")
+    } catch (error) {
+      openCodeReady = false
+      openCodeLastError = error instanceof Error ? error.message : String(error)
+      console.error(`OpenCode connect failed: ${openCodeLastError} — الباك على :${config.port} شغال وبيعاود المحاولة بعد 5 ثواني…`)
+      await sleep(5000)
+    }
+  }
+}
+
+function printLanAddresses(port: number): void {
+  try {
+    const nets = networkInterfaces()
+    const ips = new Set<string>()
+    for (const list of Object.values(nets)) {
+      for (const entry of list || []) {
+        if (entry.family === "IPv4" && !entry.internal) {
+          ips.add(entry.address)
+        }
+      }
+    }
+    if (ips.size === 0) {
+      console.log("No LAN IP found — تأكد إن الجهاز على نفس Wi-Fi مع الموبايل")
+      return
+    }
+    console.log("من الموبايل (نفس Wi-Fi) افتح:")
+    for (const ip of ips) {
+      console.log(`  - Dev (Vite):  http://${ip}:5173`)
+      console.log(`  - Prod (بعد build): http://${ip}:${port}`)
+    }
+  } catch {
+    // تجاهل — الطباعة مساعدة فقط
+  }
+}
+
+app.get("/api/health", (_request, response) => {
+  response.json({ ok: true, openCode: openCodeReady ? "connected" : "connecting", error: openCodeReady ? undefined : openCodeLastError })
+})
+
+app.post("/api/login", (request, response) => {
+  const accessToken = typeof request.body?.accessToken === "string" ? request.body.accessToken : ""
+
+  if (!isValidAccessToken(accessToken, config.accessToken)) {
+    response.status(401).json({ error: "INVALID_ACCESS_TOKEN", message: "رمز الوصول غير صحيح" })
+    return
+  }
+
+  setSessionCookie(request, response, config.accessToken)
+  response.json({ ok: true })
+})
+
+app.post("/api/logout", (request, response) => {
+  clearSessionCookie(request, response)
+  response.json({ ok: true })
+})
+
+app.use("/api", requireAuthentication(config.accessToken))
+
+// أي route محتاج OpenCode فعلًا يرجّع 503 واضح بدل ما يموت أو يرمي 500 مبهم.
+// المسموح بدون OpenCode: health/login/logout/config/permission/push/events (الكاش والتوثيق).
+app.use("/api", (request, response, next) => {
+  const path = request.path
+  if (
+    path === "/health"
+    || path === "/login"
+    || path === "/logout"
+    || path === "/config"
+    || path === "/permission"
+    || path === "/events"
+    || path.startsWith("/push/")
+  ) {
+    next()
+    return
+  }
+  if (!openCodeReady) {
+    openCodeUnavailable(response)
+    return
+  }
+  next()
+})
+
+app.get("/api/project", async (_request, response) => {
+  try {
+    const projects = await openCode.projects()
+    response.json({
+      projects: projects.filter((project) => project.worktree !== "/"),
+      selected: await openCode.selectedProject(),
+    })
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.post("/api/project/select", async (request, response) => {
+  try {
+    const worktree = typeof request.body?.worktree === "string" ? request.body.worktree : ""
+    const id = typeof request.body?.id === "string" ? request.body.id : ""
+    const projectKey = worktree || id
+    if (!projectKey) {
+      response.status(400).json({ error: "PROJECT_REQUIRED", message: "اختر مشروعًا" })
+      return
+    }
+    response.json({ project: await openCode.selectProject(projectKey) })
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.get("/api/config", async (_request, response) => {
+  // الـ config لازم يشتغل حتى لو OpenCode لسه بيقوم — يرجّع degraded بدل ما يوقع login
+  if (!openCodeReady) {
+    response.json({
+      openCode: { healthy: false, version: `connecting: ${openCodeLastError}` },
+      push: {
+        enabled: push.enabled,
+        publicKey: push.publicKey ?? null,
+      },
+      secureContext: Boolean(config.tlsCertificatePath),
+    })
+    return
+  }
+  try {
+    const health = await openCode.health()
+    response.json({
+      openCode: health,
+      push: {
+        enabled: push.enabled,
+        publicKey: push.publicKey ?? null,
+      },
+      secureContext: Boolean(config.tlsCertificatePath),
+    })
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.get("/api/session", async (_request, response) => {
+  try {
+    response.json(await openCode.sessions())
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.get("/api/session/:id/summary", async (request, response) => {
+  try {
+    const summary: SessionSummary = await openCode.summary(request.params.id)
+    response.json(summary)
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.post("/api/session", async (request, response) => {
+  try {
+    const title = typeof request.body?.title === "string" ? request.body.title.trim().slice(0, 120) : undefined
+    const mobile = request.body?.mobile === true
+    response.status(201).json(await openCode.createSession(title || undefined, mobile))
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.patch("/api/session/:id", async (request, response) => {
+  try {
+    const title = typeof request.body?.title === "string" ? request.body.title.trim().slice(0, 120) : ""
+    if (!title) {
+      response.status(400).json({ error: "INVALID_TITLE", message: "العنوان مطلوب" })
+      return
+    }
+    response.json(await openCode.updateSession(request.params.id, title))
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.delete("/api/session/:id", async (request, response) => {
+  try {
+    response.json({ deleted: await openCode.deleteSession(request.params.id) })
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.get("/api/session/status", async (_request, response) => {
+  try {
+    response.json(await openCode.statuses())
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.get("/api/activity", async (_request, response) => {
+  try {
+    response.json(await openCode.activity())
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.get("/api/session/:id/message", async (request, response) => {
+  try {
+    response.json(await openCode.messages(request.params.id))
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.get("/api/session/:id/history", async (request, response) => {
+  try {
+    response.json(await openCode.history(request.params.id))
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.post("/api/session/:id/message", async (request, response) => {
+  try {
+    const text = typeof request.body?.text === "string" ? request.body.text.trim() : ""
+    const agent = typeof request.body?.agent === "string" ? request.body.agent.trim().slice(0, 100) : undefined
+    const rawModel = request.body?.model as { providerID?: unknown; modelID?: unknown } | undefined
+    const model = rawModel && typeof rawModel.providerID === "string" && typeof rawModel.modelID === "string"
+      ? { providerID: rawModel.providerID.trim().slice(0, 100), modelID: rawModel.modelID.trim().slice(0, 200) }
+      : undefined
+    if (!text) {
+      response.status(400).json({ error: "EMPTY_MESSAGE", message: "اكتب رسالة أولًا" })
+      return
+    }
+    if (text.length > 20000) {
+      response.status(400).json({ error: "MESSAGE_TOO_LONG", message: "الرسالة طويلة جدًا" })
+      return
+    }
+    await openCode.prompt(request.params.id, text, agent, model && model.providerID && model.modelID ? model : undefined)
+    response.status(202).json({ accepted: true })
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.get("/api/models", async (_request, response) => {
+  try {
+    response.json(await openCode.models())
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.get("/api/session/:id/model", async (request, response) => {
+  try {
+    response.json(await openCode.sessionModel(request.params.id))
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.post("/api/session/:id/model", async (request, response) => {
+  try {
+    const providerID = typeof request.body?.providerID === "string" ? request.body.providerID : ""
+    const modelID = typeof request.body?.modelID === "string" ? request.body.modelID : ""
+    if (!providerID.trim() || !modelID.trim()) {
+      response.status(400).json({ error: "MODEL_REQUIRED", message: "اختر موديلًا" })
+      return
+    }
+    response.json({ model: await openCode.switchSessionModel(request.params.id, providerID, modelID) })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to switch model"
+    const status = /not found/i.test(message) ? 404 : /required/i.test(message) ? 400 : 500
+    response.status(status).json({ error: "MODEL_SWITCH_FAILED", message })
+  }
+})
+
+app.post("/api/session/:id/abort", async (request, response) => {
+  try {
+    response.json({ aborted: await openCode.abort(request.params.id) })
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.get("/api/session/:id/todo", async (request, response) => {
+  try {
+    response.json(await openCode.todos(request.params.id))
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.post("/api/session/:id/question/:requestId/reply", async (request, response) => {
+  try {
+    if (!request.params.requestId.trim()) {
+      response.status(400).json({ error: "QUESTION_REQUIRED", message: "السؤال مطلوب" })
+      return
+    }
+    response.json({ accepted: await openCode.replyQuestion(request.params.id, request.params.requestId, request.body?.answers) })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to reply to question"
+    const status = /not found/i.test(message) ? 404 : /answer|option|select/i.test(message) ? 400 : 500
+    response.status(status).json({ error: "QUESTION_REPLY_FAILED", message })
+  }
+})
+
+app.post("/api/session/:id/question/:requestId/reject", async (request, response) => {
+  try {
+    if (!request.params.requestId.trim()) {
+      response.status(400).json({ error: "QUESTION_REQUIRED", message: "السؤال مطلوب" })
+      return
+    }
+    response.json({ accepted: await openCode.rejectQuestion(request.params.id, request.params.requestId) })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to reject question"
+    const status = /not found/i.test(message) ? 404 : 500
+    response.status(status).json({ error: "QUESTION_REJECT_FAILED", message })
+  }
+})
+
+app.get("/api/session/:id/diff", async (request, response) => {
+  try {
+    response.json(await openCode.diff(request.params.id))
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.get("/api/session/:id/file", async (request, response) => {
+  try {
+    const filePath = typeof request.query.path === "string" ? request.query.path : ""
+    if (!filePath.trim()) {
+      response.status(400).json({ error: "FILE_PATH_REQUIRED", message: "مسار الملف مطلوب" })
+      return
+    }
+    const file = await openCode.readResultFile(request.params.id, filePath)
+    response.setHeader("Content-Type", file.mime)
+    response.setHeader("Content-Length", String(file.size))
+    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`)
+    response.setHeader("Cache-Control", "no-store")
+    response.send(file.content)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "File download failed"
+    const status = /not found/i.test(message) ? 404 : 400
+    response.status(status).json({ error: "FILE_DOWNLOAD_FAILED", message })
+  }
+})
+
+app.get("/api/permission", (_request, response) => {
+  response.json(openCode.permissions())
+})
+
+app.post("/api/session/:id/permission/:permissionId", async (request, response) => {
+  try {
+    const value = request.body?.response
+    if (value !== "once" && value !== "always" && value !== "reject") {
+      response.status(400).json({ error: "INVALID_PERMISSION_RESPONSE", message: "رد الإذن غير صالح" })
+      return
+    }
+    response.json({ accepted: await openCode.replyPermission(request.params.id, request.params.permissionId, value) })
+  } catch (error) {
+    handleError(error, response)
+  }
+})
+
+app.post("/api/push/subscribe", async (request, response) => {
+  try {
+    await push.register(request.body)
+    response.status(201).json({ ok: true })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Push subscription failed"
+    response.status(400).json({ error: "INVALID_SUBSCRIPTION", message })
+  }
+})
+
+app.post("/api/push/test", async (request, response) => {
+  try {
+    await push.test(request.body)
+    response.json({ ok: true })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Push test failed"
+    response.status(400).json({ error: "PUSH_TEST_FAILED", message })
+  }
+})
+
+app.delete("/api/push/subscribe", async (request, response) => {
+  const endpoint = typeof request.body?.endpoint === "string" ? request.body.endpoint : ""
+  await push.unregister(endpoint)
+  response.json({ ok: true })
+})
+
+app.get("/api/events", (request, response) => {
+  response.status(200)
+  response.setHeader("Content-Type", "text/event-stream")
+  response.setHeader("Cache-Control", "no-cache, no-transform")
+  response.setHeader("Connection", "keep-alive")
+  response.setHeader("X-Accel-Buffering", "no")
+  response.flushHeaders()
+  response.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`)
+  eventClients.add(response)
+
+  const heartbeat = setInterval(() => {
+    if (!response.writableEnded) {
+      response.write(": heartbeat\n\n")
+    }
+  }, 25000)
+
+  request.on("close", () => {
+    clearInterval(heartbeat)
+    eventClients.delete(response)
+  })
+})
+
+openCode.onEvent((event) => {
+  push.handleEvent(event)
+  const visibleEvent = clientEvent(event)
+  if (!visibleEvent) {
+    return
+  }
+  const data = `event: opencode\ndata: ${JSON.stringify(visibleEvent)}\n\n`
+  for (const client of eventClients) {
+    if (!client.writableEnded) {
+      client.write(data)
+    }
+  }
+})
+
+const distDirectory = resolve(process.cwd(), "dist")
+if (existsSync(distDirectory)) {
+  app.use(express.static(distDirectory, { index: false }))
+  app.use((request, response, next) => {
+    if (request.method === "GET" && !request.path.startsWith("/api/")) {
+      response.sendFile(join(distDirectory, "index.html"))
+      return
+    }
+    next()
+  })
+}
+
+app.use((error: unknown, _request: Request, response: Response, next: NextFunction) => {
+  void next
+  handleError(error, response)
+})
+
+async function start(): Promise<void> {
+  // push اختيارية — فشلها لا يوقع السيرفر أبدًا
+  try {
+    await push.initialize()
+  } catch (error) {
+    console.error("Push init failed (continuing without push):", error instanceof Error ? error.message : error)
+  }
+
+  const server = config.tlsCertificatePath && config.tlsPrivateKeyPath
+    ? createHttpsServer(
+        {
+          cert: readFileSync(config.tlsCertificatePath),
+          key: readFileSync(config.tlsPrivateKeyPath),
+        },
+        app,
+      )
+    : createHttpServer(app)
+
+  server.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE") {
+      console.error(`Port ${config.port} مشغول — اقفل أي نسخة قديمة من السيرفر أو غيّر APP_PORT في .env`)
+    } else {
+      console.error("Server error:", error.message)
+    }
+  })
+
+  // الأهم: افتح بورت 7171 فورًا قبل أي اتصال بـ OpenCode،
+  // عشان /api/login و /api/health يردّوا دايمًا وVite proxy ميضربش ECONNREFUSED أبدًا.
+  server.listen(config.port, config.host, () => {
+    console.log(`OpenCode Mobile listening on ${config.host}:${config.port}`)
+    console.log(`OpenCode project: ${config.openCode.projectDirectory}`)
+    printLanAddresses(config.port)
+    if (!config.tlsCertificatePath) {
+      console.log("TLS is disabled; Web Push and PWA installation require HTTPS or localhost")
+    }
+  })
+
+  // اتصال OpenCode في الخلفية مع retry للأبد — السيرفر يفضل شغال حتى لو opencode واقع
+  void connectWithRetry()
+
+  const shutdown = (): void => {
+    openCode.close()
+    server.close()
+  }
+  process.once("SIGINT", shutdown)
+  process.once("SIGTERM", shutdown)
+}
+
+void start().catch((error) => {
+  // start نفسها لا ترمي عمليًا (listen + background retry)، لكن لو حصل خطأ قاتل
+  // مثل .env ناقص اطبعه بوضوح بدل موت صامت.
+  console.error(error instanceof Error ? error.message : error)
+  process.exitCode = 1
+})
+
+export { app, openCode, push }

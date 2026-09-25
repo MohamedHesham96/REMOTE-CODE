@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#141a38"/>
+      <stop offset="0.45" stop-color="#1e1b4b"/>
+      <stop offset="0.75" stop-color="#4c1d95"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c2350"/>
+      <stop offset="1" stop-color="#0b1020"/>
+    </linearGradient>
+    <linearGradient id="codeStroke" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#c4b5fd"/>
+      <stop offset="0.5" stop-color="#8b7cff"/>
+      <stop offset="1" stop-color="#38bdf8"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="0.45" stop-color="#ffffff" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="glowViolet" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#8b5cf6" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#8b5cf6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowCyan" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.4"/>
+      <stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="phoneShadow" x="-40%" y="-20%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000000" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <!-- الخلفية -->
+  <rect width="512" height="512" rx="118" fill="url(#bg)"/>
+  <circle cx="130" cy="120" r="150" fill="url(#glowViolet)"/>
+  <circle cx="400" cy="410" r="170" fill="url(#glowCyan)"/>
+
+  <!-- شبكة نقطية خفيفة -->
+  <g fill="#ffffff" opacity="0.09">
+    <circle cx="66" cy="86" r="3"/><circle cx="96" cy="86" r="3"/><circle cx="126" cy="86" r="3"/><circle cx="156" cy="86" r="3"/>
+    <circle cx="66" cy="116" r="3"/><circle cx="96" cy="116" r="3"/><circle cx="126" cy="116" r="3"/><circle cx="156" cy="116" r="3"/>
+    <circle cx="356" cy="396" r="3"/><circle cx="386" cy="396" r="3"/><circle cx="416" cy="396" r="3"/><circle cx="446" cy="396" r="3"/>
+    <circle cx="356" cy="426" r="3"/><circle cx="386" cy="426" r="3"/><circle cx="416" cy="426" r="3"/><circle cx="446" cy="426" r="3"/>
+  </g>
+
+  <!-- مدار خفيف يعبر عن الاتصال المستمر بالموبايل -->
+  <ellipse cx="256" cy="256" rx="192" ry="192" fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="3" stroke-dasharray="3 12" stroke-linecap="round" transform="rotate(-24 256 256)"/>
+
+  <!-- جسم الموبايل -->
+  <g filter="url(#phoneShadow)">
+    <rect x="156" y="76" width="200" height="360" rx="56" fill="#080b18" stroke="#ffffff" stroke-opacity="0.22" stroke-width="2.5"/>
+    <rect x="168" y="90" width="176" height="332" rx="44" fill="url(#screen)" stroke="#ffffff" stroke-opacity="0.08" stroke-width="1.5"/>
+  </g>
+
+  <!-- النوتش -->
+  <rect x="222" y="102" width="68" height="14" rx="7" fill="#000000" opacity="0.85"/>
+  <circle cx="276" cy="109" r="4" fill="#1e293b"/>
+  <circle cx="276" cy="109" r="1.8" fill="#38bdf8" opacity="0.9"/>
+
+  <!-- سطور كود داخل الشاشة -->
+  <g stroke-linecap="round" opacity="0.95">
+    <rect x="188" y="134" width="86" height="10" rx="5" fill="#8b7cff" opacity="0.85"/>
+    <rect x="282" y="134" width="42" height="10" rx="5" fill="#38bdf8" opacity="0.55"/>
+    <rect x="188" y="152" width="136" height="8" rx="4" fill="#ffffff" opacity="0.18"/>
+    <rect x="188" y="168" width="64" height="8" rx="4" fill="#22d3ee" opacity="0.5"/>
+    <rect x="260" y="168" width="64" height="8" rx="4" fill="#ffffff" opacity="0.14"/>
+  </g>
+
+  <!-- فقاعة المحادثة اللي فيها </> -->
+  <g filter="url(#phoneShadow)">
+    <rect x="184" y="196" width="144" height="104" rx="28" fill="#f4f2ff"/>
+    <!-- ديل الفقاعة -->
+    <path d="M216 296 L206 318 L234 298 Z" fill="#f4f2ff"/>
+    <!-- رمز الكود </> -->
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="13">
+      <path d="M232 226 L212 248 L232 270" stroke="#6d5ef0"/>
+      <path d="M280 226 L300 248 L280 270" stroke="#0ea5e9"/>
+      <path d="M266 222 L246 274" stroke="url(#codeStroke)" stroke-width="11"/>
+    </g>
+  </g>
+
+  <!-- نقاط الكتابة -->
+  <g>
+    <rect x="188" y="322" width="96" height="30" rx="15" fill="#ffffff" opacity="0.1"/>
+    <circle cx="208" cy="337" r="5" fill="#8b7cff">
+      <animate attributeName="opacity" values="1;0.3;1" dur="1.2s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="226" cy="337" r="5" fill="#8b7cff" opacity="0.7">
+      <animate attributeName="opacity" values="0.7;1;0.7" dur="1.2s" begin="0.2s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="244" cy="337" r="5" fill="#38bdf8" opacity="0.9">
+      <animate attributeName="opacity" values="0.9;0.3;0.9" dur="1.2s" begin="0.4s" repeatCount="indefinite"/>
+    </circle>
+    <rect x="292" y="328" width="32" height="18" rx="9" fill="#22d3ee" opacity="0.35"/>
+    <path d="M300 332 L310 337 L300 342 Z" fill="#e0f2fe"/>
+  </g>
+
+  <!-- زر الهوم -->
+  <rect x="238" y="396" width="36" height="8" rx="4" fill="#ffffff" opacity="0.25"/>
+
+  <!-- لمعات -->
+  <g stroke="#ffffff" stroke-linecap="round" opacity="0.9">
+    <path d="M108 248 v18 M99 257 h18" stroke-width="5"/>
+  </g>
+  <circle cx="408" cy="168" r="7" fill="#fde047" opacity="0.95"/>
+  <circle cx="112" cy="368" r="6" fill="#ffffff" opacity="0.7"/>
+  <circle cx="392" cy="112" r="4.5" fill="#ffffff" opacity="0.6"/>
+
+  <!-- لمعة زجاجية علوية -->
+  <rect width="512" height="512" rx="118" fill="url(#glass)"/>
+  <rect x="1.5" y="1.5" width="509" height="509" rx="116.5" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="3"/>
+</svg>
