@@ -12,9 +12,9 @@ import {
   getHistory,
   getModels,
   getProjects,
+  getRequests,
   getSessionModel,
   getStatuses,
-  getSummary,
   listPermissions,
   listSessions,
   login,
@@ -30,9 +30,10 @@ import {
   subscribePush,
   unsubscribePush,
 } from "./api"
-import type { ActiveSession, AppConfig, ClientEvent, ConversationQuestionAnswers, ConversationQuestionRequest, HistoryTurn, ModelInfo, Permission, Project, ResultFile, Session, SessionModelRef, SessionStatus, SessionSummary, Todo } from "./types"
+import type { ActiveSession, AppConfig, ClientEvent, ConversationQuestionAnswers, ConversationQuestionRequest, HistoryTurn, ModelInfo, Permission, Project, RequestState, ResultFile, Session, SessionModelRef, SessionRequest, SessionStatus, Todo } from "./types"
 import { isSoundEnabled, playAttentionSound, playCompletionSound, setSoundEnabled, unlockAudio, vibrate } from "./sound"
 import { applyTheme, getSavedTheme, nextTheme, saveTheme, THEMES, THEME_META, type AppTheme } from "./theme"
+import { applyLanguage, getSavedLanguage, getStrings, localeOf, saveLanguage, type Language, type Strings } from "./i18n"
 
 type AuthState = "loading" | "signedOut" | "signedIn"
 type ToastKind = "info" | "success" | "error"
@@ -55,22 +56,42 @@ const emptyConfig: AppConfig = {
   secureContext: false,
 }
 
-function formatTime(value: number | undefined): string {
+function themeLabel(value: AppTheme, t: Strings): string {
+  if (value === "glass") {
+    return t.themeLight
+  }
+  if (value === "hacker") {
+    return t.themeHacker
+  }
+  return t.themeDark
+}
+
+function themeDescription(value: AppTheme, t: Strings): string {
+  if (value === "glass") {
+    return t.themeLightDesc
+  }
+  if (value === "hacker") {
+    return t.themeHackerDesc
+  }
+  return t.themeDarkDesc
+}
+
+function formatTime(value: number | undefined, lang: Language): string {
   if (!value) {
     return ""
   }
-  return new Intl.DateTimeFormat("ar-EG", { hour: "2-digit", minute: "2-digit" }).format(new Date(value))
+  return new Intl.DateTimeFormat(localeOf(lang), { hour: "2-digit", minute: "2-digit" }).format(new Date(value))
 }
 
-function formatDate(value: number): string {
-  return new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "short" }).format(new Date(value))
+function formatDate(value: number, lang: Language): string {
+  return new Intl.DateTimeFormat(localeOf(lang), { day: "numeric", month: "short" }).format(new Date(value))
 }
 
-function formatDateTime(value: number | undefined): string {
+function formatDateTime(value: number | undefined, lang: Language): string {
   if (!value) {
     return ""
   }
-  return new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(value))
+  return new Intl.DateTimeFormat(localeOf(lang), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(value))
 }
 
 function projectName(project: Project): string {
@@ -86,31 +107,31 @@ function samePath(left: string | undefined | null, right: string | undefined | n
   return normalize(left) === normalize(right)
 }
 
-function statusLabel(status: SessionStatus | undefined): string {
+function statusLabel(status: SessionStatus | undefined, t: Strings): string {
   if (!status) {
-    return "جاهز"
+    return t.statusReady
   }
   if (status.type === "busy") {
-    return "يعمل الآن"
+    return t.statusBusy
   }
   if (status.type === "retry") {
-    return "إعادة المحاولة"
+    return t.statusRetry
   }
-  return "جاهز"
+  return t.statusReady
 }
 
 function sessionMatches(sessions: Session[], id: string | null): Session | undefined {
   return id ? sessions.find((session) => session.id === id) : undefined
 }
 
-function displayTitle(title: string | undefined | null): string {
+function displayTitle(title: string | undefined | null, t: Strings): string {
   const clean = (title || "").replace(/\s*\(mobile\)\s*$/i, "").trim()
-  return clean || "محادثة جديدة"
+  return clean || t.newConversation
 }
 
-function modelLabel(ref: SessionModelRef | null | undefined): string {
+function modelLabel(ref: SessionModelRef | null | undefined, t: Strings): string {
   if (!ref) {
-    return "الموديل الافتراضي"
+    return t.defaultModel
   }
   return `${ref.providerID}/${ref.modelID}`
 }
@@ -128,6 +149,7 @@ function ModelPicker({
   onSelect,
   onRefresh,
   onClose,
+  t,
 }: {
   models: ModelInfo[]
   loading: boolean
@@ -137,6 +159,7 @@ function ModelPicker({
   onSelect: (model: ModelInfo) => void
   onRefresh: () => void
   onClose: () => void
+  t: Strings
 }) {
   const [query, setQuery] = useState("")
   // الموجودين في opencode فقط + المتاح (enabled) + free فقط — القائمة حية من السيرفر
@@ -155,24 +178,24 @@ function ModelPicker({
     <div className="drawer-backdrop" onClick={onClose}>
       <aside className="drawer model-drawer" onClick={(event) => event.stopPropagation()}>
         <div className="drawer-header">
-          <div><div className="eyebrow">الموديل الحالي: {modelLabel(current)}</div><h2>اختر موديل مجاني 🆓</h2></div>
-          <button className="icon-button" onClick={onClose} aria-label="إغلاق">×</button>
+          <div><div className="eyebrow">{t.currentModel}: {modelLabel(current, t)}</div><h2>{t.chooseFreeModel} 🆓</h2></div>
+          <button className="icon-button" onClick={onClose} aria-label={t.close}>×</button>
         </div>
         <div className="model-toolbar">
           <input
             className="model-search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="ابحث في المتاح من opencode…"
-            aria-label="بحث عن موديل"
+            placeholder={t.searchModelsPlaceholder}
+            aria-label={t.searchModelsAria}
           />
-          <button className="icon-button" onClick={onRefresh} aria-label="تحديث القائمة" title="تحديث من opencode" disabled={loading}>↻</button>
+          <button className="icon-button" onClick={onRefresh} aria-label={t.refreshList} title={t.refreshFromOpencode} disabled={loading}>↻</button>
         </div>
-        <div className="model-count">{loading ? "جارٍ التحديث من opencode…" : `المتاح الآن في opencode: ${freeOnly.length} موديل مجاني`}</div>
+        <div className="model-count">{loading ? t.updatingFromOpencode : `${t.availableNow}: ${freeOnly.length} ${t.freeModels}`}</div>
         {loading && freeOnly.length === 0 ? (
-          <div className="picker-loading"><span className="loader" /> جارٍ تحميل الموديلات من opencode…</div>
+          <div className="picker-loading"><span className="loader" /> {t.loadingModels}</div>
         ) : filtered.length === 0 ? (
-          <div className="empty-state">لا توجد موديلات مجانية متاحة حاليًا في opencode.</div>
+          <div className="empty-state">{t.noFreeModels}</div>
         ) : (
           <div className="model-list">
             {filtered.map((model) => {
@@ -192,7 +215,7 @@ function ModelPicker({
                   </span>
                   <span className="model-card-side">
                     <span className="free-badge">FREE 🆓</span>
-                    {isCurrent ? <span className="current-badge">الحالي ✓</span> : null}
+                    {isCurrent ? <span className="current-badge">{t.current} ✓</span> : null}
                     {isSwitching ? <span className="loader small" /> : null}
                   </span>
                 </button>
@@ -200,92 +223,123 @@ function ModelPicker({
             })}
           </div>
         )}
-        <div className="model-footnote">القائمة حية من opencode — بتتغير حسب الـ providers والموديلات المتاحة عندك. بنعرض المجاني (تكلفة صفر) فقط.</div>
+        <div className="model-footnote">{t.modelListLive}</div>
       </aside>
     </div>
   )
 }
 
-function isSummaryEmpty(candidate: SessionSummary | null): boolean {
-  if (!candidate) {
-    return true
-  }
-  const hasPrompt = Boolean(candidate.prompt?.trim())
-  const hasResult = Boolean(candidate.finalResult?.trim())
-  const hasTodos = (candidate.todos?.length || 0) > 0 || (candidate.totalTodos || 0) > 0
-  const hasQuestions = (candidate.questions?.length || 0) > 0
-  const hasFiles = (candidate.resultFiles?.length || 0) > 0
-  return !hasPrompt && !hasResult && !hasTodos && !hasQuestions && !hasFiles
+function isRequestsEmpty(candidate: SessionRequest[] | null): boolean {
+  return !candidate || candidate.length === 0
 }
 
-function ActiveSessionsPanel({ items, activeId, jumpingId, onJump, onClose }: {
+function ActiveSessionsPanel({ items, recent, graceLeft, activeId, jumpingId, onJump, onClose, t, lang }: {
   items: ActiveSession[]
+  recent: ActiveSession[]
+  graceLeft: (id: string) => number
   activeId: string | null
   jumpingId: string | null
   onJump: (item: ActiveSession) => void
   onClose: () => void
+  t: Strings
+  lang: Language
 }) {
   // تجميع المحادثات النشطة حسب المشروع — كل المشاريع في مكان واحد
-  const grouped = useMemo(() => {
+  const groupByProject = useCallback((list: ActiveSession[]) => {
     const map = new Map<string, ActiveSession[]>()
-    for (const item of items) {
-      const list = map.get(item.projectName) || []
-      list.push(item)
-      map.set(item.projectName, list)
+    for (const item of list) {
+      const bucket = map.get(item.projectName) || []
+      bucket.push(item)
+      map.set(item.projectName, bucket)
     }
     return [...map.entries()].sort((a, b) => b[1].length - a[1].length)
-  }, [items])
+  }, [])
+
+  const grouped = useMemo(() => groupByProject(items), [groupByProject, items])
+  const recentGrouped = useMemo(() => groupByProject(recent), [groupByProject, recent])
+
+  const renderRow = (item: ActiveSession, working: boolean) => {
+    const isCurrent = item.id === activeId
+    const left = graceLeft(item.id)
+    const body = (
+      <>
+        {working ? <span className="working-spinner" aria-hidden /> : <span className="status-dot" aria-hidden />}
+        <span className="activity-row-body">
+          <strong>{displayTitle(item.title, t)}</strong>
+          <small>
+            {working ? statusLabel(item.status, t) : t.activeRecently}
+            {' · '}
+            {formatDateTime(item.updatedAt, lang)}
+            {!working && left > 0 ? <> · <span className="session-grace-timer">{formatCountdown(left)}</span></> : null}
+          </small>
+        </span>
+        {isCurrent ? <span className="current-badge">{t.currentBadge} ✓</span> : null}
+      </>
+    )
+    if (isCurrent) {
+      return <div className={`activity-row ${working ? "" : "activity-row-recent"}`} key={item.id}>{body}</div>
+    }
+    return (
+      <button
+        type="button"
+        className={`activity-row activity-row-tap ${working ? "" : "activity-row-recent"}`}
+        key={item.id}
+        disabled={jumpingId !== null}
+        onClick={() => onJump(item)}
+      >
+        {body}
+      </button>
+    )
+  }
+
+  const renderProjectGroups = (entries: [string, ActiveSession[]][], working: boolean) => entries.map(([projectName, group]) => (
+    <section className="activity-group" key={projectName}>
+      <div className="activity-group-header">
+        <span className="activity-group-icon" aria-hidden>📁</span>
+        <strong>{projectName}</strong>
+        <span className="activity-group-count">{group.length}</span>
+      </div>
+      {group.map((item) => renderRow(item, working))}
+    </section>
+  ))
+
+  const empty = items.length === 0 && recent.length === 0
 
   return (
     <div className="drawer-backdrop" onClick={onClose}>
       <aside className="drawer activity-drawer" onClick={(event) => event.stopPropagation()}>
         <div className="drawer-header">
           <div>
-            <div className="eyebrow">⚡ شغال الآن · {items.length > 0 ? `${items.length} ${items.length === 1 ? "محادثة" : "محادثات"}` : "لا يوجد"} · كل المشاريع</div>
-            <h2>المحادثات النشطة</h2>
+            <div className="eyebrow">⚡ {t.activeNow} · {items.length > 0 ? `${items.length} ${items.length === 1 ? t.conversation : t.conversations}` : t.none} · {t.allProjects}</div>
+            <h2>{t.activeConversations}</h2>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="إغلاق">×</button>
+          <button className="icon-button" onClick={onClose} aria-label={t.close}>×</button>
         </div>
-        {items.length === 0 ? (
-          <div className="empty-state">مفيش أي محادثة شغالة حاليًا في أي مشروع.<br />أول ما OpenCode يبدأ شغل هتظهر هنا.</div>
+        {empty ? (
+          <div className="empty-state">{t.noActiveConversations}</div>
         ) : (
           <div className="activity-groups">
-            {grouped.map(([projectName, group]) => (
-              <section className="activity-group" key={projectName}>
-                <div className="activity-group-header">
-                  <span className="activity-group-icon" aria-hidden>📁</span>
-                  <strong>{projectName}</strong>
-                  <span className="activity-group-count">{group.length}</span>
+            {grouped.length > 0 ? (
+              <div className="activity-section" aria-label={t.activeNow}>
+                <div className="activity-section-header">
+                  <strong><span aria-hidden>⚡</span> {t.activeNow}</strong>
+                  <span className="activity-section-count" aria-label={`${items.length} ${t.conversations}`}>{items.length}</span>
                 </div>
-                {group.map((item) => {
-                  const isCurrent = item.id === activeId
-                  const isJumping = jumpingId === item.id
-                  return (
-                    <div className="activity-row" key={item.id}>
-                      <span className="working-spinner" aria-hidden />
-                      <span className="activity-row-body">
-                        <strong>{displayTitle(item.title)}</strong>
-                        <small>{statusLabel(item.status)} · {formatDateTime(item.updatedAt)}</small>
-                      </span>
-                      {isCurrent ? (
-                        <span className="current-badge">الحالية ✓</span>
-                      ) : (
-                        <button
-                          className="button button-secondary"
-                          disabled={jumpingId !== null}
-                          onClick={() => onJump(item)}
-                        >
-                          {isJumping ? "جارٍ الفتح…" : "انتقال ←"}
-                        </button>
-                      )}
-                    </div>
-                  )
-                })}
-              </section>
-            ))}
+                {renderProjectGroups(grouped, true)}
+              </div>
+            ) : null}
+            {recentGrouped.length > 0 ? (
+              <div className="activity-section" aria-label={t.recentlyActiveConversations}>
+                <div className="activity-section-header">
+                  <strong><span aria-hidden>⏳</span> {t.activeRecently}</strong>
+                  <span className="activity-section-count" aria-label={`${recent.length} ${t.conversations}`}>{recent.length}</span>
+                </div>
+                {renderProjectGroups(recentGrouped, false)}
+              </div>
+            ) : null}
           </div>
         )}
-        <div className="model-footnote">القائمة حية — بتتحدث كل ٤ ثواني وبتشمل كل المشاريع تحت مجلد العمل.</div>
+        <div className="model-footnote">{t.activityLiveNote}</div>
       </aside>
     </div>
   )
@@ -299,6 +353,8 @@ function HistoryPanel({
   onClose,
   onCopy,
   onRetry,
+  t,
+  lang,
 }: {
   turns: HistoryTurn[]
   loading: boolean
@@ -307,6 +363,8 @@ function HistoryPanel({
   onClose: () => void
   onCopy: (text: string) => void
   onRetry: () => void
+  t: Strings
+  lang: Language
 }) {
   const [query, setQuery] = useState("")
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -338,29 +396,29 @@ function HistoryPanel({
       <aside className="drawer history-drawer" onClick={(event) => event.stopPropagation()}>
         <div className="drawer-header">
           <div>
-            <div className="eyebrow">سجل المحادثة · {turns.length > 0 ? `${turns.length} ${turns.length === 1 ? "رسالة" : "رسائل"}` : "لا يوجد بعد"}</div>
-            <h2>النتائج والكلام القديم 🕘</h2>
+            <div className="eyebrow">{t.conversationLog} · {turns.length > 0 ? `${turns.length} ${turns.length === 1 ? t.message : t.messages}` : t.historyEyebrowNone}</div>
+            <h2>{t.historyTitle} 🕘</h2>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="إغلاق">×</button>
+          <button className="icon-button" onClick={onClose} aria-label={t.close}>×</button>
         </div>
         <div className="history-toolbar">
           <input
             className="history-search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="ابحث في الأسئلة أو النتائج القديمة…"
-            aria-label="بحث في السجل"
+            placeholder={t.historySearchPlaceholder}
+            aria-label={t.historySearchAria}
           />
-          {query ? <button className="icon-button" onClick={() => setQuery("")} aria-label="مسح البحث">×</button> : null}
+          {query ? <button className="icon-button" onClick={() => setQuery("")} aria-label={t.clearSearch}>×</button> : null}
         </div>
         {loading ? (
-          <div className="picker-loading"><span className="loader" /> جارٍ تحميل السجل المنظم…</div>
+          <div className="picker-loading"><span className="loader" /> {t.loadingHistory}</div>
         ) : error ? (
-          <div className="empty-state">{error}<br /><button className="button button-secondary" onClick={onRetry}>إعادة المحاولة</button></div>
+          <div className="empty-state">{error}<br /><button className="button button-secondary" onClick={onRetry}>{t.retry}</button></div>
         ) : turns.length === 0 ? (
-          <div className="empty-state">لسه مفيش كلام قديم في المحادثة دي.<br />ابعت أول سؤال وهيتحفظ هنا بشكل منظم.</div>
+          <div className="empty-state">{t.noHistoryYet}</div>
         ) : filtered.length === 0 ? (
-          <div className="empty-state">لا توجد نتائج مطابقة لـ «{query}».<br />جرّب كلمة تانية.</div>
+          <div className="empty-state">{t.noMatchFor} «{query}».<br />{t.tryAnotherWord}</div>
         ) : (
           <div className="history-list">
             {filtered.map((turn) => {
@@ -372,34 +430,34 @@ function HistoryPanel({
                 <article className="history-card" key={turn.id}>
                   <div className="history-card-top">
                     <span className="history-index">#{turn.index}</span>
-                    <span className="history-date">{formatDateTime(turn.createdAt)}</span>
-                    {turn.steps > 0 ? <span className="history-steps">⚙️ {turn.steps} {turn.steps === 1 ? "خطوة" : "خطوات"}</span> : null}
+                    <span className="history-date">{formatDateTime(turn.createdAt, lang)}</span>
+                    {turn.steps > 0 ? <span className="history-steps">⚙️ {turn.steps} {turn.steps === 1 ? t.step : t.steps}</span> : null}
                   </div>
                   <div className="history-block history-question">
-                    <div className="history-label">💬 سؤالك</div>
+                    <div className="history-label">💬 {t.yourQuestion}</div>
                     <p>{turn.prompt || "—"}</p>
-                    <button className="history-copy" onClick={() => onCopy(turn.prompt)}>نسخ السؤال</button>
+                    <button className="history-copy" onClick={() => onCopy(turn.prompt)}>{t.copyQuestion}</button>
                   </div>
                   <div className="history-block history-answer">
-                    <div className="history-label">✅ النتيجة النهائية</div>
+                    <div className="history-label">✅ {t.finalResult}</div>
                     {result ? (
                       <>
                         <div className="history-result-text">{visibleResult}</div>
                         <div className="history-actions">
                           {isLong ? (
                             <button className="history-copy" onClick={() => toggleExpanded(turn.id)}>
-                              {isOpen ? "عرض أقل ↑" : "عرض كامل ↓"}
+                              {isOpen ? `${t.showLess} ↑` : `${t.showMore} ↓`}
                             </button>
                           ) : null}
-                          <button className="history-copy" onClick={() => onCopy(turn.finalResult)}>نسخ النتيجة</button>
+                          <button className="history-copy" onClick={() => onCopy(turn.finalResult)}>{t.copyResult}</button>
                         </div>
                       </>
                     ) : (
-                      <div className="result-pending">لسه مفيش نتيجة نهائية للسؤال ده.</div>
+                      <div className="result-pending">{t.noFinalResultYet}</div>
                     )}
                     {sessionId && turn.files.length > 0 ? (
                       <div className="history-files">
-                        <div className="history-label">📎 ملفات ({turn.files.length})</div>
+                        <div className="history-label">📎 {t.files} ({turn.files.length})</div>
                         {turn.files.map((file) => (
                           <a
                             key={file.id}
@@ -419,13 +477,13 @@ function HistoryPanel({
             })}
           </div>
         )}
-        <div className="model-footnote">السجل مرتب من الأحدث للأقدم — كل سؤال مع نتيجته النهائية وملفاته في كارت واحد واضح.</div>
+        <div className="model-footnote">{t.historyNote}</div>
       </aside>
     </div>
   )
 }
 
-function PermissionCard({ permission, onReply }: { permission: Permission; onReply: (value: "once" | "always" | "reject") => void }) {
+function PermissionCard({ permission, onReply, t }: { permission: Permission; onReply: (value: "once" | "always" | "reject") => void; t: Strings }) {
   const [working, setWorking] = useState(false)
   const reply = async (value: "once" | "always" | "reject") => {
     setWorking(true)
@@ -439,13 +497,13 @@ function PermissionCard({ permission, onReply }: { permission: Permission; onRep
     <div className="permission-card">
       <div className="permission-icon">!</div>
       <div className="permission-content">
-        <strong>طلب إذن من OpenCode</strong>
+        <strong>{t.permissionRequest}</strong>
         <p>{permission.title}</p>
         {permission.pattern ? <code>{Array.isArray(permission.pattern) ? permission.pattern.join("، ") : permission.pattern}</code> : null}
         <div className="permission-actions">
-          <button className="button button-primary" disabled={working} onClick={() => void reply("once")}>سمح مرة واحدة</button>
-          <button className="button button-secondary" disabled={working} onClick={() => void reply("always")}>سمح دائمًا</button>
-          <button className="button button-ghost" disabled={working} onClick={() => void reply("reject")}>رفض</button>
+          <button className="button button-primary" disabled={working} onClick={() => void reply("once")}>{t.allowOnce}</button>
+          <button className="button button-secondary" disabled={working} onClick={() => void reply("always")}>{t.allowAlways}</button>
+          <button className="button button-ghost" disabled={working} onClick={() => void reply("reject")}>{t.reject}</button>
         </div>
       </div>
     </div>
@@ -453,6 +511,17 @@ function PermissionCard({ permission, onReply }: { permission: Permission; onRep
 }
 
 const RECENT_PROJECTS_KEY = "opencode.recentProjects"
+
+// مهلة النشاط: بعد ما المحادثة تخلص شغل بتفضل في "المحادثات النشطة" ٥ دقايق
+// وبعدين لوحدها بتنتقل لـ "غير النشطة" (من غير ما تحتاج تعمل refresh).
+const ACTIVE_GRACE_MS = 5 * 60 * 1000
+
+function formatCountdown(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000))
+  const minutes = Math.floor(total / 60)
+  const seconds = total % 60
+  return `${minutes}:${String(seconds).padStart(2, "0")}`
+}
 
 function loadRecentProjects(): string[] {
   try {
@@ -471,7 +540,7 @@ function normalizeProjectPath(path: string): string {
   return path.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase()
 }
 
-function useSortedProjects(projects: Project[], query: string, selectedId: string | undefined, recentPaths: string[]): Project[] {
+function useSortedProjects(projects: Project[], query: string, selectedId: string | undefined, recentPaths: string[], lang: Language): Project[] {
   const recentOrder = useMemo(() => {
     const order = new Map<string, number>()
     recentPaths.forEach((path, index) => order.set(normalizeProjectPath(path), index))
@@ -494,21 +563,22 @@ function useSortedProjects(projects: Project[], query: string, selectedId: strin
       if (aRecent !== bRecent) {
         return aRecent - bRecent
       }
-      return projectName(a).localeCompare(projectName(b), "ar")
+      return projectName(a).localeCompare(projectName(b), localeOf(lang))
     })
-  }, [projects, query, selectedId, recentOrder])
+  }, [projects, query, selectedId, recentOrder, lang])
 
   return sorted
 }
 
-function ProjectOptionRows({ items, selectedId, switchingKey, onSelect }: {
+function ProjectOptionRows({ items, selectedId, switchingKey, onSelect, t }: {
   items: Project[]
   selectedId?: string
   switchingKey: string | null
   onSelect: (project: Project) => void
+  t: Strings
 }) {
   return (
-    <div className="project-listbox" role="listbox" aria-label="المشاريع">
+    <div className="project-listbox" role="listbox" aria-label={t.projects}>
       {items.map((project) => {
         const key = `${project.id}:${project.worktree}`
         const isCurrent = samePath(project.worktree, selectedId)
@@ -528,7 +598,7 @@ function ProjectOptionRows({ items, selectedId, switchingKey, onSelect }: {
               <small dir="ltr">{project.worktree}</small>
             </span>
             <span className="project-option-badges">
-              {isCurrent ? <span className="current-badge">الحالي</span> : null}
+              {isCurrent ? <span className="current-badge">{t.current}</span> : null}
               {isSwitching ? <span className="loader small" /> : null}
             </span>
           </button>
@@ -539,19 +609,21 @@ function ProjectOptionRows({ items, selectedId, switchingKey, onSelect }: {
 }
 
 // Dropdown سريع لتبديل المشاريع: زر يعرض الحالي + قائمة منسدلة ببحث فوري
-function ProjectDropdown({ projects, selectedId, switchingKey, recentPaths, onSelect, variant }: {
+function ProjectDropdown({ projects, selectedId, switchingKey, recentPaths, onSelect, variant, t, lang }: {
   projects: Project[]
   selectedId?: string
   switchingKey: string | null
   recentPaths: string[]
   onSelect: (project: Project) => void
   variant: "sidebar" | "compact"
+  t: Strings
+  lang: Language
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const boxRef = useRef<HTMLDivElement | null>(null)
   const searchRef = useRef<HTMLInputElement | null>(null)
-  const sorted = useSortedProjects(projects, query, selectedId, recentPaths)
+  const sorted = useSortedProjects(projects, query, selectedId, recentPaths, lang)
   const selected = projects.find((project) => samePath(project.worktree, selectedId)) ?? null
 
   useEffect(() => {
@@ -600,7 +672,7 @@ function ProjectDropdown({ projects, selectedId, switchingKey, recentPaths, onSe
     onSelect(project)
   }
 
-  const label = switchingKey ? "جارٍ الفتح…" : selected ? projectName(selected) : "اختر المشروع"
+  const label = switchingKey ? t.opening : selected ? projectName(selected) : t.chooseProject
 
   if (variant === "compact") {
     return (
@@ -610,7 +682,7 @@ function ProjectDropdown({ projects, selectedId, switchingKey, recentPaths, onSe
           onClick={toggle}
           aria-haspopup="listbox"
           aria-expanded={open}
-          title="دوس للتبديل بين المشاريع"
+          title={t.switchProjectsTitle}
           disabled={switchingKey !== null}
         >
           <span aria-hidden>📁</span>
@@ -624,15 +696,15 @@ function ProjectDropdown({ projects, selectedId, switchingKey, recentPaths, onSe
               className="project-search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="ابحث باسم المشروع…"
-              aria-label="بحث عن مشروع"
+              placeholder={t.searchProjectPlaceholder}
+              aria-label={t.searchProjectAria}
             />
             {projects.length === 0 ? (
-              <div className="empty-state">لم يتم العثور على مشاريع.</div>
+              <div className="empty-state">{t.noProjectsFound}</div>
             ) : sorted.length === 0 ? (
-              <div className="empty-state">لا توجد نتائج لـ «{query}».</div>
+              <div className="empty-state">{t.noResultsFor} «{query}».</div>
             ) : (
-              <ProjectOptionRows items={sorted} selectedId={selectedId} switchingKey={switchingKey} onSelect={pick} />
+              <ProjectOptionRows items={sorted} selectedId={selectedId} switchingKey={switchingKey} onSelect={pick} t={t} />
             )}
           </div>
         ) : null}
@@ -647,11 +719,11 @@ function ProjectDropdown({ projects, selectedId, switchingKey, recentPaths, onSe
         onClick={toggle}
         aria-haspopup="listbox"
         aria-expanded={open}
-        title="دوس للتبديل بين المشاريع"
+        title={t.switchProjectsTitle}
         disabled={switchingKey !== null}
       >
         <span className="project-switch-icon">📁</span>
-        <span><small>المشروع الحالي · تبديل</small><strong>{label}</strong></span>
+        <span><small>{t.currentProject} · {t.switch}</small><strong>{label}</strong></span>
         <span aria-hidden>{open ? "⌃" : "⌄"}</span>
       </button>
       {open ? (
@@ -662,16 +734,16 @@ function ProjectDropdown({ projects, selectedId, switchingKey, recentPaths, onSe
               className="project-search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="ابحث باسم المشروع…"
-              aria-label="بحث عن مشروع"
+              placeholder={t.searchProjectPlaceholder}
+              aria-label={t.searchProjectAria}
             />
           ) : null}
           {projects.length === 0 ? (
-            <div className="empty-state">لم يتم العثور على مشاريع. افتح مشروعًا من OpenCode أولًا.</div>
+            <div className="empty-state">{t.openProjectFirst}</div>
           ) : sorted.length === 0 ? (
-            <div className="empty-state">لا توجد نتائج لـ «{query}».</div>
+            <div className="empty-state">{t.noResultsFor} «{query}».</div>
           ) : (
-            <ProjectOptionRows items={sorted} selectedId={selectedId} switchingKey={switchingKey} onSelect={pick} />
+            <ProjectOptionRows items={sorted} selectedId={selectedId} switchingKey={switchingKey} onSelect={pick} t={t} />
           )}
         </div>
       ) : null}
@@ -679,49 +751,51 @@ function ProjectDropdown({ projects, selectedId, switchingKey, recentPaths, onSe
   )
 }
 
-function ProjectPicker({ projects, selectedId, switchingKey, recentPaths, onSelect, onCancel }: {
+function ProjectPicker({ projects, selectedId, switchingKey, recentPaths, onSelect, onCancel, t, lang }: {
   projects: Project[]
   selectedId?: string
   switchingKey: string | null
   recentPaths: string[]
   onSelect: (project: Project) => void
   onCancel?: () => void
+  t: Strings
+  lang: Language
 }) {
   const [query, setQuery] = useState("")
-  const sorted = useSortedProjects(projects, query, selectedId, recentPaths)
+  const sorted = useSortedProjects(projects, query, selectedId, recentPaths, lang)
   return (
     <main className="project-screen">
       <div className="project-picker">
         <div className="project-picker-header">
           <div className="brand-mark"><img src="/icon.svg" alt="OpenCode" /></div>
           <div className="eyebrow">OpenCode Mobile</div>
-          <h1>اختر المشروع</h1>
-          <p>اختار من القائمة — الأحدث استخدامًا بيظهر الأول.</p>
+          <h1>{t.chooseProject}</h1>
+          <p>{t.chooseFromList}</p>
         </div>
         <div className="project-dropdown-standalone">
           <input
             className="project-search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="ابحث باسم المشروع…"
-            aria-label="بحث عن مشروع"
+            placeholder={t.searchProjectPlaceholder}
+            aria-label={t.searchProjectAria}
           />
           {projects.length === 0 ? (
-            <div className="empty-state">لم يتم العثور على مشاريع. افتح مشروعًا من OpenCode أولًا.</div>
+            <div className="empty-state">{t.openProjectFirst}</div>
           ) : sorted.length === 0 ? (
-            <div className="empty-state">لا توجد نتائج لـ «{query}».</div>
+            <div className="empty-state">{t.noResultsFor} «{query}».</div>
           ) : (
-            <ProjectOptionRows items={sorted} selectedId={selectedId} switchingKey={switchingKey} onSelect={onSelect} />
+            <ProjectOptionRows items={sorted} selectedId={selectedId} switchingKey={switchingKey} onSelect={onSelect} t={t} />
           )}
         </div>
-        {switchingKey ? <div className="picker-loading"><span className="loader" /> جارٍ فتح المشروع…</div> : null}
-        {onCancel ? <button className="button button-ghost" onClick={onCancel}>رجوع</button> : null}
+        {switchingKey ? <div className="picker-loading"><span className="loader" /> {t.openingProject}</div> : null}
+        {onCancel ? <button className="button button-ghost" onClick={onCancel}>{t.back}</button> : null}
       </div>
     </main>
   )
 }
 
-function ResultFilesList({ files, sessionId, onToast }: { files: ResultFile[]; sessionId: string; onToast: (message: string, kind?: ToastKind) => void }) {
+function ResultFilesList({ files, sessionId, onToast, t }: { files: ResultFile[]; sessionId: string; onToast: (message: string, kind?: ToastKind) => void; t: Strings }) {
   const [busyId, setBusyId] = useState<string | null>(null)
   const canShare = typeof navigator.share === "function"
 
@@ -733,9 +807,9 @@ function ResultFilesList({ files, sessionId, onToast }: { files: ResultFile[]; s
     setBusyId(file.id)
     try {
       await downloadResultFile(sessionId, file)
-      onToast(`بدأ تحميل ${file.name} على الموبايل`, "success")
+      onToast(`${t.downloadStartedOnPhone}: ${file.name}`, "success")
     } catch (error: unknown) {
-      onToast(error instanceof Error ? error.message : "تعذر تحميل الملف", "error")
+      onToast(error instanceof Error ? error.message : t.downloadFailed, "error")
     } finally {
       setBusyId(null)
     }
@@ -746,7 +820,7 @@ function ResultFilesList({ files, sessionId, onToast }: { files: ResultFile[]; s
     try {
       const shared = await shareResultFile(sessionId, file)
       if (shared) {
-        onToast("تمت مشاركة الملف", "success")
+        onToast(t.fileShared, "success")
       } else {
         await handleDownload(file)
       }
@@ -754,7 +828,7 @@ function ResultFilesList({ files, sessionId, onToast }: { files: ResultFile[]; s
       if (error instanceof Error && /abort|cancel/i.test(error.message)) {
         return
       }
-      onToast(error instanceof Error ? error.message : "تعذر مشاركة الملف", "error")
+      onToast(error instanceof Error ? error.message : t.shareFailed, "error")
     } finally {
       setBusyId(null)
     }
@@ -762,7 +836,7 @@ function ResultFilesList({ files, sessionId, onToast }: { files: ResultFile[]; s
 
   return (
     <div className="result-files">
-      <div className="final-result-label">ملفات النتيجة النهائية ({files.length})</div>
+      <div className="final-result-label">{t.resultFilesTitle} ({files.length})</div>
       <div className="result-files-list">
         {files.map((file) => (
           <div className="result-file-item" key={file.id}>
@@ -778,35 +852,35 @@ function ResultFilesList({ files, sessionId, onToast }: { files: ResultFile[]; s
                 download={file.name}
                 rel="noopener"
               >
-                فتح
+                {t.open}
               </a>
               <button
                 className="button button-primary"
                 disabled={busyId === file.id}
                 onClick={() => void handleDownload(file)}
               >
-                {busyId === file.id ? "…" : "تحميل"}
+                {busyId === file.id ? "…" : t.download}
               </button>
               {canShare ? (
                 <button
                   className="button button-ghost"
                   disabled={busyId === file.id}
                   onClick={() => void handleShare(file)}
-                  aria-label={`مشاركة ${file.name}`}
+                  aria-label={`${t.share} ${file.name}`}
                 >
-                  مشاركة
+                  {t.share}
                 </button>
               ) : null}
             </span>
           </div>
         ))}
       </div>
-      <div className="result-files-hint">التحميل يعمل مباشرة على الموبايل، والمشاركة ترسل الملف لأي تطبيق (واتساب، تلجرام، Drive).</div>
+      <div className="result-files-hint">{t.resultFilesHint}</div>
     </div>
   )
 }
 
-function QuestionCard({ request, sessionId, onAnswered, onToast }: { request: ConversationQuestionRequest; sessionId: string; onAnswered: () => void; onToast: (message: string, kind?: ToastKind) => void }) {
+function QuestionCard({ request, sessionId, onAnswered, onToast, t }: { request: ConversationQuestionRequest; sessionId: string; onAnswered: () => void; onToast: (message: string, kind?: ToastKind) => void; t: Strings }) {
   const [answers, setAnswers] = useState<ConversationQuestionAnswers>(() => request.questions.map(() => []))
   const [customDrafts, setCustomDrafts] = useState<string[]>(() => request.questions.map(() => ""))
   const [working, setWorking] = useState<"reply" | "reject" | null>(null)
@@ -866,12 +940,12 @@ function QuestionCard({ request, sessionId, onAnswered, onToast }: { request: Co
     try {
       const result = await replyQuestion(sessionId, request.id, payload)
       if (!result.accepted) {
-        throw new Error("تعذر إرسال الرد")
+        throw new Error(t.replyFailed)
       }
-      onToast("تم إرسال اختيارك إلى OpenCode", "success")
+      onToast(t.choiceSent, "success")
       onAnswered()
     } catch (replyError: unknown) {
-      setError(replyError instanceof Error ? replyError.message : "تعذر إرسال الرد")
+      setError(replyError instanceof Error ? replyError.message : t.replyFailed)
     } finally {
       setWorking(null)
     }
@@ -886,12 +960,12 @@ function QuestionCard({ request, sessionId, onAnswered, onToast }: { request: Co
     try {
       const result = await rejectQuestion(sessionId, request.id)
       if (!result.accepted) {
-        throw new Error("تعذر رفض السؤال")
+        throw new Error(t.rejectFailed)
       }
-      onToast("تم رفض السؤال", "info")
+      onToast(t.questionRejected, "info")
       onAnswered()
     } catch (rejectError: unknown) {
-      setError(rejectError instanceof Error ? rejectError.message : "تعذر رفض السؤال")
+      setError(rejectError instanceof Error ? rejectError.message : t.rejectFailed)
     } finally {
       setWorking(null)
     }
@@ -900,14 +974,14 @@ function QuestionCard({ request, sessionId, onAnswered, onToast }: { request: Co
   return (
     <div className="question-card">
       <div className="question-card-top">
-        <div><div className="eyebrow">سؤال من OpenCode</div><h3>اختر قبل المتابعة</h3></div>
-        <span className="question-count">{request.questions.length > 1 ? `${request.questions.length} أسئلة` : "سؤال واحد"}</span>
+        <div><div className="eyebrow">{t.questionFromOpencode}</div><h3>{t.chooseBeforeContinue}</h3></div>
+        <span className="question-count">{request.questions.length > 1 ? `${request.questions.length} ${t.questionsCount}` : t.oneQuestion}</span>
       </div>
       {request.questions.map((question, questionIndex) => (
         <div className="question-block" key={`${request.id}:${questionIndex}`}>
           <div className="question-header">{question.header}</div>
           <p className="question-text">{question.question}</p>
-          {question.multiple ? <div className="question-hint">يمكن اختيار أكثر من خيار</div> : null}
+          {question.multiple ? <div className="question-hint">{t.multiChoiceHint}</div> : null}
           <div className="question-options">
             {question.options.map((option) => {
               const selected = answers[questionIndex]?.includes(option.label) || false
@@ -927,47 +1001,47 @@ function QuestionCard({ request, sessionId, onAnswered, onToast }: { request: Co
             })}
           </div>
           {question.custom ? (
-            <label className="question-custom"><span>إجابة مخصصة</span><input value={customDrafts[questionIndex] || ""} onChange={(event) => updateCustomDraft(questionIndex, event.target.value)} placeholder="اكتب إجابتك…" disabled={Boolean(working)} /></label>
+            <label className="question-custom"><span>{t.customAnswer}</span><input value={customDrafts[questionIndex] || ""} onChange={(event) => updateCustomDraft(questionIndex, event.target.value)} placeholder={t.customAnswerPlaceholder} disabled={Boolean(working)} /></label>
           ) : null}
-          {question.options.length === 0 && !question.custom ? <div className="empty-state">لا توجد خيارات متاحة.</div> : null}
+          {question.options.length === 0 && !question.custom ? <div className="empty-state">{t.noOptions}</div> : null}
         </div>
       ))}
       {error ? <div className="form-error">{error}</div> : null}
       <div className="question-actions">
-        <button className="button button-primary" disabled={!canReply || Boolean(working)} onClick={() => void submitReply()}>{working === "reply" ? "جارٍ الإرسال…" : "إرسال الاختيار"}</button>
-        <button className="button button-ghost" disabled={Boolean(working)} onClick={() => void submitReject()}>{working === "reject" ? "جارٍ الرفض…" : "رفض السؤال"}</button>
+        <button className="button button-primary" disabled={!canReply || Boolean(working)} onClick={() => void submitReply()}>{working === "reply" ? t.sending : t.sendChoice}</button>
+        <button className="button button-ghost" disabled={Boolean(working)} onClick={() => void submitReject()}>{working === "reject" ? t.rejecting : t.rejectQuestion}</button>
       </div>
     </div>
   )
 }
 
-function todoPresentation(status: string): { className: string; label: string; mark: string } {
+function todoPresentation(status: string, t: Strings): { className: string; label: string; mark: string } {
   const normalized = status.toLowerCase().replace(/-/g, "_")
   if (normalized === "completed") {
-    return { className: "todo-completed", label: "مكتملة", mark: "✓" }
+    return { className: "todo-completed", label: t.todoCompleted, mark: "✓" }
   }
   if (normalized === "in_progress") {
-    return { className: "todo-in_progress", label: "قيد التنفيذ", mark: "◐" }
+    return { className: "todo-in_progress", label: t.todoInProgress, mark: "◐" }
   }
   if (normalized === "cancelled") {
-    return { className: "todo-cancelled", label: "ملغاة", mark: "×" }
+    return { className: "todo-cancelled", label: t.todoCancelled, mark: "×" }
   }
-  return { className: "todo-pending", label: "متبقية", mark: "○" }
+  return { className: "todo-pending", label: t.todoPending, mark: "○" }
 }
 
-function TodoList({ todos }: { todos: Todo[] }) {
+function TodoList({ todos, t }: { todos: Todo[]; t: Strings }) {
   if (todos.length === 0) {
     return null
   }
   return (
     <div className="todo-panel">
       <div className="todo-panel-header">
-        <div className="section-title">خطة التنفيذ <span>({todos.length})</span></div>
-        <span className="todo-updated-label">تتحدث تلقائيًا</span>
+        <div className="section-title">{t.planTitle} <span>({todos.length})</span></div>
+        <span className="todo-updated-label">{t.planAutoUpdate}</span>
       </div>
       <div className="todo-list">
         {todos.map((todo) => {
-          const presentation = todoPresentation(todo.status)
+          const presentation = todoPresentation(todo.status, t)
           return (
             <div className={`todo-item ${presentation.className}`} key={todo.id}>
               <span className="todo-mark" aria-hidden>{presentation.mark}</span>
@@ -981,21 +1055,21 @@ function TodoList({ todos }: { todos: Todo[] }) {
   )
 }
 
-function formatElapsed(since: number | undefined, now: number = Date.now()): string {
+function formatElapsed(since: number | undefined, t: Strings, now: number = Date.now()): string {
   if (!since) {
     return ""
   }
   const seconds = Math.max(0, Math.floor((now - since) / 1000))
   if (seconds < 60) {
-    return `${seconds} ث`
+    return `${seconds} ${t.secondsShort}`
   }
   const minutes = Math.floor(seconds / 60)
   const rest = seconds % 60
-  return rest > 0 ? `${minutes} د ${rest} ث` : `${minutes} د`
+  return rest > 0 ? `${minutes} ${t.minutesShort} ${rest} ${t.secondsShort}` : `${minutes} ${t.minutesShort}`
 }
 
 // عدّاد محلي كل ثانية عشان وقت المهمة يمشي حتى لو الـ poll اتأخر
-// أو التبويب اتخنق (throttle) — قبل كده الوقت كان بيتحدث فقط مع كل refreshSummary.
+// أو التبويب اتخنق (throttle) — قبل كده الوقت كان بيتحدث فقط مع كل refreshRequests.
 function useNowTick(active: boolean): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -1008,46 +1082,169 @@ function useNowTick(active: boolean): number {
   return now
 }
 
-function TaskSummary({ summary, sessionId, busy, onCopy, onToast }: { summary: SessionSummary | null; sessionId: string | null; busy: boolean; onCopy: (text: string) => void; onToast: (message: string, kind?: ToastKind) => void }) {
-  const now = useNowTick(busy && Boolean(summary))
-  if (!summary) {
-    return null
-  }
-  const hasTodos = summary.totalTodos > 0
-  const progress = hasTodos ? Math.round((summary.completedTodos / summary.totalTodos) * 100) : 0
-  const steps = summary.stepsCompleted ?? 0
-  const elapsed = busy ? formatElapsed(summary.startedAt, now) : ""
+interface ActivitySeenEntry {
+  at: number
+  item: ActiveSession
+}
+
+// ذاكرة نشاط قائمة "المحادثات النشطة": آخر لحظة ظهرت فيها كل محادثة وآخر بيانات معروفة عنها.
+// لازم تكون في App مش في اللوحة نفسها، عشان لما تفتح اللوحة تلاقي اللي اشتغل من شوية لسه معروض.
+function useActivityGrace(items: ActiveSession[], graceMs: number, ticking: boolean) {
+  const [seen, setSeen] = useState<Record<string, ActivitySeenEntry>>({})
+  const live = useMemo(() => new Set(items.map((item) => item.id)), [items])
+
+  // بيتنادى مع كل poll للنشاط: نعرف آخر بيانات كل محادثة، ونسيب اللي خرج من القائمة
+  // لسه في مهلة الـ ٥ دقايق، ونضف اللي عدّت مهلته.
+  const track = useCallback((next: ActiveSession[], stamp: number) => {
+    setSeen((current) => {
+      const result: Record<string, ActivitySeenEntry> = {}
+      const nextIds = new Set<string>()
+      for (const item of next) {
+        nextIds.add(item.id)
+        result[item.id] = { at: stamp, item }
+      }
+      for (const [id, entry] of Object.entries(current)) {
+        if (nextIds.has(id) || stamp - entry.at >= graceMs) {
+          continue
+        }
+        result[id] = entry
+      }
+      return result
+    })
+  }, [graceMs])
+
+  const pending = useMemo(() => Object.keys(seen).some((id) => !live.has(id)), [seen, live])
+  // العدّاد بيوقف لو اللوحة مقفولة — نضف القديم مع كل poll وحنا كده
+  const nowTick = useNowTick(pending && ticking)
+
+  // المحادثات اللي خرجت من "نشط دلوقتي" بس لسه في مهلة الـ ٥ دقايق
+  const recent = useMemo(() => Object.values(seen)
+    .filter((entry) => !live.has(entry.item.id) && nowTick - entry.at < graceMs)
+    .map((entry) => entry.item)
+    .sort((left, right) => right.updatedAt - left.updatedAt), [seen, live, nowTick, graceMs])
+
+  const graceLeft = useCallback((id: string) => {
+    const entry = seen[id]
+    if (entry === undefined || live.has(id)) {
+      return 0
+    }
+    return graceMs - (nowTick - entry.at)
+  }, [seen, live, nowTick, graceMs])
+
+  return { track, recent, graceLeft }
+}
+
+const REQUEST_STATE_LABEL: Record<RequestState, keyof Strings> = {
+  queued: "inQueue",
+  running: "running",
+  done: "ready",
+  stopped: "stopped",
+}
+
+const REQUEST_STATE_TITLE: Record<RequestState, keyof Strings> = {
+  queued: "taskQueued",
+  running: "taskRunning",
+  done: "taskFinished",
+  stopped: "taskStopped",
+}
+
+// كل طلب في المحادثة بيتعرض كسطر واحد جوه كارت واحد، زي قائمة المهام.
+const REQUEST_STATE_ROW: Record<RequestState, string> = {
+  queued: "request-row-queued",
+  running: "request-row-running",
+  done: "request-row-done",
+  stopped: "request-row-stopped",
+}
+
+const REQUEST_STATE_MARK: Record<RequestState, string> = {
+  queued: "⋯",
+  running: "◐",
+  done: "✓",
+  stopped: "×",
+}
+
+function RequestRow({ request, expanded, onToggle, sessionId, onCopy, onToast, t, lang }: { request: SessionRequest; expanded: boolean; onToggle: () => void; sessionId: string | null; onCopy: (text: string) => void; onToast: (message: string, kind?: ToastKind) => void; t: Strings; lang: Language }) {
+  const running = request.state === "running"
+  const now = useNowTick(running && expanded)
+  const hasTodos = request.totalTodos > 0
+  const progress = hasTodos ? Math.round((request.completedTodos / request.totalTodos) * 100) : 0
+  const steps = request.stepsCompleted ?? 0
+  const elapsed = running ? formatElapsed(request.startedAt, t, now) : ""
   return (
-    <section className={`task-summary ${busy ? "task-running" : "task-finished"}`}>
-      <div className="task-summary-top">
-        <div><div className="eyebrow">حالة المهمة</div><h2>{busy ? "OpenCode يعمل الآن" : "انتهت المهمة"}</h2></div>
-        <span className="task-summary-state">{busy ? "قيد التنفيذ" : "جاهزة"}</span>
-      </div>
-      {summary.prompt ? <div className="task-request"><span>طلبك</span><p>{summary.prompt}</p></div> : null}
-      <div className="task-activity"><span className="activity-pulse" />{summary.activity || (busy ? "OpenCode يعمل على المهمة" : "لا يوجد نشاط جديد")}</div>
-      {hasTodos ? (
-        <>
-          <div className="progress-track"><span style={{ width: `${Math.min(progress, 100)}%` }} /></div>
-          <div className="task-stats"><span>{summary.completedTodos}/{summary.totalTodos} خطوة مكتملة</span><span>{summary.updatedAt ? formatTime(summary.updatedAt) : ""}</span></div>
-        </>
-      ) : busy ? (
-        <>
-          <div className="progress-track indeterminate" aria-label="جارٍ التنفيذ" />
-          <div className="live-stats">
-            <span className="live-stat">⚙️ {summary.activeTool || "يجهّز الأدوات…"}</span>
-            {steps > 0 ? <span className="live-stat">✅ {steps} {steps === 1 ? "خطوة منفذة" : "خطوات منفذة"}</span> : null}
-            {elapsed ? <span className="live-stat live-time">⏱️ {elapsed}</span> : null}
+    <li className={`request-row ${REQUEST_STATE_ROW[request.state]}${expanded ? " is-open" : ""}`}>
+      <button type="button" className="request-row-head" onClick={onToggle} aria-expanded={expanded}>
+        <span className="request-row-mark" aria-hidden>{REQUEST_STATE_MARK[request.state]}</span>
+        <span className="request-row-index">{t.requestNumber} {request.index}</span>
+        <span className="request-row-prompt">{request.prompt || t.yourRequest}</span>
+        <span className="request-row-state">{t[REQUEST_STATE_LABEL[request.state]]}</span>
+        <span className="request-row-caret" aria-hidden>{expanded ? "▾" : "▸"}</span>
+      </button>
+      {expanded ? (
+        <div className="request-row-body">
+          <div className="task-activity">
+            <span className="activity-pulse" />
+            {request.activity || (running ? t.workingOnTask : t.noNewActivity)}
           </div>
-        </>
-      ) : steps > 0 ? (
-        <div className="live-stats finished">
-          {steps > 0 ? <span className="live-stat">✅ {steps} {steps === 1 ? "خطوة منفذة" : "خطوات منفذة"}</span> : null}
+          {hasTodos ? (
+            <>
+              <div className="progress-track"><span style={{ width: `${Math.min(progress, 100)}%` }} /></div>
+              <div className="task-stats"><span>{request.completedTodos}/{request.totalTodos} {t.completedStepsOf}</span><span>{request.updatedAt ? formatTime(request.updatedAt, lang) : ""}</span></div>
+            </>
+          ) : running ? (
+            <>
+              <div className="progress-track indeterminate" aria-label={t.running} />
+              <div className="live-stats">
+                <span className="live-stat">⚙️ {request.activeTool || t.preparingTools}</span>
+                {steps > 0 ? <span className="live-stat">✅ {steps} {steps === 1 ? t.executedStep : t.executedSteps}</span> : null}
+                {elapsed ? <span className="live-stat live-time">⏱️ {elapsed}</span> : null}
+              </div>
+            </>
+          ) : steps > 0 ? (
+            <div className="live-stats finished">
+              <span className="live-stat">✅ {steps} {steps === 1 ? t.executedStep : t.executedSteps}</span>
+            </div>
+          ) : null}
+          <TodoList todos={request.todos} t={t} />
+          {request.finalResult ? <div className="final-result"><div className="final-result-label">{t.finalResult}</div><div className="final-result-text">{request.finalResult}</div><button className="copy-result" onClick={() => onCopy(request.finalResult)}>{t.copyResult}</button></div> : running ? <div className="result-pending">{t.resultWillAppear}</div> : null}
+          {sessionId && request.resultFiles.length > 0 ? <ResultFilesList files={request.resultFiles} sessionId={sessionId} onToast={onToast} t={t} /> : null}
+          {sessionId && !running && request.resultFiles.length === 0 && request.finalResult ? <div className="result-files-hint">{t.noResultFileHint}</div> : null}
         </div>
       ) : null}
-      <TodoList todos={summary.todos} />
-      {summary.finalResult ? <div className="final-result"><div className="final-result-label">النتيجة النهائية</div><div className="final-result-text">{summary.finalResult}</div><button className="copy-result" onClick={() => onCopy(summary.finalResult)}>نسخ النتيجة</button></div> : busy ? <div className="result-pending">ستظهر النتيجة النهائية هنا فور انتهاء المهمة.</div> : null}
-      {sessionId && summary.resultFiles && summary.resultFiles.length > 0 ? <ResultFilesList files={summary.resultFiles} sessionId={sessionId} onToast={onToast} /> : null}
-      {sessionId && !busy && (!summary.resultFiles || summary.resultFiles.length === 0) && summary.finalResult ? <div className="result-files-hint">لو المهمة أنتجت ملفًا سيظهر هنا للتحميل على الموبايل.</div> : null}
+    </li>
+  )
+}
+
+// كارت واحد للمحادثة كلها: كل الطلبات قائمة جواه، والطلب الأخير هو المفتوح.
+function RequestCard({ requests, sessionId, onCopy, onToast, t, lang }: { requests: SessionRequest[]; sessionId: string | null; onCopy: (text: string) => void; onToast: (message: string, kind?: ToastKind) => void; t: Strings; lang: Language }) {
+  const [openId, setOpenId] = useState<string | null>(null)
+  const latest = requests[requests.length - 1]
+  // الطلب الشغّال هو المفتوح افتراضيًا؛ بعد ما يخلص آخر طلب هو اللي يفضل مفتوح.
+  const activeId = requests.find((request) => request.state === "running") || latest
+  const expandedId = openId && requests.some((request) => request.id === openId) ? openId : activeId ? activeId.id : null
+  return (
+    <section className={`task-summary task-${latest ? latest.state : "done"}`}>
+      <div className="task-summary-top">
+        <div>
+          <div className="eyebrow">{t.taskStatus} · {t.requestsInSession} {requests.length}</div>
+          <h2>{latest ? t[REQUEST_STATE_TITLE[latest.state]] : t.taskFinished}</h2>
+        </div>
+        <span className="task-summary-state">{latest ? t[REQUEST_STATE_LABEL[latest.state]] : t.ready}</span>
+      </div>
+      <ul className="request-list">
+        {requests.map((request) => (
+          <RequestRow
+            key={request.id}
+            request={request}
+            expanded={request.id === expandedId}
+            onToggle={() => setOpenId(request.id === expandedId ? null : request.id)}
+            sessionId={sessionId}
+            onCopy={onCopy}
+            onToast={onToast}
+            t={t}
+            lang={lang}
+          />
+        ))}
+      </ul>
     </section>
   )
 }
@@ -1065,8 +1262,13 @@ function App() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const activeIdRef = useRef<string | null>(null)
-  const [summary, setSummary] = useState<SessionSummary | null>(null)
+  // طلبات المحادثة بالترتيب: الأقدم فوق والأحدث تحت — بتتعرض كلها في كارت واحد
+  const [requests, setRequests] = useState<SessionRequest[]>([])
+  const [requestQuestions, setRequestQuestions] = useState<ConversationQuestionRequest[]>([])
   const [statuses, setStatuses] = useState<Record<string, SessionStatus>>({})
+  // آخر لحظة شُوهدت فيها كل محادثة "بتشتغل" — بتتحكم في مهلة الـ ٥ دقايق
+  // اللي بتفضل فيها في قسم "المحادثات النشطة" بعد ما تخلص.
+  const [lastActiveAt, setLastActiveAt] = useState<Record<string, number>>({})
   const [permissions, setPermissions] = useState<Permission[]>([])
   const [composer, setComposer] = useState("")
   const [loading, setLoading] = useState(false)
@@ -1083,6 +1285,10 @@ function App() {
   const [renamingTitle, setRenamingTitle] = useState(false)
   const [soundOn, setSoundOn] = useState<boolean>(() => isSoundEnabled())
   const [theme, setTheme] = useState<AppTheme>(() => getSavedTheme())
+  const [lang, setLang] = useState<Language>(() => getSavedLanguage())
+  const t = getStrings(lang)
+  const langRef = useRef<Language>(lang)
+  langRef.current = lang
   const [models, setModels] = useState<ModelInfo[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
   const [currentModel, setCurrentModel] = useState<SessionModelRef | null>(null)
@@ -1101,25 +1307,84 @@ function App() {
   const prevStatusesRef = useRef<Record<string, SessionStatus>>({})
   // الجلسات اللي المستخدم وقفها بنفسه — منطلعش لها toast إتمام لما تبقى idle
   const abortedRef = useRef<Set<string>>(new Set())
-  // لما تبعت سؤال جديد: نخفي خطة السؤال اللي قبله لحد ما المهمة الجديدة تعمل خطتها
-  const planClearedRef = useRef<Record<string, boolean>>({})
-  // عدّاد الأدوات المنفذة للسؤال الحالي فقط (بنطرح قيمة لحظة الإرسال من الرقم التراكمي بتاع السيرفر)
-  const stepsBaselineRef = useRef<Record<string, number>>({})
-  const serverStepsRef = useRef<Record<string, number>>({})
-  // النتيجة النهائية القديمة مستخبية لحد ما السيرفر يرجع نتيجة مختلفة (بتاعة السؤال الجديد)
-  const resultHiddenRef = useRef<Record<string, string>>({})
+  // عدّاد تسلسلي بيرفض ردود قديمة لو رجعت بترتيب غلط
+  const requestsSeq = useRef(0)
+  const localRequestId = useRef(0)
   const sessionsRef = useRef<Session[]>([])
   sessionsRef.current = sessions
-  // Throttle للتحديثات اللحظية عالية التكرار (message.part.updated بييجي مع كل توكن)
-  const liveSummaryTimer = useRef<number | null>(null)
-  const liveSessionsTimer = useRef<number | null>(null)
+  const workspaceScrollRef = useRef<HTMLDivElement | null>(null)
   const showHistoryRef = useRef(false)
   showHistoryRef.current = showHistory
 
   const activeSession = useMemo(() => sessionMatches(sessions, activeId), [sessions, activeId])
-  const activeTitle = displayTitle(activeSession?.title)
+  const activeTitle = displayTitle(activeSession?.title, t)
   const activeStatus = activeId ? statuses[activeId] : undefined
   const isBusy = activeStatus?.type === "busy" || activeStatus?.type === "retry"
+  const isSessionWorking = useCallback((id: string) => {
+    const status = statuses[id]
+    return status?.type === "busy" || status?.type === "retry"
+  }, [statuses])
+
+  // في طلبات مستنية في الطابور؟ لو أيوه لازم نفضل نحدّث لحد ما تخلص كلها
+  const hasQueuedRequests = useMemo(() => requests.some((request) => request.state === "queued"), [requests])
+
+  // سجّل/جدّد وقت آخر نشاط لكل محادثة شغالة، ونضّف اللي عدّت مهلتهم.
+  const rememberActive = useCallback((next: Record<string, SessionStatus>) => {
+    const stamp = Date.now()
+    setLastActiveAt((current) => {
+      let result = current
+      for (const [id, at] of Object.entries(current)) {
+        if (stamp - at >= ACTIVE_GRACE_MS) {
+          if (result === current) {
+            result = { ...current }
+          }
+          delete result[id]
+        }
+      }
+      for (const [id, status] of Object.entries(next)) {
+        if (status.type !== "busy" && status.type !== "retry") {
+          continue
+        }
+        if (result[id] === undefined || stamp - result[id] >= ACTIVE_GRACE_MS) {
+          if (result === current) {
+            result = { ...current }
+          }
+          result[id] = stamp
+        }
+      }
+      return result
+    })
+  }, [])
+
+  // عدّاد كل ثانية طول ما فيه محادثات في مهلة النشاط، عشان تختفي في معادها بالظبط
+  const gracePending = useMemo(
+    () => Object.values(lastActiveAt).some((at) => Date.now() - at < ACTIVE_GRACE_MS),
+    [lastActiveAt],
+  )
+  const nowTick = useNowTick(gracePending)
+
+  // محادثة "نشطة" = شغالة دلوقتي، أو اشتغلت في آخر ٥ دقايق
+  const isSessionActive = useCallback((id: string) => {
+    if (isSessionWorking(id)) {
+      return true
+    }
+    const at = lastActiveAt[id]
+    return at !== undefined && nowTick - at < ACTIVE_GRACE_MS
+  }, [isSessionWorking, lastActiveAt, nowTick])
+
+  const activeGraceLeft = useCallback((id: string) => {
+    const at = lastActiveAt[id]
+    if (at === undefined || isSessionWorking(id)) {
+      return 0
+    }
+    return ACTIVE_GRACE_MS - (nowTick - at)
+  }, [isSessionWorking, lastActiveAt, nowTick])
+
+  const sidebarActiveSessions = useMemo(() => sessions.filter((session) => isSessionActive(session.id)), [sessions, isSessionActive])
+  const sidebarInactiveSessions = useMemo(() => sessions.filter((session) => !isSessionActive(session.id)), [sessions, isSessionActive])
+
+  // في لوحة "المحادثات النشطة": اللي شغالة دلوقتي، واللي كانت نشطة في آخر ٥ دقايق
+  const { track: trackActivity, recent: activityRecent, graceLeft: activityGraceLeft } = useActivityGrace(activity, ACTIVE_GRACE_MS, showActivity)
 
   const addToast = useCallback((message: string, kind: ToastKind = "info") => {
     const id = ++toastId.current
@@ -1131,9 +1396,9 @@ function App() {
     playCompletionSound()
     vibrate([180, 100, 180, 100, 320])
     const match = sessionsRef.current.find((session) => session.id === sessionId)
-    const name = match ? displayTitle(match.title) : "المهمة"
-    addToast(`خلصت ✅ ${name} — افتح وشوف النتيجة`, "success")
-  }, [addToast])
+    const name = match ? displayTitle(match.title, t) : t.taskStatus
+    addToast(`${t.taskCompletedOpen} ✅ ${name}`, "success")
+  }, [addToast, t])
 
   const notifyAttention = useCallback((message: string) => {
     playAttentionSound()
@@ -1159,6 +1424,15 @@ function App() {
     saveTheme(theme)
   }, [theme])
 
+  useEffect(() => {
+    applyLanguage(lang)
+    saveLanguage(lang)
+  }, [lang])
+
+  const toggleLanguage = useCallback(() => {
+    setLang((current) => (current === "ar" ? "en" : "ar"))
+  }, [])
+
   const toggleTheme = () => {
     setTheme((current) => nextTheme(current))
   }
@@ -1182,59 +1456,46 @@ function App() {
     prevStatusesRef.current = statuses
   }, [statuses, notifyCompletion])
 
-  const refreshSummary = useCallback(async (id = activeIdRef.current) => {
+  const refreshRequests = useCallback(async (id = activeIdRef.current) => {
     if (!id) {
-      setSummary(null)
+      requestsSeq.current += 1
+      setRequests([])
+      setRequestQuestions([])
       return
     }
-    const [nextSummary, nextPermissions] = await Promise.all([getSummary(id), listPermissions()])
-    if (activeIdRef.current !== id) {
+    const ticket = ++requestsSeq.current
+    const [next, nextPermissions] = await Promise.all([getRequests(id, langRef.current), listPermissions()])
+    // رد قديم وصل بعد رد أحدث — اتجاهله عشان الكارتات ماتقفش بترتيب غلط
+    if (activeIdRef.current !== id || ticket !== requestsSeq.current) {
       return
     }
-    serverStepsRef.current[id] = nextSummary.stepsCompleted ?? 0
-    const clearedPlan = planClearedRef.current[id] === true
-    const stepsBaseline = stepsBaselineRef.current[id] ?? 0
-    // النتيجة النهائية للسؤال اللي قبله مستخبية — اظهرها بس لما توصل نتيجة جديدة مختلفة
-    let finalResult = nextSummary.finalResult
-    if (id in resultHiddenRef.current) {
-      if (finalResult === resultHiddenRef.current[id]) {
-        finalResult = ""
-      } else {
-        delete resultHiddenRef.current[id]
-      }
-    }
-    setSummary({
-      ...nextSummary,
-      finalResult,
-      // الخطة القديمة اتمسحت عند إرسال سؤال جديد — متظهرهاش لحد ما تيجي خطة جديدة
-      todos: clearedPlan ? [] : nextSummary.todos,
-      completedTodos: clearedPlan ? 0 : nextSummary.completedTodos,
-      totalTodos: clearedPlan ? 0 : nextSummary.totalTodos,
-      // عدّاد الأدوات للسؤال الحالي بس (السيرفر بيرجع تراكمي لكل الجلسة)
-      stepsCompleted: Math.max(0, (nextSummary.stepsCompleted ?? 0) - stepsBaseline),
-    })
-    setStatuses((current) => ({ ...current, [id]: nextSummary.status }))
+    setRequests(next.requests)
+    setRequestQuestions(next.questions)
+    setStatuses((current) => ({ ...current, [id]: next.status }))
+    rememberActive({ [id]: next.status })
     setPermissions(nextPermissions)
-  }, [])
+  }, [rememberActive])
 
   const refreshStatuses = useCallback(async () => {
     try {
       const nextStatuses = await getStatuses()
       setStatuses(nextStatuses)
+      rememberActive(nextStatuses)
     } catch {
       // Keep last known statuses when the poll fails (offline / reconnecting).
     }
-  }, [])
+  }, [rememberActive])
 
   // المحادثات الشغالة في كل المشاريع — بتتحدث مع نفس poll الحالات
   const refreshActivity = useCallback(async () => {
     try {
-      const items = await getActivity()
+      const items = await getActivity(langRef.current)
       setActivity(items)
+      trackActivity(items, Date.now())
     } catch {
       // Keep last known activity when the poll fails (offline / reconnecting).
     }
-  }, [])
+  }, [trackActivity])
 
   const refreshSessions = useCallback(async () => {
     const [nextSessions, nextStatuses] = await Promise.all([
@@ -1245,6 +1506,7 @@ function App() {
     setSessions(sorted)
     if (nextStatuses) {
       setStatuses(nextStatuses)
+      rememberActive(nextStatuses)
     }
     setActiveId((current) => {
       // لو في مسودة جديدة (null) نحافظ عليها ومنرجعش لأول جلسة تلقائيًا
@@ -1256,7 +1518,7 @@ function App() {
       activeIdRef.current = next
       return next
     })
-  }, [])
+  }, [rememberActive])
 
   const openProject = useCallback(async (project: Project, targetSessionId?: string) => {
     // لو دايس على الحالي خلاص — مفيش داعي للتحميل
@@ -1290,19 +1552,19 @@ function App() {
         : sorted[0]?.id || null
       setSessions(sorted)
       setStatuses(nextStatuses)
+      rememberActive(nextStatuses)
       setActiveId(nextActive)
       activeIdRef.current = nextActive
-      setSummary(null)
       setComposer("")
       setShowSessions(false)
-      addToast(`اتنقلت لـ ${projectName(result.project)} ✅`, "success")
-      await refreshSummary(nextActive)
+      addToast(`${t.movedTo} ${projectName(result.project)} ✅`, "success")
+      await refreshRequests(nextActive)
     } catch (error: unknown) {
-      addToast(error instanceof Error ? error.message : "تعذر فتح المشروع", "error")
+      addToast(error instanceof Error ? error.message : t.openProjectFailed, "error")
     } finally {
       setSwitchingProject(null)
     }
-  }, [addToast, refreshSummary, selectedProject])
+  }, [addToast, refreshRequests, rememberActive, selectedProject, t])
 
   const enterApp = useCallback(async () => {
     const [nextConfig, projectResponse] = await Promise.all([getConfig(), getProjects()])
@@ -1325,21 +1587,21 @@ function App() {
         if (error instanceof ApiError && error.status === 401) {
           setAuthState("signedOut")
         } else {
-          setLoginError(error instanceof Error ? error.message : "تعذر الاتصال بالخادم")
+          setLoginError(error instanceof Error ? error.message : t.serverUnreachable)
           setAuthState("signedOut")
         }
       })
     return () => {
       mounted = false
     }
-  }, [enterApp])
+  }, [enterApp, t])
 
   useEffect(() => {
     activeIdRef.current = activeId
     if (authState === "signedIn" && activeId) {
-      void refreshSummary(activeId).catch((error: unknown) => addToast(error instanceof Error ? error.message : "تعذر تحميل المهمة", "error"))
+      void refreshRequests(activeId).catch((error: unknown) => addToast(error instanceof Error ? error.message : t.summaryLoadFailed, "error"))
     }
-  }, [activeId, authState, addToast, refreshSummary])
+  }, [activeId, authState, addToast, refreshRequests, t])
 
   // القائمة حية من opencode نفسه — بتتغير حسب المتاح فعلًا (نعيد تحميلها مع كل مشروع/فتح للقائمة)
   const loadModels = useCallback(async (silent = false) => {
@@ -1351,14 +1613,14 @@ function App() {
       setModels(list)
     } catch (error: unknown) {
       if (!silent) {
-        addToast(error instanceof Error ? error.message : "تعذر تحميل الموديلات", "error")
+        addToast(error instanceof Error ? error.message : t.modelsLoadFailed, "error")
       }
     } finally {
       if (!silent) {
         setModelsLoading(false)
       }
     }
-  }, [addToast])
+  }, [addToast, t])
 
   // تحميل قائمة الموديلات (free فقط في العرض) بعد الدخول واختيار المشروع
   useEffect(() => {
@@ -1385,7 +1647,7 @@ function App() {
     setHistoryLoading(true)
     setHistoryError("")
     try {
-      const turns = await getHistory(id)
+      const turns = await getHistory(id, langRef.current)
       if (activeIdRef.current !== id) {
         return
       }
@@ -1394,13 +1656,13 @@ function App() {
       if (activeIdRef.current !== id) {
         return
       }
-      setHistoryError(error instanceof Error ? error.message : "تعذر تحميل السجل")
+      setHistoryError(error instanceof Error ? error.message : t.historyLoadFailed)
     } finally {
       if (activeIdRef.current === id) {
         setHistoryLoading(false)
       }
     }
-  }, [])
+  }, [t])
 
   // تحميل سجل المحادثة المنظم كل ما تفتح الدرج أو تتبدل الجلسة
   useEffect(() => {
@@ -1408,6 +1670,21 @@ function App() {
       void loadHistory()
     }
   }, [showHistory, activeId, authState, loadHistory])
+
+  // عند تبديل اللغة: إعادة تحميل النصوص القادمة من الخادم باللغة الجديدة
+  useEffect(() => {
+    if (authState !== "signedIn") {
+      return
+    }
+    const id = activeIdRef.current
+    if (id) {
+      void refreshRequests(id).catch(() => undefined)
+    }
+    void refreshActivity()
+    if (showHistoryRef.current && id) {
+      void loadHistory()
+    }
+  }, [lang, authState, refreshRequests, refreshActivity, loadHistory])
 
   // تحميل الموديل الحالي للجلسة النشطة
   useEffect(() => {
@@ -1426,18 +1703,28 @@ function App() {
   }, [activeId, authState])
 
   useEffect(() => {
-    document.title = authState === "signedIn" && selectedProject ? activeTitle : "OpenCode Mobile"
-  }, [activeTitle, authState, selectedProject])
+    document.title = authState === "signedIn" && selectedProject ? activeTitle : t.appName
+  }, [activeTitle, authState, selectedProject, t])
 
+  // كل ما يتضاف طلب جديد: انزل تحت على آخر كارت عشان المستخدم يشوفه فورًا
   useEffect(() => {
-    if (authState !== "signedIn" || !activeId || !isBusy) {
+    const element = workspaceScrollRef.current
+    if (!element || requests.length === 0) {
+      return
+    }
+    element.scrollTo({ top: element.scrollHeight, behavior: "smooth" })
+  }, [requests.length])
+
+  // حدّث الكارتات طول ما فيه طلب شغّال أو طلبات مستنية في الطابور
+  useEffect(() => {
+    if (authState !== "signedIn" || !activeId || (!isBusy && !hasQueuedRequests)) {
       return
     }
     const timer = window.setInterval(() => {
-      void refreshSummary(activeId)
+      void refreshRequests(activeId)
     }, 2500)
     return () => window.clearInterval(timer)
-  }, [authState, activeId, isBusy, refreshSummary])
+  }, [authState, activeId, isBusy, hasQueuedRequests, refreshRequests])
 
   useEffect(() => {
     if (authState !== "signedIn" || !selectedProject) {
@@ -1461,7 +1748,7 @@ function App() {
         void loadModels(true)
         const id = activeIdRef.current
         if (id) {
-          void refreshSummary(id).catch(() => undefined)
+          void refreshRequests(id).catch(() => undefined)
         }
       }
     }
@@ -1472,47 +1759,46 @@ function App() {
       document.removeEventListener("visibilitychange", onVisible)
       window.removeEventListener("focus", onVisible)
     }
-  }, [authState, selectedProject, refreshStatuses, refreshSummary, loadModels, refreshActivity])
+  }, [authState, selectedProject, refreshStatuses, refreshRequests, loadModels, refreshActivity])
 
   const handleOpenCodeEvent = useCallback((event: ClientEvent) => {
     if (event.type === "session.status") {
       setStatuses((current) => ({ ...current, [event.properties.sessionID]: event.properties.status }))
+      rememberActive({ [event.properties.sessionID]: event.properties.status })
       // حالة شغل اتغيرت في أي مشروع — حدّث شريط "شغال الآن" فورًا
       void refreshActivity()
       if (event.properties.sessionID === activeIdRef.current) {
-        void refreshSummary(event.properties.sessionID)
+        void refreshRequests(event.properties.sessionID)
       }
     }
     if (event.type === "session.idle") {
       setStatuses((current) => ({ ...current, [event.properties.sessionID]: { type: "idle" } }))
       void refreshActivity()
       if (event.properties.sessionID === activeIdRef.current) {
-        void refreshSummary(event.properties.sessionID)
+        void refreshRequests(event.properties.sessionID)
       }
     }
     if (event.type === "todo.updated") {
-      // وصلت خطة من المهمة — الخطة القديمة الممسوحة اتبدلت بالجديدة
-      delete planClearedRef.current[event.properties.sessionID]
       if (event.properties.sessionID === activeIdRef.current) {
-        void refreshSummary(event.properties.sessionID)
+        void refreshRequests(event.properties.sessionID)
       }
     }
     if (
       (event.type === "question.asked" || event.type === "question.v2.asked")
     ) {
-      notifyAttention("OpenCode بيسألك سؤال — محتاج اختيارك عشان يكمل")
+      notifyAttention(t.questionNeedsChoice)
       if (event.properties.sessionID === activeIdRef.current) {
-        void refreshSummary(event.properties.sessionID)
+        void refreshRequests(event.properties.sessionID)
       }
     } else if (
       (event.type === "question.replied" || event.type === "question.rejected" || event.type === "question.v2.replied" || event.type === "question.v2.rejected")
       && event.properties.sessionID === activeIdRef.current
     ) {
-      void refreshSummary(event.properties.sessionID)
+      void refreshRequests(event.properties.sessionID)
     }
     if (event.type === "permission.updated") {
       setPermissions((current) => [...current.filter((permission) => permission.id !== event.properties.id), event.properties])
-      notifyAttention("OpenCode طالب إذن — دوس سماح عشان يكمل شغل")
+      notifyAttention(t.permissionNeedsApproval)
     }
     if (event.type === "permission.replied") {
       setPermissions((current) => current.filter((permission) => permission.id !== event.properties.permissionID))
@@ -1534,9 +1820,9 @@ function App() {
       }
     }
     if (event.type === "session.error" && event.properties.sessionID === activeIdRef.current) {
-      notifyAttention("المهمة وقفت بخطأ — افتح التطبيق للتفاصيل")
+      notifyAttention(t.taskStoppedWithError)
     }
-  }, [notifyAttention, refreshSessions, refreshSummary, refreshActivity])
+  }, [notifyAttention, refreshSessions, refreshRequests, refreshActivity, rememberActive, t])
 
   useEffect(() => {
     if (authState !== "signedIn") {
@@ -1548,7 +1834,7 @@ function App() {
       try {
         handleOpenCodeEvent(JSON.parse((rawEvent as MessageEvent<string>).data) as ClientEvent)
       } catch {
-        addToast("وصل حدث غير معروف من OpenCode", "error")
+        addToast(t.unknownEvent, "error")
       }
     })
     source.onerror = () => setEventConnected(false)
@@ -1556,7 +1842,7 @@ function App() {
       source.close()
       setEventConnected(false)
     }
-  }, [authState, addToast, handleOpenCodeEvent])
+  }, [authState, addToast, handleOpenCodeEvent, t])
 
   useEffect(() => {
     if (authState !== "signedIn") {
@@ -1594,7 +1880,7 @@ function App() {
       await login(accessToken)
       await enterApp()
     } catch (error: unknown) {
-      setLoginError(error instanceof Error ? error.message : "تعذر تسجيل الدخول")
+      setLoginError(error instanceof Error ? error.message : t.loginFailed)
     } finally {
       setLoading(false)
     }
@@ -1607,7 +1893,8 @@ function App() {
     setSelectedProject(null)
     setSessions([])
     setActiveId(null)
-    setSummary(null)
+    setRequests([])
+    setRequestQuestions([])
     setAccessToken("")
   }
 
@@ -1619,14 +1906,15 @@ function App() {
     if (!activeId) {
       setEditingSessionId(null)
       setTitleDraft("")
-      setSummary(null)
+      setRequests([])
+      setRequestQuestions([])
       setComposer("")
       setShowSessions(false)
       return
     }
     // لو الجلسة الحالية فاضية ومفيهاش أي رسالة: امسحها الأول عشان متتراكمش
     const currentId = activeId
-    const currentWasEmpty = isSummaryEmpty(summary)
+    const currentWasEmpty = isRequestsEmpty(requests)
     if (currentWasEmpty) {
       try {
         await deleteSession(currentId)
@@ -1645,7 +1933,8 @@ function App() {
     activeIdRef.current = null
     setEditingSessionId(null)
     setTitleDraft("")
-    setSummary(null)
+    setRequests([])
+    setRequestQuestions([])
     setComposer("")
     setShowSessions(false)
   }
@@ -1657,7 +1946,7 @@ function App() {
     }
     // لو الجلسة اللي خارج منها فاضية: امسحها تلقائيًا
     const prevId = activeIdRef.current
-    const prevWasEmpty = prevId && prevId === activeId && isSummaryEmpty(summary)
+    const prevWasEmpty = prevId && prevId === activeId && isRequestsEmpty(requests)
     if (prevId && prevWasEmpty && prevId !== nextId) {
       try {
         await deleteSession(prevId)
@@ -1701,14 +1990,14 @@ function App() {
     const project = projects.find((candidate) => samePath(candidate.worktree, item.directory))
       || projects.find((candidate) => samePath(candidate.worktree, item.worktree))
     if (!project) {
-      addToast("المشروع غير موجود في القائمة", "error")
+      addToast(t.projectNotInList, "error")
       return
     }
     setJumpingId(item.id)
     try {
       await openProject(project, item.id)
     } catch (error: unknown) {
-      addToast(error instanceof Error ? error.message : "تعذر فتح المحادثة", "error")
+      addToast(error instanceof Error ? error.message : t.openConversationFailed, "error")
     } finally {
       setJumpingId(null)
     }
@@ -1718,7 +2007,7 @@ function App() {
     if (!activeSession) {
       return
     }
-    setTitleDraft(displayTitle(activeSession.title))
+    setTitleDraft(displayTitle(activeSession.title, t))
     setEditingSessionId(activeSession.id)
   }
 
@@ -1739,13 +2028,13 @@ function App() {
     const sessionId = editingSessionId
     setRenamingTitle(true)
     try {
-      const updated = await renameSession(sessionId, title)
+      const updated = await renameSession(sessionId, title, langRef.current)
       setSessions((current) => current.map((session) => session.id === updated.id ? updated : session))
       setEditingSessionId(null)
       setTitleDraft("")
-      addToast("تم تغيير اسم المحادثة", "success")
+      addToast(t.conversationRenamed, "success")
     } catch (error: unknown) {
-      addToast(error instanceof Error ? error.message : "تعذر تغيير اسم المحادثة", "error")
+      addToast(error instanceof Error ? error.message : t.renameFailed, "error")
     } finally {
       setRenamingTitle(false)
     }
@@ -1759,7 +2048,7 @@ function App() {
   }
 
   const handleDeleteSession = async (session: Session) => {
-    if (!window.confirm(`حذف «${displayTitle(session.title)}» وكل رسائلها؟`)) {
+    if (!window.confirm(`${t.deleteSessionConfirm} «${displayTitle(session.title, t)}»؟`)) {
       return
     }
     try {
@@ -1772,26 +2061,29 @@ function App() {
         activeIdRef.current = next
         if (!next) {
           // مفيش جلسات: نرجع لمسودة فاضية بدون إنشاء جلسة على السيرفر
-          setSummary(null)
+          setRequests([])
+          setRequestQuestions([])
           setComposer("")
         } else {
-          await refreshSummary(next)
+          await refreshRequests(next)
         }
       }
-      addToast("تم حذف الجلسة", "success")
+      addToast(t.sessionDeleted, "success")
     } catch (error: unknown) {
-      addToast(error instanceof Error ? error.message : "تعذر حذف الجلسة", "error")
+      addToast(error instanceof Error ? error.message : t.deleteFailed, "error")
     }
   }
 
   const handleSend = async (event?: FormEvent) => {
     event?.preventDefault()
     const text = composer.trim()
-    if (!text || sending || isBusy) {
+    if (!text || sending) {
       return
     }
     setSending(true)
     setComposer("")
+    // كارت optimist: بيظهر الطلب تحت اللي قبله فورًا قبل ما السيرفر يرد
+    const optimisticId = `local-${++localRequestId.current}`
     try {
       // لو مسودة جديدة: أنشئ الجلسة مع أول رسالة فقط
       let sessionId = activeIdRef.current
@@ -1813,36 +2105,38 @@ function App() {
           }
         }
       }
-      await sendMessage(sessionId, text, undefined, isNewSession && modelForNewSession ? modelForNewSession : undefined)
+      const now = Date.now()
+      setRequests((current) => [...current, {
+        id: optimisticId,
+        index: current.length + 1,
+        prompt: text,
+        state: "queued",
+        activity: t.taskQueued,
+        finalResult: "",
+        stepsCompleted: 0,
+        activeTool: null,
+        todos: [],
+        completedTodos: 0,
+        totalTodos: 0,
+        resultFiles: [],
+        startedAt: now,
+        completedAt: 0,
+        updatedAt: now,
+      }])
+      const result = await sendMessage(sessionId, text, undefined, isNewSession && modelForNewSession ? modelForNewSession : undefined)
       if (isNewSession && modelForNewSession) {
         setCurrentModel(modelForNewSession)
         setPendingModel(null)
       }
+      if (result.queued) {
+        addToast(t.requestQueued, "info")
+      }
       // Optimistic update so a new conversation shows the current request
       // immediately without a manual refresh. The backend flips to busy
-      // asynchronously, so the first refreshSummary may still see idle.
+      // asynchronously, so the first refreshRequests may still see idle.
       setStatuses((current) => ({ ...current, [sessionId]: { type: "busy" } }))
-      // امسح خطوات السؤال اللي قبله (الخطة والعداد) وابدأ العد من جديد للسؤال ده
-      planClearedRef.current[sessionId] = true
-      stepsBaselineRef.current[sessionId] = serverStepsRef.current[sessionId] ?? 0
-      // اخفي النتيجة النهائية القديمة لحد ما توصل نتيجة السؤال الجديد
-      resultHiddenRef.current[sessionId] = summary?.finalResult ?? ""
-      setSummary((current) => ({
-        status: { type: "busy" },
-        activity: "OpenCode يعمل على المهمة",
-        finalResult: "",
-        prompt: text,
-        completedTodos: 0,
-        totalTodos: 0,
-        todos: [],
-        questions: current?.questions ?? [],
-        updatedAt: Date.now(),
-        resultFiles: current?.resultFiles ?? [],
-        stepsCompleted: 0,
-        activeTool: null,
-        startedAt: Date.now(),
-      }))
-      await refreshSummary(sessionId).catch(() => undefined)
+      rememberActive({ [sessionId]: { type: "busy" } })
+      await refreshRequests(sessionId).catch(() => undefined)
       // Re-assert busy if the backend hasn't flipped yet; delayed refreshes
       // below plus SSE plus polling will correct to the real status.
       setStatuses((current) => {
@@ -1852,6 +2146,7 @@ function App() {
         }
         return current
       })
+      rememberActive({ [sessionId]: { type: "busy" } })
       // The backend names the session based on the first question (like
       // desktop) — refresh the list so the new name appears immediately.
       await refreshSessions().catch(() => undefined)
@@ -1859,13 +2154,15 @@ function App() {
       for (const delay of [1500, 4000, 8000]) {
         window.setTimeout(() => {
           if (activeIdRef.current === sessionId) {
-            void refreshSummary(sessionId).catch(() => undefined)
+            void refreshRequests(sessionId).catch(() => undefined)
           }
         }, delay)
       }
     } catch (error: unknown) {
-      setComposer(text)
-      addToast(error instanceof Error ? error.message : "تعذر إرسال الرسالة", "error")
+      setRequests((current) => current.filter((request) => request.id !== optimisticId))
+      // رجّع النص بس لو المستخدم لسه ميكتبش حاجة جديدة
+      setComposer((current) => current || text)
+      addToast(error instanceof Error ? error.message : t.messageSendFailed, "error")
     } finally {
       setSending(false)
     }
@@ -1885,11 +2182,15 @@ function App() {
     const id = activeId
     abortedRef.current.add(id)
     try {
-      await abortSession(id)
-      // متعمد: مفيش toast عند الإيقاف اليدوي
+      const result = await abortSession(id)
+      // الإيقاف بيشيل الطلبات اللي كانت مستنية في الطابور كمان
+      if (result.cleared > 0) {
+        addToast(`${t.requestsCleared}: ${result.cleared}`, "info")
+      }
+      await refreshRequests(id).catch(() => undefined)
     } catch (error: unknown) {
       abortedRef.current.delete(id)
-      addToast(error instanceof Error ? error.message : "تعذر إيقاف المهمة", "error")
+      addToast(error instanceof Error ? error.message : t.abortFailed, "error")
     }
   }
 
@@ -1897,9 +2198,9 @@ function App() {
     try {
       await replyPermission(permission.sessionID, permission.id, response)
       setPermissions((current) => current.filter((item) => item.id !== permission.id))
-      addToast(response === "reject" ? "تم رفض الطلب" : "تم السماح بالطلب", "success")
+      addToast(response === "reject" ? t.permissionRejected : t.permissionAllowed, "success")
     } catch (error: unknown) {
-      addToast(error instanceof Error ? error.message : "تعذر إرسال رد الإذن", "error")
+      addToast(error instanceof Error ? error.message : t.permissionReplyFailed, "error")
     }
   }
 
@@ -1913,11 +2214,11 @@ function App() {
       setPendingModel(ref)
       setCurrentModel(ref)
       setShowModels(false)
-      addToast(`هيستخدم ${ref.providerID}/${ref.modelID} (مجاني 🆓) في المحادثة الجديدة`, "success")
+      addToast(`${t.switchedTo} ${ref.providerID}/${ref.modelID} 🆓 — ${t.willUseInNewConversation}`, "success")
       return
     }
     if (isBusy) {
-      addToast("استنى المهمة تخلص قبل تغيير الموديل", "info")
+      addToast(t.waitBeforeModelChange, "info")
       return
     }
     const key = `${ref.providerID}/${ref.modelID}`
@@ -1926,10 +2227,10 @@ function App() {
       const result = await setSessionModel(sessionId, ref)
       setCurrentModel(result.model)
       setShowModels(false)
-      addToast(`تم التحويل إلى ${result.model.providerID}/${result.model.modelID} 🆓`, "success")
-      await refreshSummary(sessionId).catch(() => undefined)
+      addToast(`${t.switchedTo} ${result.model.providerID}/${result.model.modelID} 🆓`, "success")
+      await refreshRequests(sessionId).catch(() => undefined)
     } catch (error: unknown) {
-      addToast(error instanceof Error ? error.message : "تعذر تغيير الموديل", "error")
+      addToast(error instanceof Error ? error.message : t.modelChangeFailed, "error")
     } finally {
       setSwitchingKey(null)
     }
@@ -1937,12 +2238,12 @@ function App() {
 
   const copyText = (text: string) => {
     void navigator.clipboard?.writeText(text)
-    addToast("تم نسخ النتيجة", "success")
+    addToast(t.resultCopied, "success")
   }
 
   const enablePush = async () => {
     if (!config.push.enabled || !config.push.publicKey) {
-      addToast("Web Push غير مُعد على الخادم", "info")
+      addToast(t.pushNotConfigured, "info")
       return
     }
     if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
@@ -1960,11 +2261,11 @@ function App() {
       if (!subscription) {
         subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64ToUint8Array(config.push.publicKey) as BufferSource })
       }
-      await subscribePush(subscription.toJSON() as Parameters<typeof subscribePush>[0])
+      await subscribePush(subscription.toJSON() as Parameters<typeof subscribePush>[0], langRef.current)
       setPushState("enabled")
-      addToast("تم تفعيل إشعارات الهاتف", "success")
+      addToast(t.pushEnabled, "success")
     } catch (error: unknown) {
-      addToast(error instanceof Error ? error.message : "تعذر تفعيل الإشعارات", "error")
+      addToast(error instanceof Error ? error.message : t.pushEnableFailed, "error")
     }
   }
 
@@ -1977,9 +2278,9 @@ function App() {
         await subscription.unsubscribe()
       }
       setPushState("unknown")
-      addToast("تم إيقاف إشعارات الهاتف", "info")
+      addToast(t.pushDisabled, "info")
     } catch (error: unknown) {
-      addToast(error instanceof Error ? error.message : "تعذر إيقاف الإشعارات", "error")
+      addToast(error instanceof Error ? error.message : t.pushDisableFailed, "error")
     }
   }
 
@@ -2001,9 +2302,9 @@ function App() {
     if (next) {
       unlockAudio()
       playCompletionSound()
-      addToast("تم تفعيل صوت انتهاء المهمة 🔊", "success")
+      addToast(`${t.soundEnabled} 🔊`, "success")
     } else {
-      addToast("تم كتم صوت التنبيه", "info")
+      addToast(t.soundMuted, "info")
     }
   }
 
@@ -2014,7 +2315,7 @@ function App() {
   }
 
   if (authState === "loading") {
-    return <div className="center-screen"><div className="loader" /><p>جارٍ الاتصال بـOpenCode…</p></div>
+    return <div className="center-screen"><div className="loader" /><p>{t.connectingToOpencode}</p></div>
   }
 
   if (authState === "signedOut") {
@@ -2023,16 +2324,17 @@ function App() {
         <div className="login-card">
           <div className="brand-mark"><img src="/icon.svg" alt="OpenCode" /></div>
           <div className="eyebrow">OpenCode Mobile</div>
-          <h1>تحكم في مهامك من أي مكان</h1>
-          <p className="login-copy">أدخل رمز الوصول الموجود في ملف <code>pwa/.env</code> للاتصال بجهازك.</p>
+          <h1>{t.loginTitle}</h1>
+          <p className="login-copy">{t.loginCopyEnv} <code>pwa/.env</code> {t.loginCopyAfter}</p>
           <form onSubmit={handleLogin}>
-            <label htmlFor="access-token">رمز الوصول</label>
+            <label htmlFor="access-token">{t.accessToken}</label>
             <input id="access-token" type="password" autoComplete="current-password" value={accessToken} onChange={(event) => setAccessToken(event.target.value)} placeholder="••••••••••••••••" required />
             {loginError ? <div className="form-error">{loginError}</div> : null}
-            <button className="button button-primary button-wide" disabled={loading}>{loading ? "جارٍ التحقق…" : "دخول آمن"}</button>
+            <button className="button button-primary button-wide" disabled={loading}>{loading ? t.verifying : t.secureLogin}</button>
           </form>
-          <div className="login-footnote"><span className="status-dot offline" /> الاتصال محلي ومشفّر عبر جلسة HttpOnly</div>
-          <button className="button button-ghost button-wide" onClick={toggleTheme}>تبديل المظهر — التالي: {THEME_META[nextTheme(theme)].icon} {THEME_META[nextTheme(theme)].label}</button>
+          <div className="login-footnote"><span className="status-dot offline" /> {t.localEncryptedNote}</div>
+          <button className="button button-ghost button-wide" onClick={toggleTheme}>{t.switchThemeNext}: {THEME_META[nextTheme(theme)].icon} {themeLabel(nextTheme(theme), t)}</button>
+          <button className="button button-ghost button-wide" onClick={toggleLanguage}>{t.language}: {lang === "ar" ? "English" : "العربية"}</button>
         </div>
       </main>
     )
@@ -2046,6 +2348,8 @@ function App() {
         switchingKey={switchingProject}
         recentPaths={recentProjects}
         onSelect={(project) => void openProject(project)}
+        t={t}
+        lang={lang}
       />
     )
   }
@@ -2054,8 +2358,8 @@ function App() {
     <div className="app-shell">
       <aside className={`sidebar ${showSessions ? "sidebar-open" : ""}`}>
         <div className="sidebar-top">
-          <div className="brand"><span className="brand-mark small"><img src="/icon.svg" alt="OpenCode" /></span><span>OpenCode</span></div>
-          <button className="icon-button mobile-only" onClick={() => setShowSessions(false)} aria-label="إغلاق القائمة">×</button>
+          <div className="brand"><span className="brand-mark small"><img src="/icon.svg" alt="RemoteCode" /></span><span>RemoteCode</span></div>
+          <button className="icon-button mobile-only" onClick={() => setShowSessions(false)} aria-label={t.closeMenu}>×</button>
         </div>
         <ProjectDropdown
           variant="sidebar"
@@ -2064,117 +2368,174 @@ function App() {
           switchingKey={switchingProject}
           recentPaths={recentProjects}
           onSelect={(project) => void openProject(project)}
+          t={t}
+          lang={lang}
         />
-        <button className="new-session" onClick={() => void handleNewSession()}><span>＋</span> محادثة جديدة</button>
+        <button className="new-session" onClick={() => void handleNewSession()}><span>＋</span> {t.newConversation}</button>
         <div className="session-list">
-          {sessions.map((session) => {
-            const status = statuses[session.id]
-            const working = status?.type === "busy" || status?.type === "retry"
-            const needsPermission = !working && permissions.some((permission) => permission.sessionID === session.id)
-            return (
-              <div className={`session-item ${session.id === activeId ? "active" : ""}${needsPermission ? " needs-permission" : ""}`} key={session.id}>
-                <button className="session-select" onClick={() => void selectSession(session.id)}>
-                  <span className="session-title-row">
-                    <span className="session-title">{displayTitle(session.title)}</span>
-                    {needsPermission ? <span className="permission-badge">يحتاج إذن</span> : null}
-                  </span>
-                  <span className="session-meta"><span className="status-dot" />{formatDate(session.time.updated)} · {formatTime(session.time.updated)}</span>
-                </button>
-                <button className="session-delete" onClick={() => void handleDeleteSession(session)} aria-label="حذف الجلسة">⌫</button>
-              </div>
-            )
-          })}
+          {sessions.length === 0 ? (
+            <div className="empty-state">{t.noSessionsYet}</div>
+          ) : (
+            <>
+              {sidebarActiveSessions.length > 0 ? (
+                <section className="session-group" aria-label={t.activeConversations}>
+                  <div className="session-group-header">
+                    <span className="session-group-title"><span aria-hidden>⚡</span> {t.active}</span>
+                    <span className="session-group-count" aria-label={`${sidebarActiveSessions.length} ${t.conversations}`}>{sidebarActiveSessions.length}</span>
+                  </div>
+                  {sidebarActiveSessions.map((session) => {
+                    const needsPermission = permissions.some((permission) => permission.sessionID === session.id)
+                    const working = isSessionWorking(session.id)
+                    const graceLeft = activeGraceLeft(session.id)
+                    return (
+                      <div className={`session-item ${working ? "is-working" : "just-active"} ${session.id === activeId ? "active" : ""}${needsPermission ? " needs-permission" : ""}`} key={session.id}>
+                        <button className="session-select" onClick={() => void selectSession(session.id)}>
+                          <span className="session-title-row">
+                            <span className="session-title">{displayTitle(session.title, t)}</span>
+                            {needsPermission ? <span className="permission-badge">{t.needsPermission}</span> : null}
+                          </span>
+                          <span className="session-meta">
+                            {working ? <span className="working-spinner" aria-hidden /> : <span className="status-dot" aria-hidden />}
+                            <span>{working ? statusLabel(statuses[session.id], t) : t.activeRecently}</span>
+                            <span aria-hidden>·</span>
+                            <span>{formatDate(session.time.updated, lang)} · {formatTime(session.time.updated, lang)}</span>
+                            {!working && graceLeft > 0 ? <><span aria-hidden>·</span><span className="session-grace-timer">{formatCountdown(graceLeft)}</span></> : null}
+                          </span>
+                        </button>
+                        <button className="session-delete" onClick={() => void handleDeleteSession(session)} aria-label={t.deleteSession}>⌫</button>
+                      </div>
+                    )
+                  })}
+                </section>
+              ) : null}
+              <section className="session-group" aria-label={t.inactiveConversations}>
+                <div className="session-group-header">
+                  <span className="session-group-title"><span aria-hidden>💤</span> {t.inactive}</span>
+                  <span className="session-group-count" aria-label={`${sidebarInactiveSessions.length} ${t.conversations}`}>{sidebarInactiveSessions.length}</span>
+                </div>
+                {sidebarInactiveSessions.length === 0 ? (
+                  <div className="session-group-empty">{t.noInactiveConversations}</div>
+                ) : (
+                  sidebarInactiveSessions.map((session) => {
+                    const needsPermission = permissions.some((permission) => permission.sessionID === session.id)
+                    return (
+                      <div className={`session-item ${session.id === activeId ? "active" : ""}${needsPermission ? " needs-permission" : ""}`} key={session.id}>
+                        <button className="session-select" onClick={() => void selectSession(session.id)}>
+                          <span className="session-title-row">
+                            <span className="session-title">{displayTitle(session.title, t)}</span>
+                            {needsPermission ? <span className="permission-badge">{t.needsPermission}</span> : null}
+                          </span>
+                          <span className="session-meta"><span className="status-dot" aria-hidden /><span>{statusLabel(statuses[session.id], t)}</span><span aria-hidden>·</span><span>{formatDate(session.time.updated, lang)} · {formatTime(session.time.updated, lang)}</span></span>
+                        </button>
+                        <button className="session-delete" onClick={() => void handleDeleteSession(session)} aria-label={t.deleteSession}>⌫</button>
+                      </div>
+                    )
+                  })
+                )}
+              </section>
+            </>
+          )}
         </div>
         <div className="sidebar-bottom">
-          <div className="connection-state"><span className={`status-dot ${eventConnected ? "online" : "offline"}`} />{eventConnected ? "متصل مباشرة" : "إعادة الاتصال…"}</div>
-          <button className="sidebar-action" onClick={() => setShowSettings(true)}><span>⚙</span> الإعدادات</button>
-          <button className="sidebar-action" onClick={() => void handleLogout()}><span>↪</span> تسجيل الخروج</button>
+          <div className="connection-state"><span className={`status-dot ${eventConnected ? "online" : "offline"}`} />{eventConnected ? t.connectedLive : t.reconnecting}</div>
+          <button className="sidebar-action" onClick={() => setShowSettings(true)}><span>⚙</span> {t.settings}</button>
+          <button className="sidebar-action" onClick={() => void handleLogout()}><span>↪</span> {t.logout}</button>
         </div>
       </aside>
 
       <main className="main-panel">
         <header className="topbar">
-          <button className="icon-button mobile-only" onClick={() => setShowSessions(true)} aria-label="فتح الجلسات">☰</button>
+          <button className="icon-button mobile-only" onClick={() => setShowSessions(true)} aria-label={t.openSessions}>☰</button>
           <div className="current-session">
-            <div className="project-name-badge" title={selectedProject ? projectName(selectedProject) : undefined}>
-              <span aria-hidden>📁</span>
-              <span className="compact-trigger-name">{switchingProject ? "جارٍ الفتح…" : selectedProject ? projectName(selectedProject) : "—"}</span>
+            <div className="topbar-project-row">
+              <div className="project-name-badge" title={selectedProject ? projectName(selectedProject) : undefined}>
+                <span aria-hidden>📁</span>
+                <span className="compact-trigger-name">{switchingProject ? t.opening : selectedProject ? projectName(selectedProject) : "—"}</span>
+              </div>
+              <button className="new-chat-top" type="button" onClick={() => void handleNewSession()} disabled={!selectedProject} title={t.newConversation} aria-label={t.newConversation}>
+                <span aria-hidden>＋</span>
+                <span className="new-chat-top-label">{t.newConversation}</span>
+              </button>
             </div>
             {editingSessionId !== null && editingSessionId === activeId ? (
               <form className="session-title-form" onSubmit={handleRenameSession}>
-                <input aria-label="اسم المحادثة" value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} onKeyDown={handleSessionTitleKeyDown} maxLength={120} required autoFocus disabled={renamingTitle} />
-                <button className="title-action" type="submit" disabled={!titleDraft.trim() || renamingTitle} aria-label="حفظ اسم المحادثة">{renamingTitle ? "…" : "✓"}</button>
-                <button className="title-action" type="button" onClick={cancelRenamingSession} disabled={renamingTitle} aria-label="إلغاء تغيير الاسم">×</button>
+                <input aria-label={t.conversationName} value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} onKeyDown={handleSessionTitleKeyDown} maxLength={120} required autoFocus disabled={renamingTitle} />
+                <button className="title-action" type="submit" disabled={!titleDraft.trim() || renamingTitle} aria-label={t.save}>{renamingTitle ? "…" : "✓"}</button>
+                <button className="title-action" type="button" onClick={cancelRenamingSession} disabled={renamingTitle} aria-label={t.cancel}>×</button>
               </form>
             ) : (
-              <div className="session-title-row"><h1 title={activeTitle}>{activeTitle}</h1>{activeSession ? <button className="title-edit" onClick={startRenamingSession} aria-label="تغيير اسم المحادثة">✎</button> : null}</div>
+              <div className="session-title-row"><h1 title={activeTitle}>{activeTitle}</h1>{activeSession ? <button className="title-edit" onClick={startRenamingSession} aria-label={t.renameConversation}>✎</button> : null}</div>
             )}
           </div>
           <div className="topbar-actions">
-            <button className="model-pill" onClick={() => setShowModels(true)} title="الموديل المستخدم حاليًا — دوس للتغيير (مجاني فقط)">
+            <button className="model-pill" onClick={() => setShowModels(true)} title={t.modelInUse}>
               <span aria-hidden>🤖</span>
-              <span className="model-pill-name" dir="ltr">{modelLabel(displayedModel)}</span>
+              <span className="model-pill-name" dir="ltr">{modelLabel(displayedModel, t)}</span>
               <span className="free-badge">FREE</span>
             </button>
-            <button className="icon-button activity-button" onClick={() => setShowActivity(true)} aria-label="المحادثات النشطة من كل المشاريع" title="المحادثات النشطة من كل المشاريع ⚡">⚡{activity.length > 0 ? <span className="count-badge">{activity.length}</span> : null}</button>
-            <button className="icon-button" onClick={toggleTheme} aria-label={`تبديل المظهر — التالي: ${THEME_META[nextTheme(theme)].label}`} title={`تبديل المظهر — التالي: ${THEME_META[nextTheme(theme)].label}`}>{THEME_META[theme].icon}</button>
-            <button className="icon-button" onClick={() => setShowHistory(true)} aria-label="سجل المحادثة والنتائج القديمة" title="سجل المحادثة والنتائج القديمة 🕘">🕘</button>
-            <button className="icon-button" onClick={() => setShowSettings(true)} aria-label="الإعدادات">⚙</button>
+            <button className="icon-button activity-button" onClick={() => setShowActivity(true)} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activity.length > 0 ? <span className="count-badge">{activity.length}</span> : null}</button>
+            <button className="icon-button" onClick={toggleTheme} aria-label={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`} title={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`}>{THEME_META[theme].icon}</button>
+            <button className="icon-button lang-button" onClick={toggleLanguage} aria-label={t.language} title={t.language}>{lang === "ar" ? "EN" : "ع"}</button>
+            <button className="icon-button" onClick={() => setShowHistory(true)} aria-label={t.historyAria} title={`${t.historyAria} 🕘`}>🕘</button>
+            <button className="icon-button" onClick={() => setShowSettings(true)} aria-label={t.settingsAria}>⚙</button>
           </div>
         </header>
 
         <div className="workspace">
-          <div className="workspace-scroll">
-            {summary ? <TaskSummary summary={summary} sessionId={activeId} busy={Boolean(isBusy)} onCopy={copyText} onToast={addToast} /> : (
+          <div className="workspace-scroll" ref={workspaceScrollRef}>
+            {requests.length > 0 ? (
+              <div className="request-stack">
+                <RequestCard requests={requests} sessionId={activeId} onCopy={copyText} onToast={addToast} t={t} lang={lang} />
+              </div>
+            ) : (
               <div className="welcome-state">
                 <div className="welcome-orb"><img src="/icon.svg" alt="OpenCode" /></div>
-                <h2>ابدأ مهمة جديدة</h2>
-                <p>اكتب طلبك، وسنعرض لك ما يحدث الآن والنتيجة النهائية فقط.</p>
+                <h2>{t.startNewTask}</h2>
+                <p>{t.welcomeCopy}</p>
                 <div className="suggestions">
-                  {["راجع المشروع واذكر أهم المشاكل", "اشرح بنية المشروع ببساطة", "اقترح تحسينات عملية"].map((suggestion) => <button key={suggestion} onClick={() => setComposer(suggestion)}>{suggestion}<span>↗</span></button>)}
+                  {t.suggestions.map((suggestion) => <button key={suggestion} onClick={() => setComposer(suggestion)}>{suggestion}<span>↗</span></button>)}
                 </div>
               </div>
             )}
-            {summary && activeId ? summary.questions.filter((question) => question.sessionID === activeId).map((question) => (
-              <QuestionCard key={question.id} request={question} sessionId={activeId} onAnswered={() => void refreshSummary(activeId).catch(() => undefined)} onToast={addToast} />
+            {activeId ? requestQuestions.filter((question) => question.sessionID === activeId).map((question) => (
+              <QuestionCard key={question.id} request={question} sessionId={activeId} onAnswered={() => void refreshRequests(activeId).catch(() => undefined)} onToast={addToast} t={t} />
             )) : null}
           </div>
 
           {permissions.filter((permission) => permission.sessionID === activeId).length > 0 ? (
             <div className="permissions-stack">
-              {permissions.filter((permission) => permission.sessionID === activeId).map((permission) => <PermissionCard key={permission.id} permission={permission} onReply={(response) => void handlePermission(permission, response)} />)}
+              {permissions.filter((permission) => permission.sessionID === activeId).map((permission) => <PermissionCard key={permission.id} permission={permission} onReply={(response) => void handlePermission(permission, response)} t={t} />)}
             </div>
           ) : null}
 
           <div className="composer-wrap">
             <form className="composer" onSubmit={handleSend}>
-              <textarea value={composer} onChange={(event) => setComposer(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder="اكتب طلبك…" rows={1} disabled={sending || isBusy} />
+              <textarea value={composer} onChange={(event) => setComposer(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder={isBusy ? t.composerPlaceholderBusy : t.composerPlaceholder} rows={1} />
               <div className="composer-actions">
-                <span className="composer-hint">Enter للإرسال · Shift+Enter لسطر جديد</span>
-                {isBusy ? <button type="button" className="stop-button" onClick={() => void handleAbort()}>■ إيقاف</button> : (
-                  <button
-                    className={`send-button${composer.trim() ? " is-ready" : ""}${sending ? " is-sending" : ""}`}
-                    disabled={!composer.trim() || sending}
-                    aria-label="إطلاق"
-                    title="إطلاق 🚀"
-                  >
-                        <span className="launch-bezel">
-                          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden className="liftoff" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
-                            <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
-                            <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
-                            <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
-                          </svg>
-                        </span>
-                  </button>
-                )}
+                <span className="composer-hint">{t.composerHint}</span>
+                {isBusy || hasQueuedRequests ? <button type="button" className="stop-button" onClick={() => void handleAbort()}>■ {t.stop}</button> : null}
+                <button
+                  className={`send-button${composer.trim() ? " is-ready" : ""}${sending ? " is-sending" : ""}`}
+                  disabled={!composer.trim() || sending}
+                  aria-label={t.launch}
+                  title={`${t.launch} 🚀`}
+                >
+                  <span className="launch-bezel">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden className="liftoff" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+                      <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+                      <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+                      <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+                    </svg>
+                  </span>
+                </button>
               </div>
             </form>
-            <button className="composer-model-line" onClick={() => setShowModels(true)} title="تغيير الموديل">
+            <button className="composer-model-line" onClick={() => setShowModels(true)} title={t.changeModelTitle}>
               <span aria-hidden>🤖</span>
-              <span dir="ltr">{modelLabel(displayedModel)}</span>
+              <span dir="ltr">{modelLabel(displayedModel, t)}</span>
               <span className="free-badge">FREE 🆓</span>
-              <span className="change-link">تغيير</span>
+              <span className="change-link">{t.change}</span>
             </button>
           </div>
         </div>
@@ -2183,10 +2544,14 @@ function App() {
       {showActivity ? (
         <ActiveSessionsPanel
           items={activity}
+          recent={activityRecent}
+          graceLeft={activityGraceLeft}
           activeId={activeId}
           jumpingId={jumpingId}
           onJump={(item) => { setShowActivity(false); void jumpToActivitySession(item) }}
           onClose={() => setShowActivity(false)}
+          t={t}
+          lang={lang}
         />
       ) : null}
       {showHistory ? (
@@ -2198,6 +2563,8 @@ function App() {
           onClose={() => setShowHistory(false)}
           onCopy={copyText}
           onRetry={() => void loadHistory()}
+          t={t}
+          lang={lang}
         />
       ) : null}
       {showModels ? (
@@ -2210,23 +2577,25 @@ function App() {
           onSelect={(model) => void handleSelectModel(model)}
           onRefresh={() => void loadModels()}
           onClose={() => setShowModels(false)}
+          t={t}
         />
       ) : null}
       {showSettings ? (
         <div className="drawer-backdrop" onClick={() => setShowSettings(false)}>
           <aside className="drawer settings-drawer" onClick={(event) => event.stopPropagation()}>
-            <div className="drawer-header"><div><div className="eyebrow">الإعدادات</div><h2>تفاصيل الاتصال</h2></div><button className="icon-button" onClick={() => setShowSettings(false)} aria-label="إغلاق">×</button></div>
+            <div className="drawer-header"><div><div className="eyebrow">{t.settings}</div><h2>{t.settingsDetails}</h2></div><button className="icon-button" onClick={() => setShowSettings(false)} aria-label={t.close}>×</button></div>
             <div className="settings-list">
-              <div className="setting-row"><div><strong>المشروع</strong><small>📁 {projectName(selectedProject)} · بدّله من القائمة المنسدلة فوق</small></div><button className="button button-secondary" onClick={() => setShowSettings(false)}>تمام ✓</button></div>
-              <div className="setting-row"><div><strong>OpenCode</strong><small>{config.openCode.version === "connected" ? "متصل" : config.openCode.version}</small></div><span className="status-pill success">متصل</span></div>
-              <div className="setting-row"><div><strong>بث الحالة</strong><small>{eventConnected ? "يعمل في الوقت الحقيقي" : "غير متصل"}</small></div><span className={`status-pill ${eventConnected ? "success" : "warning"}`}>{eventConnected ? "نشط" : "غير نشط"}</span></div>
-              <div className="setting-row"><div><strong>إشعارات الهاتف</strong><small>{config.secureContext ? "Web Push عبر HTTPS" : "يتطلب HTTPS خارج localhost"}</small></div>{pushState === "enabled" ? <button className="button button-ghost" onClick={() => void disablePush()}>إيقاف</button> : <button className="button button-secondary" onClick={() => void enablePush()}>تفعيل</button>}</div>
-              <div className="setting-row setting-row-theme"><div><strong>🌓 المظهر</strong><small>{THEME_META[theme].description}</small></div><div className="theme-picker" role="radiogroup" aria-label="المظهر">{THEMES.map((value) => <button key={value} type="button" role="radio" aria-checked={theme === value} className={`theme-option${theme === value ? " active" : ""}`} onClick={() => setTheme(value)}><span className="theme-option-icon" aria-hidden>{THEME_META[value].icon}</span><span>{THEME_META[value].label}</span></button>)}</div></div>
-              <div className="setting-row"><div><strong>🔔 صوت انتهاء المهمة</strong><small>{soundOn ? "صوت لطيف ومميز أول ما يخلص + اهتزاز" : "صامت — مش هتسمع حاجة لما يخلص"}</small></div><div style={{ display: "flex", gap: 6 }}><button className="button button-secondary" onClick={testSound}>جرّب 🔊</button><button className={`button ${soundOn ? "button-ghost" : "button-primary"}`} onClick={toggleSound}>{soundOn ? "كتم" : "تفعيل"}</button></div></div>
-              {installPrompt ? <button className="button button-secondary button-wide" onClick={() => void installApp()}>تثبيت التطبيق على الهاتف</button> : null}
-              {pushState === "unsupported" ? <div className="info-box">المتصفح لا يدعم Web Push.</div> : null}
-              {pushState === "blocked" ? <div className="info-box">الإشعارات محظورة من إعدادات المتصفح.</div> : null}
-              {!config.secureContext ? <div className="warning-box">لتثبيت PWA وتفعيل Web Push على الموبايل، شغّل التطبيق عبر HTTPS أو استخدمه من localhost.</div> : null}
+              <div className="setting-row"><div><strong>{t.project}</strong><small>📁 {projectName(selectedProject)} · {t.projectSwitchHint}</small></div><button className="button button-secondary" onClick={() => setShowSettings(false)}>{t.ok} ✓</button></div>
+              <div className="setting-row"><div><strong>{t.opencode}</strong><small>{config.openCode.version === "connected" ? t.connected : config.openCode.version}</small></div><span className="status-pill success">{t.connected}</span></div>
+              <div className="setting-row"><div><strong>{t.statusStream}</strong><small>{eventConnected ? t.realtimeWorking : t.offline}</small></div><span className={`status-pill ${eventConnected ? "success" : "warning"}`}>{eventConnected ? t.active : t.inactive}</span></div>
+              <div className="setting-row"><div><strong>{t.phoneNotifications}</strong><small>{config.secureContext ? t.pushViaHttps : t.pushNeedsHttps}</small></div>{pushState === "enabled" ? <button className="button button-ghost" onClick={() => void disablePush()}>{t.disable}</button> : <button className="button button-secondary" onClick={() => void enablePush()}>{t.enable}</button>}</div>
+              <div className="setting-row setting-row-theme"><div><strong>🌓 {t.appearance}</strong><small>{themeDescription(theme, t)}</small></div><div className="theme-picker" role="radiogroup" aria-label={t.appearance}>{THEMES.map((value) => <button key={value} type="button" role="radio" aria-checked={theme === value} className={`theme-option${theme === value ? " active" : ""}`} onClick={() => setTheme(value)}><span className="theme-option-icon" aria-hidden>{THEME_META[value].icon}</span><span>{themeLabel(value, t)}</span></button>)}</div></div>
+              <div className="setting-row"><div><strong>🌐 {t.language}</strong><small>{t.languageName}</small></div><div className="theme-picker" role="radiogroup" aria-label={t.language}><button type="button" role="radio" aria-checked={lang === "ar"} className={`theme-option${lang === "ar" ? " active" : ""}`} onClick={() => setLang("ar")}><span>ع</span><span>العربية</span></button><button type="button" role="radio" aria-checked={lang === "en"} className={`theme-option${lang === "en" ? " active" : ""}`} onClick={() => setLang("en")}><span>EN</span><span>English</span></button></div></div>
+              <div className="setting-row"><div><strong>🔔 {t.taskDoneSound}</strong><small>{soundOn ? t.soundOnDesc : t.soundOffDesc}</small></div><div style={{ display: "flex", gap: 6 }}><button className="button button-secondary" onClick={testSound}>{t.tryIt} 🔊</button><button className={`button ${soundOn ? "button-ghost" : "button-primary"}`} onClick={toggleSound}>{soundOn ? t.mute : t.enable}</button></div></div>
+              {installPrompt ? <button className="button button-secondary button-wide" onClick={() => void installApp()}>{t.installApp}</button> : null}
+              {pushState === "unsupported" ? <div className="info-box">{t.pushUnsupported}</div> : null}
+              {pushState === "blocked" ? <div className="info-box">{t.pushBlocked}</div> : null}
+              {!config.secureContext ? <div className="warning-box">{t.pushNeedsSecure}</div> : null}
             </div>
           </aside>
         </div>

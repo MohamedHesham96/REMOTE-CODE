@@ -46,20 +46,33 @@ export interface QuestionClientEvent {
 
 export type ClientEvent = Event | QuestionClientEvent
 
-export interface SessionSummary {
-  status: SessionStatus
+// حالة كل طلب داخل الجلسة: مستخبي في الطابور، شغّال دلوقتي، خلص، أو اتوقف.
+export type RequestState = "queued" | "running" | "done" | "stopped"
+
+// الطلبات بتتراص في كارت واحد على شكل قائمة — الأقدم فوق والأحدث تحت.
+export interface SessionRequest {
+  id: string
+  index: number
+  prompt: string
+  state: RequestState
   activity: string
   finalResult: string
-  prompt: string
-  completedTodos: number
-  totalTodos: number
-  todos: Todo[]
-  questions: ConversationQuestionRequest[]
-  updatedAt: number
-  resultFiles: ResultFile[]
   stepsCompleted: number
   activeTool: string | null
+  todos: Todo[]
+  completedTodos: number
+  totalTodos: number
+  resultFiles: ResultFile[]
   startedAt: number
+  completedAt: number
+  updatedAt: number
+}
+
+export interface SessionRequests {
+  status: SessionStatus
+  requests: SessionRequest[]
+  questions: ConversationQuestionRequest[]
+  queued: number
 }
 
 export interface ResultFile {

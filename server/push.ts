@@ -2,6 +2,13 @@ import type { Event } from "@opencode-ai/sdk"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import webpush, { type PushSubscription } from "web-push"
+import { isServerLang, serverMessage, type ServerLang } from "./i18n.js"
+
+interface StoredSubscriptions {
+  version: 1
+  subscriptions: PushSubscription[]
+  languages?: Record<string, ServerLang>
+}
 
 interface StoredSubscriptions {
   version: 1
@@ -35,7 +42,7 @@ function isPushSubscription(value: unknown): value is PushSubscription {
   )
 }
 
-function questionNotification(event: Event): PushPayload | null {
+function questionNotification(event: Event, lang: ServerLang): PushPayload | null {
   const candidate = event as unknown as { type?: unknown; properties?: unknown; data?: unknown }
   if (candidate.type !== "question.asked" && candidate.type !== "question.v2.asked") {
     return null
@@ -46,9 +53,9 @@ function questionNotification(event: Event): PushPayload | null {
   }
   const requestID = typeof source.id === "string" ? source.id : typeof source.requestID === "string" ? source.requestID : undefined
   const first = Array.isArray(source.questions) ? source.questions.find((value): value is { question?: unknown } => typeof value === "object" && value !== null) : undefined
-  const body = first && typeof first.question === "string" && first.question.trim() ? first.question.trim() : "OpenCode يسأل عن اختيار"
+  const body = first && typeof first.question === "string" && first.question.trim() ? first.question.trim() : serverMessage("pushQuestionFallback", lang)
   return {
-    title: "سؤال من OpenCode",
+    title: serverMessage("pushQuestionTitle", lang),
     body,
     sessionId: source.sessionID,
     tag: requestID ? `question-${requestID}` : `question-${source.sessionID}`,
@@ -58,6 +65,7 @@ function questionNotification(event: Event): PushPayload | null {
 export class PushService {
   private readonly storagePath: string
   private readonly subscriptions = new Map<string, PushSubscription>()
+  private readonly languages = new Map<string, ServerLang>()
   private readonly busySessions = new Set<string>()
   readonly enabled: boolean
   readonly publicKey: string | undefined
@@ -82,6 +90,8 @@ export class PushService {
       for (const subscription of stored.subscriptions || []) {
         if (isPushSubscription(subscription)) {
           this.subscriptions.set(subscription.endpoint, subscription)
+          const lang = stored.languages?.[subscription.endpoint]
+          this.languages.set(subscription.endpoint, isServerLang(lang) ? lang : "ar")
         }
       }
     } catch (error) {
@@ -98,11 +108,14 @@ export class PushService {
     }
 
     this.subscriptions.set(value.endpoint, value)
+    const lang = (value as { lang?: unknown }).lang
+    this.languages.set(value.endpoint, isServerLang(lang) ? lang : "ar")
     await this.persist()
   }
 
   async unregister(endpoint: string): Promise<void> {
     if (this.subscriptions.delete(endpoint)) {
+      this.languages.delete(endpoint)
       await this.persist()
     }
   }
@@ -116,9 +129,10 @@ export class PushService {
       throw new Error("Web Push is not configured")
     }
 
+    const lang = isServerLang((value as unknown as { lang?: unknown }).lang) ? (value as unknown as { lang: ServerLang }).lang : "ar"
     await this.send(value, {
       title: "OpenCode Mobile",
-      body: "الإشعارات تعمل بنجاح",
+      body: serverMessage("pushTestBody", lang),
       tag: "opencode-push-test",
     })
   }
@@ -133,45 +147,47 @@ export class PushService {
     }
 
     if (event.type === "session.idle" && this.busySessions.delete(event.properties.sessionID)) {
-      void this.broadcast({
-        title: "انتهت المهمة",
-        body: "اكتملت المهمة — افتح التطبيق لعرض النتيجة وتحميل الملفات إن وجدت",
+      void this.broadcast((lang) => ({
+        title: serverMessage("pushDoneTitle", lang),
+        body: serverMessage("pushDoneBody", lang),
         sessionId: event.properties.sessionID,
         tag: `opencode-${event.properties.sessionID}`,
-      })
+      }))
     }
 
-    const question = questionNotification(event)
-    if (question) {
-      void this.broadcast(question)
+    const questionAr = questionNotification(event, "ar")
+    const questionEn = questionNotification(event, "en")
+    if (questionAr && questionEn) {
+      void this.broadcast((lang) => (lang === "en" ? questionEn : questionAr))
     }
 
     if (event.type === "permission.updated") {
-      void this.broadcast({
-        title: "طلب إذن",
+      void this.broadcast((lang) => ({
+        title: serverMessage("pushPermissionTitle", lang),
         body: event.properties.title,
         sessionId: event.properties.sessionID,
         tag: `permission-${event.properties.id}`,
-      })
+      }))
     }
 
     if (event.type === "session.error") {
-      void this.broadcast({
-        title: "توقفت المهمة",
-        body: "حدث خطأ في OpenCode. افتح التطبيق للتفاصيل.",
+      void this.broadcast((lang) => ({
+        title: serverMessage("pushErrorTitle", lang),
+        body: serverMessage("pushErrorBody", lang),
         sessionId: event.properties.sessionID,
         tag: `error-${event.properties.sessionID ?? "unknown"}`,
-      })
+      }))
     }
   }
 
-  private async broadcast(payload: PushPayload): Promise<void> {
+  private async broadcast(build: (lang: ServerLang) => PushPayload): Promise<void> {
     const expired: string[] = []
 
     await Promise.all(
       [...this.subscriptions.values()].map(async (subscription) => {
         try {
-          await this.send(subscription, payload)
+          const lang = this.languages.get(subscription.endpoint) ?? "ar"
+          await this.send(subscription, build(lang))
         } catch (error) {
           const statusCode = typeof error === "object" && error !== null && "statusCode" in error ? error.statusCode : undefined
           if (statusCode === 404 || statusCode === 410) {
@@ -202,6 +218,7 @@ export class PushService {
     const data: StoredSubscriptions = {
       version: 1,
       subscriptions: [...this.subscriptions.values()],
+      languages: Object.fromEntries(this.languages),
     }
     await writeFile(this.storagePath, JSON.stringify(data, null, 2), { encoding: "utf8", mode: 0o600 })
   }

@@ -7,8 +7,9 @@ import { join, resolve } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { config } from "./config.js"
 import { clearSessionCookie, isValidAccessToken, requireAuthentication, setSessionCookie } from "./auth.js"
-import { OpenCodeService, type SessionSummary } from "./opencode.js"
+import { OpenCodeService } from "./opencode.js"
 import { PushService } from "./push.js"
+import { getServerLang, serverMessage } from "./i18n.js"
 import type { Event } from "@opencode-ai/sdk"
 
 const app = express()
@@ -93,11 +94,15 @@ app.use((request, response, next) => {
   next()
 })
 
-function handleError(error: unknown, response: Response): void {
+function handleError(error: unknown, response: Response, request?: Request): void {
   const message = error instanceof Error ? error.message : "Unexpected server error"
-  // لو OpenCode لسه بيقوم أو وقع مؤقتًا رجّع 503 برسالة عربية واضحة بدل 500 مبهم
+  // لو OpenCode لسه بيقوم أو وقع مؤقتًا رجّع 503 برسالة واضحة بدل 500 مبهم
   if (!openCodeReady && /ECONNREFUSED|connect|fetch failed|OpenCode/i.test(message)) {
-    openCodeUnavailable(response)
+    if (request) {
+      openCodeUnavailable(request, response)
+    } else {
+      response.status(503).json({ error: "OPENCODE_UNAVAILABLE", message })
+    }
     return
   }
   response.status(500).json({ error: "SERVER_ERROR", message })
@@ -105,12 +110,14 @@ function handleError(error: unknown, response: Response): void {
 
 // ── ضمان عدم موت الباك إند: حالة اتصال OpenCode + retry تلقائي ──
 let openCodeReady = false
-let openCodeLastError = "جارٍ الاتصال بـ OpenCode…"
+let openCodeLastError = "Connecting to OpenCode…"
 
-function openCodeUnavailable(response: Response): void {
+function openCodeUnavailable(request: Request, response: Response): void {
+  const lang = getServerLang(request)
+  const detail = openCodeLastError ? ` (${openCodeLastError})` : ""
   response.status(503).json({
     error: "OPENCODE_UNAVAILABLE",
-    message: `خدمة OpenCode غير متاحة حاليًا (${openCodeLastError}). سيرفر الموبايل شغال وبيعاود المحاولة تلقائيًا — استنى ثواني وحدّث الصفحة.`,
+    message: `${serverMessage("opencodeUnavailable", lang)}${detail}`,
   })
 }
 
@@ -125,7 +132,7 @@ async function connectWithRetry(): Promise<void> {
     } catch (error) {
       openCodeReady = false
       openCodeLastError = error instanceof Error ? error.message : String(error)
-      console.error(`OpenCode connect failed: ${openCodeLastError} — الباك على :${config.port} شغال وبيعاود المحاولة بعد 5 ثواني…`)
+      console.error(`OpenCode connect failed: ${openCodeLastError} — الخادم على :${config.port} يعمل ويعيد المحاولة بعد 5 ثوانٍ…`)
       await sleep(5000)
     }
   }
@@ -143,10 +150,10 @@ function printLanAddresses(port: number): void {
       }
     }
     if (ips.size === 0) {
-      console.log("No LAN IP found — تأكد إن الجهاز على نفس Wi-Fi مع الموبايل")
+      console.log("No LAN IP found — تأكد أن الجهاز على نفس شبكة Wi-Fi مع الهاتف")
       return
     }
-    console.log("من الموبايل (نفس Wi-Fi) افتح:")
+    console.log("من الهاتف (نفس شبكة Wi-Fi) افتح:")
     for (const ip of ips) {
       console.log(`  - Dev (Vite):  http://${ip}:5173`)
       console.log(`  - Prod (بعد build): http://${ip}:${port}`)
@@ -164,7 +171,7 @@ app.post("/api/login", (request, response) => {
   const accessToken = typeof request.body?.accessToken === "string" ? request.body.accessToken : ""
 
   if (!isValidAccessToken(accessToken, config.accessToken)) {
-    response.status(401).json({ error: "INVALID_ACCESS_TOKEN", message: "رمز الوصول غير صحيح" })
+    response.status(401).json({ error: "INVALID_ACCESS_TOKEN", message: serverMessage("invalidAccessToken", getServerLang(request)) })
     return
   }
 
@@ -196,13 +203,13 @@ app.use("/api", (request, response, next) => {
     return
   }
   if (!openCodeReady) {
-    openCodeUnavailable(response)
+    openCodeUnavailable(request, response)
     return
   }
   next()
 })
 
-app.get("/api/project", async (_request, response) => {
+app.get("/api/project", async (request, response) => {
   try {
     const projects = await openCode.projects()
     response.json({
@@ -210,7 +217,7 @@ app.get("/api/project", async (_request, response) => {
       selected: await openCode.selectedProject(),
     })
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
@@ -220,16 +227,16 @@ app.post("/api/project/select", async (request, response) => {
     const id = typeof request.body?.id === "string" ? request.body.id : ""
     const projectKey = worktree || id
     if (!projectKey) {
-      response.status(400).json({ error: "PROJECT_REQUIRED", message: "اختر مشروعًا" })
+      response.status(400).json({ error: "PROJECT_REQUIRED", message: serverMessage("projectRequired", getServerLang(request)) })
       return
     }
     response.json({ project: await openCode.selectProject(projectKey) })
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
-app.get("/api/config", async (_request, response) => {
+app.get("/api/config", async (request, response) => {
   // الـ config لازم يشتغل حتى لو OpenCode لسه بيقوم — يرجّع degraded بدل ما يوقع login
   if (!openCodeReady) {
     response.json({
@@ -253,24 +260,15 @@ app.get("/api/config", async (_request, response) => {
       secureContext: Boolean(config.tlsCertificatePath),
     })
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
-app.get("/api/session", async (_request, response) => {
+app.get("/api/session", async (request, response) => {
   try {
     response.json(await openCode.sessions())
   } catch (error) {
-    handleError(error, response)
-  }
-})
-
-app.get("/api/session/:id/summary", async (request, response) => {
-  try {
-    const summary: SessionSummary = await openCode.summary(request.params.id)
-    response.json(summary)
-  } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
@@ -280,7 +278,7 @@ app.post("/api/session", async (request, response) => {
     const mobile = request.body?.mobile === true
     response.status(201).json(await openCode.createSession(title || undefined, mobile))
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
@@ -288,12 +286,12 @@ app.patch("/api/session/:id", async (request, response) => {
   try {
     const title = typeof request.body?.title === "string" ? request.body.title.trim().slice(0, 120) : ""
     if (!title) {
-      response.status(400).json({ error: "INVALID_TITLE", message: "العنوان مطلوب" })
+      response.status(400).json({ error: "INVALID_TITLE", message: serverMessage("invalidTitle", getServerLang(request)) })
       return
     }
-    response.json(await openCode.updateSession(request.params.id, title))
+    response.json(await openCode.updateSession(request.params.id, title, getServerLang(request)))
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
@@ -301,23 +299,23 @@ app.delete("/api/session/:id", async (request, response) => {
   try {
     response.json({ deleted: await openCode.deleteSession(request.params.id) })
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
-app.get("/api/session/status", async (_request, response) => {
+app.get("/api/session/status", async (request, response) => {
   try {
     response.json(await openCode.statuses())
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
-app.get("/api/activity", async (_request, response) => {
+app.get("/api/activity", async (request, response) => {
   try {
-    response.json(await openCode.activity())
+    response.json(await openCode.activity(getServerLang(request)))
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
@@ -325,15 +323,24 @@ app.get("/api/session/:id/message", async (request, response) => {
   try {
     response.json(await openCode.messages(request.params.id))
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
 app.get("/api/session/:id/history", async (request, response) => {
   try {
-    response.json(await openCode.history(request.params.id))
+    response.json(await openCode.history(request.params.id, getServerLang(request)))
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
+  }
+})
+
+// كارت لكل طلب في المحادثة، الأقدم فوق والأحدث تحت
+app.get("/api/session/:id/requests", async (request, response) => {
+  try {
+    response.json(await openCode.requests(request.params.id, getServerLang(request)))
+  } catch (error) {
+    handleError(error, response, request)
   }
 })
 
@@ -346,25 +353,25 @@ app.post("/api/session/:id/message", async (request, response) => {
       ? { providerID: rawModel.providerID.trim().slice(0, 100), modelID: rawModel.modelID.trim().slice(0, 200) }
       : undefined
     if (!text) {
-      response.status(400).json({ error: "EMPTY_MESSAGE", message: "اكتب رسالة أولًا" })
+      response.status(400).json({ error: "EMPTY_MESSAGE", message: serverMessage("emptyMessage", getServerLang(request)) })
       return
     }
     if (text.length > 20000) {
-      response.status(400).json({ error: "MESSAGE_TOO_LONG", message: "الرسالة طويلة جدًا" })
+      response.status(400).json({ error: "MESSAGE_TOO_LONG", message: serverMessage("messageTooLong", getServerLang(request)) })
       return
     }
-    await openCode.prompt(request.params.id, text, agent, model && model.providerID && model.modelID ? model : undefined)
-    response.status(202).json({ accepted: true })
+    const { queued } = await openCode.prompt(request.params.id, text, agent, model && model.providerID && model.modelID ? model : undefined)
+    response.status(202).json({ accepted: true, queued })
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
-app.get("/api/models", async (_request, response) => {
+app.get("/api/models", async (request, response) => {
   try {
     response.json(await openCode.models())
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
@@ -372,7 +379,7 @@ app.get("/api/session/:id/model", async (request, response) => {
   try {
     response.json(await openCode.sessionModel(request.params.id))
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
@@ -381,7 +388,7 @@ app.post("/api/session/:id/model", async (request, response) => {
     const providerID = typeof request.body?.providerID === "string" ? request.body.providerID : ""
     const modelID = typeof request.body?.modelID === "string" ? request.body.modelID : ""
     if (!providerID.trim() || !modelID.trim()) {
-      response.status(400).json({ error: "MODEL_REQUIRED", message: "اختر موديلًا" })
+      response.status(400).json({ error: "MODEL_REQUIRED", message: serverMessage("modelRequired", getServerLang(request)) })
       return
     }
     response.json({ model: await openCode.switchSessionModel(request.params.id, providerID, modelID) })
@@ -394,9 +401,9 @@ app.post("/api/session/:id/model", async (request, response) => {
 
 app.post("/api/session/:id/abort", async (request, response) => {
   try {
-    response.json({ aborted: await openCode.abort(request.params.id) })
+    response.json(await openCode.abort(request.params.id))
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
@@ -404,14 +411,14 @@ app.get("/api/session/:id/todo", async (request, response) => {
   try {
     response.json(await openCode.todos(request.params.id))
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
 app.post("/api/session/:id/question/:requestId/reply", async (request, response) => {
   try {
     if (!request.params.requestId.trim()) {
-      response.status(400).json({ error: "QUESTION_REQUIRED", message: "السؤال مطلوب" })
+      response.status(400).json({ error: "QUESTION_REQUIRED", message: serverMessage("questionRequired", getServerLang(request)) })
       return
     }
     response.json({ accepted: await openCode.replyQuestion(request.params.id, request.params.requestId, request.body?.answers) })
@@ -425,7 +432,7 @@ app.post("/api/session/:id/question/:requestId/reply", async (request, response)
 app.post("/api/session/:id/question/:requestId/reject", async (request, response) => {
   try {
     if (!request.params.requestId.trim()) {
-      response.status(400).json({ error: "QUESTION_REQUIRED", message: "السؤال مطلوب" })
+      response.status(400).json({ error: "QUESTION_REQUIRED", message: serverMessage("questionRequired", getServerLang(request)) })
       return
     }
     response.json({ accepted: await openCode.rejectQuestion(request.params.id, request.params.requestId) })
@@ -440,7 +447,7 @@ app.get("/api/session/:id/diff", async (request, response) => {
   try {
     response.json(await openCode.diff(request.params.id))
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
@@ -448,7 +455,7 @@ app.get("/api/session/:id/file", async (request, response) => {
   try {
     const filePath = typeof request.query.path === "string" ? request.query.path : ""
     if (!filePath.trim()) {
-      response.status(400).json({ error: "FILE_PATH_REQUIRED", message: "مسار الملف مطلوب" })
+      response.status(400).json({ error: "FILE_PATH_REQUIRED", message: serverMessage("filePathRequired", getServerLang(request)) })
       return
     }
     const file = await openCode.readResultFile(request.params.id, filePath)
@@ -472,12 +479,12 @@ app.post("/api/session/:id/permission/:permissionId", async (request, response) 
   try {
     const value = request.body?.response
     if (value !== "once" && value !== "always" && value !== "reject") {
-      response.status(400).json({ error: "INVALID_PERMISSION_RESPONSE", message: "رد الإذن غير صالح" })
+      response.status(400).json({ error: "INVALID_PERMISSION_RESPONSE", message: serverMessage("invalidPermissionResponse", getServerLang(request)) })
       return
     }
     response.json({ accepted: await openCode.replyPermission(request.params.id, request.params.permissionId, value) })
   } catch (error) {
-    handleError(error, response)
+    handleError(error, response, request)
   }
 })
 
@@ -529,10 +536,34 @@ app.get("/api/events", (request, response) => {
   })
 })
 
+// هل الحدث ده "الجلسة خلصت"؟ (session.idle أو status=idle)
+function isIdleEvent(event: Record<string, unknown>): boolean {
+  if (event.type === "session.idle") {
+    return true
+  }
+  if (event.type !== "session.status") {
+    return false
+  }
+  const status = (event.properties as { status?: { type?: string } } | undefined)?.status
+  return status?.type === "idle"
+}
+
+function eventSessionId(event: Record<string, unknown>): string {
+  const properties = event.properties as { sessionID?: unknown } | undefined
+  return typeof properties?.sessionID === "string" ? properties.sessionID : ""
+}
+
 openCode.onEvent((event) => {
-  push.handleEvent(event)
   const visibleEvent = clientEvent(event)
-  if (!visibleEvent) {
+  // "خلص" بس في طلبات تانية مستنية في الطابور — متعملش لا إشعار ولا تحديث
+  // للموبايل، عشان المستخدم ما يشوفش إن الجلسة وقفت وهي في الحقيقة شغالة.
+  const queueContinues = visibleEvent
+    ? isIdleEvent(visibleEvent) && openCode.hasPendingWork(eventSessionId(visibleEvent))
+    : false
+  if (!queueContinues) {
+    push.handleEvent(event)
+  }
+  if (!visibleEvent || queueContinues) {
     return
   }
   const data = `event: opencode\ndata: ${JSON.stringify(visibleEvent)}\n\n`
@@ -555,9 +586,9 @@ if (existsSync(distDirectory)) {
   })
 }
 
-app.use((error: unknown, _request: Request, response: Response, next: NextFunction) => {
+app.use((error: unknown, request: Request, response: Response, next: NextFunction) => {
   void next
-  handleError(error, response)
+  handleError(error, response, request)
 })
 
 async function start(): Promise<void> {

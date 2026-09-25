@@ -1,4 +1,4 @@
-const CACHE_NAME = "opencode-mobile-shell-v4"
+const CACHE_NAME = "opencode-mobile-shell-v7"
 const SHELL = ["/", "/manifest.webmanifest", "/icon.svg"]
 
 // ملفات Vite في وضع التطوير (HMR) — لا تُخزّن أبدًا عشان التعديلات تبان فورًا على الموبايل
@@ -11,9 +11,22 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))),
+    (async () => {
+      // كاش جديد = امسح الكاش القديم كله
+      const keys = await caches.keys()
+      await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))
+      // وامسح حزم /assets القديمة اللي فضلت متنسخة من بيلدات سابقة
+      // (نفس اسم الكاش بيتقاس) — أي طلب بعد كده بيرجع من الشبكة ويتخزن تاني
+      const cache = await caches.open(CACHE_NAME)
+      const stale = await cache.keys()
+      await Promise.all(
+        stale
+          .filter((request) => new URL(request.url).pathname.startsWith("/assets/"))
+          .map((request) => cache.delete(request)),
+      )
+      await self.clients.claim()
+    })(),
   )
-  self.clients.claim()
 })
 
 self.addEventListener("fetch", (event) => {

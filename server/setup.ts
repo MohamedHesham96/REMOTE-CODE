@@ -46,4 +46,4 @@ writeFileSync(envPath, content, { encoding: "utf8", mode: 0o600 })
 
 console.log(`تم إنشاء ${envPath}`)
 console.log(`رمز الوصول: ${values.get("APP_ACCESS_TOKEN")}`)
-console.log("لتشغيل PWA/Web Push من الموبايل، فعّل HTTPS عبر APP_TLS_CERT_PATH وAPP_TLS_KEY_PATH.")
+console.log("لتشغيل PWA/Web Push من الهاتف، فعّل HTTPS عبر APP_TLS_CERT_PATH وAPP_TLS_KEY_PATH.")

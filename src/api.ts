@@ -1,4 +1,4 @@
-import type { ActiveSession, AppConfig, ConversationQuestionAnswers, FileDiff, HistoryTurn, ModelInfo, Part, Permission, Project, ProjectResponse, PushSubscriptionJson, ResultFile, Session, SessionMessage, SessionModelRef, SessionModelState, SessionStatus, SessionSummary, Todo } from "./types"
+import type { ActiveSession, AppConfig, ConversationQuestionAnswers, FileDiff, HistoryTurn, ModelInfo, Part, Permission, Project, ProjectResponse, PushSubscriptionJson, ResultFile, Session, SessionMessage, SessionModelRef, SessionModelState, SessionRequests, SessionStatus, Todo } from "./types"
 
 export class ApiError extends Error {
   constructor(
@@ -64,10 +64,6 @@ export function selectProject(project: Pick<Project, "id" | "worktree">): Promis
   })
 }
 
-export function getSummary(id: string): Promise<SessionSummary> {
-  return request<SessionSummary>(`/api/session/${encodeURIComponent(id)}/summary`)
-}
-
 export function listSessions(): Promise<Session[]> {
   return request<Session[]>("/api/session")
 }
@@ -79,8 +75,8 @@ export function createSession(title?: string, mobile = false): Promise<Session> 
   })
 }
 
-export function renameSession(id: string, title: string): Promise<Session> {
-  return request<Session>(`/api/session/${encodeURIComponent(id)}`, {
+export function renameSession(id: string, title: string, lang: "ar" | "en" = "ar"): Promise<Session> {
+  return request<Session>(`/api/session/${encodeURIComponent(id)}?lang=${lang}`, {
     method: "PATCH",
     body: JSON.stringify({ title }),
   })
@@ -94,27 +90,31 @@ export function getStatuses(): Promise<Record<string, SessionStatus>> {
   return request<Record<string, SessionStatus>>("/api/session/status")
 }
 
-export function getActivity(): Promise<ActiveSession[]> {
-  return request<ActiveSession[]>("/api/activity")
+export function getActivity(lang: "ar" | "en" = "ar"): Promise<ActiveSession[]> {
+  return request<ActiveSession[]>(`/api/activity?lang=${lang}`)
 }
 
 export function getMessages(id: string): Promise<SessionMessage[]> {
   return request<SessionMessage[]>(`/api/session/${encodeURIComponent(id)}/message`)
 }
 
-export function getHistory(id: string): Promise<HistoryTurn[]> {
-  return request<HistoryTurn[]>(`/api/session/${encodeURIComponent(id)}/history`)
+export function getHistory(id: string, lang: "ar" | "en" = "ar"): Promise<HistoryTurn[]> {
+  return request<HistoryTurn[]>(`/api/session/${encodeURIComponent(id)}/history?lang=${lang}`)
 }
 
-export function sendMessage(id: string, text: string, agent?: string, model?: SessionModelRef): Promise<{ accepted: boolean }> {
-  return request<{ accepted: boolean }>(`/api/session/${encodeURIComponent(id)}/message`, {
+export function getRequests(id: string, lang: "ar" | "en" = "ar"): Promise<SessionRequests> {
+  return request<SessionRequests>(`/api/session/${encodeURIComponent(id)}/requests?lang=${lang}`)
+}
+
+export function sendMessage(id: string, text: string, agent?: string, model?: SessionModelRef): Promise<{ accepted: boolean; queued: boolean }> {
+  return request<{ accepted: boolean; queued: boolean }>(`/api/session/${encodeURIComponent(id)}/message`, {
     method: "POST",
     body: JSON.stringify({ text, ...(agent ? { agent } : {}), ...(model ? { model } : {}) }),
   })
 }
 
-export function abortSession(id: string): Promise<{ aborted: boolean }> {
-  return request<{ aborted: boolean }>(`/api/session/${encodeURIComponent(id)}/abort`, { method: "POST" })
+export function abortSession(id: string): Promise<{ aborted: boolean; cleared: number }> {
+  return request<{ aborted: boolean; cleared: number }>(`/api/session/${encodeURIComponent(id)}/abort`, { method: "POST" })
 }
 
 export function getTodos(id: string): Promise<Todo[]> {
@@ -248,10 +248,10 @@ export function rejectQuestion(id: string, requestId: string): Promise<{ accepte
   })
 }
 
-export function subscribePush(subscription: PushSubscriptionJson): Promise<{ ok: true }> {
+export function subscribePush(subscription: PushSubscriptionJson, lang: "ar" | "en" = "ar"): Promise<{ ok: true }> {
   return request<{ ok: true }>("/api/push/subscribe", {
     method: "POST",
-    body: JSON.stringify(subscription),
+    body: JSON.stringify({ ...subscription, lang }),
   })
 }
 
@@ -262,10 +262,10 @@ export function unsubscribePush(endpoint: string): Promise<{ ok: true }> {
   })
 }
 
-export function testPush(subscription: PushSubscriptionJson): Promise<{ ok: true }> {
+export function testPush(subscription: PushSubscriptionJson, lang: "ar" | "en" = "ar"): Promise<{ ok: true }> {
   return request<{ ok: true }>("/api/push/test", {
     method: "POST",
-    body: JSON.stringify(subscription),
+    body: JSON.stringify({ ...subscription, lang }),
   })
 }
 

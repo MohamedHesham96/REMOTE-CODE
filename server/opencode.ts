@@ -17,8 +17,9 @@ import type {
 } from "@opencode-ai/sdk"
 import type { GlobalSession, OpencodeClient as OpencodeV2Client, QuestionAnswer, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { setTimeout as sleep } from "node:timers/promises"
+import { serverMessage, type ServerLang } from "./i18n.js"
 
-interface ServiceOptions {
+export interface ServiceOptions {
   projectDirectory: string
   serverUrl?: string
   username: string
@@ -120,22 +121,6 @@ function isChildDirectory(directory: string, parent: string): boolean {
   return child !== root && child.startsWith(`${root}/`)
 }
 
-export interface SessionSummary {
-  status: SessionStatus
-  activity: string
-  finalResult: string
-  prompt: string
-  completedTodos: number
-  totalTodos: number
-  todos: Todo[]
-  questions: ConversationQuestionRequest[]
-  updatedAt: number
-  resultFiles: ResultFile[]
-  stepsCompleted: number
-  activeTool: string | null
-  startedAt: number
-}
-
 export interface ResultFile {
   id: string
   name: string
@@ -175,6 +160,54 @@ export interface HistoryTurn {
   completedAt: number
   steps: number
   files: ResultFile[]
+}
+
+export type RequestState = "queued" | "running" | "done" | "stopped"
+
+export interface SessionRequest {
+  id: string
+  index: number
+  prompt: string
+  state: RequestState
+  activity: string
+  finalResult: string
+  stepsCompleted: number
+  activeTool: string | null
+  todos: Todo[]
+  completedTodos: number
+  totalTodos: number
+  resultFiles: ResultFile[]
+  startedAt: number
+  completedAt: number
+  updatedAt: number
+}
+
+export interface SessionRequests {
+  status: SessionStatus
+  requests: SessionRequest[]
+  questions: ConversationQuestionRequest[]
+  queued: number
+}
+
+interface QueuedPrompt {
+  id: string
+  text: string
+  agent?: string
+  model?: SessionModelRef
+  queuedAt: number
+  attempts: number
+}
+
+// طابق واحد = رسالة مستخدم واحدة + الردود اللي جت بعدها.
+interface RequestTurn {
+  id: string
+  prompt: string
+  createdAt: number
+  completedAt: number
+  updatedAt: number
+  texts: string[]
+  steps: number
+  entries: Array<{ info: Message; parts: Part[] }>
 }
 
 export interface ModelInfo {
@@ -221,6 +254,9 @@ function parseModelString(value: string | undefined | null): SessionModelRef | n
 }
 
 const MAX_FILE_DOWNLOAD_BYTES = 25 * 1024 * 1024
+
+// بعد كام محاولة فاشلة بنسقط الطلب من الطابور بدل ما نفضل نعيد تجربته
+const MAX_PROMPT_ATTEMPTS = 3
 
 const mimeByExtension: Record<string, string> = {
   ".pdf": "application/pdf",
@@ -269,6 +305,13 @@ export class OpenCodeService {
   private readonly abortController = new AbortController()
   private readonly listeners = new Set<EventListener>()
   private readonly busySessions = new Set<string>()
+  // طابور الطلبات لكل جلسة: المستخدم يقدر يبعت أكتر من طلب من غير ما يستنى،
+  // والطلب اللي بعده يستنى لحد ما يخلص اللي قبله.
+  private readonly promptQueues = new Map<string, QueuedPrompt[]>()
+  // جلسات عندنا طلب اتبعت بالفعل ومستنيين الـ idle عشان نبعث اللي بعده
+  private readonly runningSessions = new Set<string>()
+  private promptSeq = 0
+  private queueWatchdog: NodeJS.Timeout | null = null
   private readonly pendingPermissions = new Map<string, Permission>()
   private readonly mobileSessions = new Set<string>()
   private readonly mobileSessionsPath = resolve(process.cwd(), "data", "mobile-sessions.json")
@@ -363,6 +406,7 @@ export class OpenCodeService {
     }
 
     this.eventsStarted = true
+    this.startQueueWatchdog()
     void this.consumeEvents()
   }
 
@@ -404,6 +448,7 @@ export class OpenCodeService {
         this.busySessions.add(event.properties.sessionID)
       } else if (statusType === "idle") {
         this.busySessions.delete(event.properties.sessionID)
+        this.releaseSession(event.properties.sessionID)
       }
       // أي نوع حالة غير معروف (أو حدث ناقص): تجاهل — الـ poll الدوري
       // لـ /session/status هو مصدر الحقيقة الأساسي
@@ -411,7 +456,85 @@ export class OpenCodeService {
 
     if (event.type === "session.idle") {
       this.busySessions.delete(event.properties.sessionID)
+      this.releaseSession(event.properties.sessionID)
     }
+  }
+
+  // فيه شغل معلّق على الجلسة دي (طلب شغّال أو طلبات مستنية في الطابور)؟
+  // بنستخدمها عشان نخفي حالة "idle" المؤقتة اللي بتحصل بين طلبين متتالين،
+  // فالمستخدم ما يشوفش إن خلص وهو لسه فاضل طلبات وراه.
+  hasPendingWork(sessionId: string): boolean {
+    return this.runningSessions.has(sessionId) || (this.promptQueues.get(sessionId)?.length ?? 0) > 0
+  }
+
+  private effectiveStatus(sessionId: string, status: SessionStatus): SessionStatus {
+    if (status.type === "idle" && this.hasPendingWork(sessionId)) {
+      return { type: "busy" }
+    }
+    return status
+  }
+
+  // الجلسة خلصت: ابعت الطلب اللي مستني في الطابور (لو فيه).
+  private releaseSession(sessionId: string): void {
+    this.runningSessions.delete(sessionId)
+    this.pumpQueue(sessionId)
+  }
+
+  // بعت عنصر واحد بس من الطابور، وبعديه بنستنى الـ idle عشان اللي بعده.
+  // القرار كله متزامن (من غير await) عشان حدثين idle متتاليين ما يبقاش
+  // واحد فيهم مستني التاني. بيرجع true لو العنصر اتبعت فعلًا.
+  private pumpQueue(sessionId: string): boolean {
+    if (this.runningSessions.has(sessionId)) {
+      return false
+    }
+    const queue = this.promptQueues.get(sessionId)
+    if (!queue || queue.length === 0) {
+      this.promptQueues.delete(sessionId)
+      return false
+    }
+    const next = queue.shift()
+    if (!next) {
+      this.promptQueues.delete(sessionId)
+      return false
+    }
+
+    this.runningSessions.add(sessionId)
+    void this.dispatchPrompt(sessionId, next).catch((error: unknown) => {
+      // الطلب مانعتش — سيبه للـ watchdog يجرب تاني أو يشيله نهائيًا
+      this.runningSessions.delete(sessionId)
+      next.attempts += 1
+      console.error("Unable to send the queued prompt", errorMessage(error))
+      const pending = this.promptQueues.get(sessionId)
+      if (next.attempts >= MAX_PROMPT_ATTEMPTS) {
+        console.error("Dropping the queued prompt after repeated failures", next.id)
+        return
+      }
+      pending?.unshift(next)
+    })
+    return true
+  }
+
+  // شبكة أمان: لو الـ SSE اتقطع日和 الطابور اتقفل، من polling للحالات
+  // ونبعث الطلبات اللي اتقفلت من غير ما حد يبعتها.
+  private startQueueWatchdog(): void {
+    if (this.queueWatchdog) {
+      return
+    }
+    this.queueWatchdog = setInterval(() => {
+      if (this.promptQueues.size === 0) {
+        return
+      }
+      void this.rawStatuses().then((statuses) => {
+        for (const sessionId of [...this.promptQueues.keys()]) {
+          const status = statuses[sessionId]
+          if (status && status.type === "idle") {
+            this.busySessions.delete(sessionId)
+            this.releaseSession(sessionId)
+          }
+        }
+      }).catch(() => undefined)
+    }, 5000)
+    this.queueWatchdog.unref?.()
   }
 
   onEvent(listener: EventListener): () => void {
@@ -517,8 +640,8 @@ export class OpenCodeService {
     return session
   }
 
-  async updateSession(id: string, title: string): Promise<Session> {
-    const nextTitle = stripMobileSuffix(title.trim()).slice(0, 120) || "محادثة جديدة"
+  async updateSession(id: string, title: string, lang: ServerLang = "ar"): Promise<Session> {
+    const nextTitle = stripMobileSuffix(title.trim()).slice(0, 120) || serverMessage("newConversation", lang)
     return unwrap(await this.clientFor().session.update({
       path: { id },
       body: { title: nextTitle },
@@ -528,6 +651,8 @@ export class OpenCodeService {
 
   async deleteSession(id: string): Promise<boolean> {
     this.mobileSessions.delete(id)
+    this.promptQueues.delete(id)
+    this.runningSessions.delete(id)
     this.persistMobileSessions()
     return unwrap(await this.clientFor().session.delete({ path: { id }, query: this.directoryQuery() }))
   }
@@ -539,83 +664,12 @@ export class OpenCodeService {
     }))
   }
 
-  async summary(id: string): Promise<SessionSummary> {
-    const [statuses, messages, todos, questions] = await Promise.all([
-      this.statuses(),
-      this.messages(id),
-      this.todos(id),
-      this.sessionQuestions(id),
-    ])
-    const status = statuses[id] || { type: "idle" }
-    const lastUser = [...messages].reverse().find((entry) => entry.info.role === "user")
-    const currentAssistant = [...messages].reverse().find((entry) => entry.info.role === "assistant")
-    const completedAssistant = [...messages].reverse().find((entry) => entry.info.role === "assistant" && Boolean(entry.info.time.completed))
-    const activeTool = currentAssistant?.parts.find((part): part is Extract<Part, { type: "tool" }> => part.type === "tool" && (part.state.status === "running" || part.state.status === "pending"))
-    const activeTodo = todos.find((todo) => todo.status === "in_progress")
-    const completedTodos = todos.filter((todo) => todo.status === "completed").length
-    let activity = "المهمة جاهزة"
-
-    if (status.type === "retry") {
-      activity = "يعيد OpenCode المحاولة الآن"
-    } else if (status.type === "busy") {
-      if (activeTool) {
-        activity = activeTool.state.status === "running" && "title" in activeTool.state && activeTool.state.title
-          ? activeTool.state.title
-          : `OpenCode يستخدم ${activeTool.tool}`
-      } else if (activeTodo) {
-        activity = activeTodo.content
-      } else {
-        activity = "OpenCode يعمل على المهمة"
-      }
-    }
-
-    const updatedAt = messages.reduce((latest, entry) => Math.max(latest, entry.info.time.created), 0)
-    // إشارات حقيقية من اللي بيحصل فعلًا: عدد الأدوات المنفذة + الأداة الشغالة حاليًا + بداية المهمة
-    let stepsCompleted = 0
-    for (const entry of messages) {
-      if (entry.info.role !== "assistant") {
-        continue
-      }
-      for (const part of entry.parts) {
-        if (part.type === "tool" && part.state.status === "completed") {
-          stepsCompleted += 1
-        }
-      }
-    }
-    const startedAt = lastUser?.info.time.created ?? 0
-    return {
-      status,
-      activity,
-      finalResult: completedAssistant ? textFromParts(completedAssistant.parts) : "",
-      prompt: lastUser ? textFromParts(lastUser.parts) : "",
-      completedTodos,
-      totalTodos: todos.length,
-      todos,
-      questions,
-      updatedAt,
-      resultFiles: this.collectResultFiles(id, messages),
-      stepsCompleted,
-      activeTool: activeTool?.tool ?? null,
-      startedAt,
-    }
-  }
-
-  async history(id: string): Promise<HistoryTurn[]> {
-    const messages = await this.messages(id)
+  // تقسيم رسائل الجلسة إلى "طوابق": كل رسالة مستخدم بتبدأ طابق،
+  // والردود اللي بعدها بتاعتها. الترتيب زمني من الأقدم للأحدث.
+  private turns(messages: Array<{ info: Message; parts: Part[] }>): RequestTurn[] {
     const sorted = [...messages].sort((a, b) => a.info.time.created - b.info.time.created)
-
-    interface TurnAcc {
-      id: string
-      prompt: string
-      createdAt: number
-      completedAt: number
-      texts: string[]
-      steps: number
-      entries: Array<{ info: Message; parts: Part[] }>
-    }
-
-    const turns: TurnAcc[] = []
-    let current: TurnAcc | null = null
+    const turns: RequestTurn[] = []
+    let current: RequestTurn | null = null
 
     for (const entry of sorted) {
       if (entry.info.role === "user") {
@@ -632,6 +686,7 @@ export class OpenCodeService {
           prompt,
           createdAt: entry.info.time.created,
           completedAt: 0,
+          updatedAt: entry.info.time.created,
           texts: [],
           steps: 0,
           entries: [],
@@ -652,6 +707,7 @@ export class OpenCodeService {
         }
       }
       current.entries.push(entry)
+      current.updatedAt = Math.max(current.updatedAt, entry.info.time.created, entry.info.time.completed ?? 0)
       if (entry.info.time.completed) {
         current.completedAt = Math.max(current.completedAt, entry.info.time.completed)
       }
@@ -659,6 +715,12 @@ export class OpenCodeService {
     if (current) {
       turns.push(current)
     }
+
+    return turns
+  }
+
+  async history(id: string, lang: ServerLang = "ar"): Promise<HistoryTurn[]> {
+    const turns = this.turns(await this.messages(id))
 
     const withIndex = turns.map((turn, position) => ({
       id: turn.id || `turn-${position + 1}`,
@@ -668,18 +730,110 @@ export class OpenCodeService {
       createdAt: turn.createdAt,
       completedAt: turn.completedAt || turn.createdAt,
       steps: turn.steps,
-      files: this.collectResultFiles(id, turn.entries),
+      files: this.collectResultFiles(id, turn.entries, lang),
     }))
 
     // الأحدث أولًا عشان مراجعة النتائج القديمة تبقى أسهل
     return withIndex.reverse()
   }
 
+  // كارت لكل طلب في المحادثة: القديم فوق والأحدث تحت، وآخر كارت هو
+  // الطلب الشغّال دلوقتي وبعديه الطلبات اللي مستنية في الطابور.
+  async requests(id: string, lang: ServerLang = "ar"): Promise<SessionRequests> {
+    const [rawStatuses, messages, todos, questions] = await Promise.all([
+      this.rawStatuses(),
+      this.messages(id),
+      this.todos(id),
+      this.sessionQuestions(id),
+    ])
+    const status = this.effectiveStatus(id, rawStatuses[id] || { type: "idle" })
+    const busy = status.type === "busy" || status.type === "retry"
+    const turns = this.turns(messages)
+    const runningIndex = busy ? turns.length - 1 : -1
+    const activeTodo = todos.find((todo) => todo.status === "in_progress")
+    const completedTodos = todos.filter((todo) => todo.status === "completed").length
+
+    const requests: SessionRequest[] = turns.map((turn, index) => {
+      const running = index === runningIndex
+      const reversed = [...turn.entries].reverse()
+      const currentAssistant = reversed.find((entry) => entry.info.role === "assistant")
+      const completedAssistant = reversed.find((entry) => entry.info.role === "assistant" && Boolean(entry.info.time.completed))
+      const activeTool = currentAssistant?.parts.find((part): part is Extract<Part, { type: "tool" }> =>
+        part.type === "tool" && (part.state.status === "running" || part.state.status === "pending"))
+
+      let activity = serverMessage("taskReady", lang)
+      if (running) {
+        if (status.type === "retry") {
+          activity = serverMessage("retryingNow", lang)
+        } else if (activeTool) {
+          activity = activeTool.state.status === "running" && "title" in activeTool.state && activeTool.state.title
+            ? activeTool.state.title
+            : `${serverMessage("usesTool", lang)} ${activeTool.tool}`
+        } else if (activeTodo) {
+          activity = activeTodo.content
+        } else {
+          activity = serverMessage("workingOnTask", lang)
+        }
+      }
+
+      // طلب اتوقف في نصه (إيدوي أو خطأ): مقدّم رسائل بس مفيش ولا رد مكتمل
+      const state: RequestState = running
+        ? "running"
+        : turn.completedAt === 0 && turn.entries.length > 0
+          ? "stopped"
+          : "done"
+
+      return {
+        id: turn.id || `turn-${index + 1}`,
+        index: index + 1,
+        prompt: turn.prompt,
+        state,
+        activity,
+        finalResult: completedAssistant ? textFromParts(completedAssistant.parts) : "",
+        stepsCompleted: turn.steps,
+        activeTool: activeTool?.tool ?? null,
+        // خطة الـ todos بتاعة الشغل الشغّال دلوقتي بس
+        todos: running ? todos : [],
+        completedTodos: running ? completedTodos : 0,
+        totalTodos: running ? todos.length : 0,
+        resultFiles: this.collectResultFiles(id, turn.entries, lang),
+        startedAt: turn.createdAt,
+        completedAt: turn.completedAt,
+        updatedAt: turn.updatedAt,
+      }
+    })
+
+    const queue = this.promptQueues.get(id) ?? []
+    for (const [offset, item] of queue.entries()) {
+      requests.push({
+        id: `queued:${item.id}`,
+        index: turns.length + offset + 1,
+        prompt: item.text,
+        state: "queued",
+        activity: serverMessage("queuedWaiting", lang),
+        finalResult: "",
+        stepsCompleted: 0,
+        activeTool: null,
+        todos: [],
+        completedTodos: 0,
+        totalTodos: 0,
+        resultFiles: [],
+        startedAt: item.queuedAt,
+        completedAt: 0,
+        updatedAt: item.queuedAt,
+      })
+    }
+
+    return { status, requests, questions, queued: queue.length }
+  }
+
   private collectResultFiles(
     sessionId: string,
     messages: Array<{ info: Message; parts: Part[] }>,
+    lang: ServerLang = "ar",
   ): ResultFile[] {
     const files = new Map<string, ResultFile>()
+    const fileFallback = serverMessage("fileFallback", lang)
 
     const pushFile = (entry: {
       id: string
@@ -701,7 +855,7 @@ export class OpenCodeService {
         : entry.url
       files.set(key, {
         id: entry.id,
-        name: entry.name || "ملف",
+        name: entry.name || fileFallback,
         mime: entry.mime || mimeFromName(entry.name),
         path: entry.path,
         url: entry.url,
@@ -719,7 +873,7 @@ export class OpenCodeService {
           const sourcePath = part.source && "path" in part.source && typeof part.source.path === "string"
             ? part.source.path
             : ""
-          const name = part.filename || (sourcePath ? fileNameFromPath(sourcePath, "ملف") : fileNameFromPath(part.url || "", "ملف"))
+          const name = part.filename || (sourcePath ? fileNameFromPath(sourcePath, fileFallback) : fileNameFromPath(part.url || "", fileFallback))
           pushFile({
             id: part.id,
             name,
@@ -736,7 +890,7 @@ export class OpenCodeService {
               ? attachment.source.path
               : ""
             const name = attachment.filename
-              || (sourcePath ? fileNameFromPath(sourcePath, "ملف") : fileNameFromPath(attachment.url || "", "ملف"))
+              || (sourcePath ? fileNameFromPath(sourcePath, fileFallback) : fileNameFromPath(attachment.url || "", fileFallback))
             pushFile({
               id: attachment.id,
               name,
@@ -753,7 +907,7 @@ export class OpenCodeService {
             if (typeof filePath !== "string" || !filePath.trim()) {
               continue
             }
-            const name = fileNameFromPath(filePath, "ملف")
+            const name = fileNameFromPath(filePath, fileFallback)
             pushFile({
               id: `${part.id}:${filePath}`,
               name,
@@ -822,13 +976,36 @@ export class OpenCodeService {
     }
   }
 
-  async prompt(id: string, text: string, agent?: string, model?: SessionModelRef): Promise<void> {
+  // المستخدم يقدر يبعت كذا طلب ورا بعض من غير ما يستنى. لو الجلسة شغالة
+  // الطلب بيروح في طابور specific للجلسة، ولو هي فاضية بيتنفذ على طول.
+  async prompt(id: string, text: string, agent?: string, model?: SessionModelRef): Promise<{ queued: boolean }> {
+    const item: QueuedPrompt = {
+      id: `q${++this.promptSeq}`,
+      text,
+      ...(agent ? { agent } : {}),
+      ...(model?.providerID && model?.modelID ? { model } : {}),
+      queuedAt: Date.now(),
+      attempts: 0,
+    }
+    const wasBusy = this.hasPendingWork(id) || this.busySessions.has(id)
+    const queue = this.promptQueues.get(id) ?? []
+    queue.push(item)
+    this.promptQueues.set(id, queue)
+    if (wasBusy) {
+      return { queued: true }
+    }
+    return { queued: !this.pumpQueue(id) }
+  }
+
+  private async dispatchPrompt(id: string, item: QueuedPrompt): Promise<void> {
     const result = await this.clientFor().session.promptAsync({
       path: { id },
       body: {
-        parts: [{ type: "text", text }],
-        ...(agent ? { agent } : {}),
-        ...(model?.providerID && model?.modelID ? { model: { providerID: model.providerID, modelID: model.modelID } } : {}),
+        parts: [{ type: "text", text: item.text }],
+        ...(item.agent ? { agent: item.agent } : {}),
+        ...(item.model?.providerID && item.model?.modelID
+          ? { model: { providerID: item.model.providerID, modelID: item.model.modelID } }
+          : {}),
       },
       query: this.directoryQuery(),
     })
@@ -841,7 +1018,7 @@ export class OpenCodeService {
     // title after the first question, name it based on the message content.
     // Sessions created without a title let OpenCode's native generator run;
     // this covers servers where native generation is disabled/missing.
-    void this.autoTitleFromFirstMessage(id, text).catch((error) => {
+    void this.autoTitleFromFirstMessage(id, item.text).catch((error) => {
       console.error("Unable to auto-name mobile session", errorMessage(error))
     })
   }
@@ -891,17 +1068,32 @@ export class OpenCodeService {
     }))
   }
 
-  async abort(id: string): Promise<boolean> {
-    return unwrap(await this.clientFor().session.abort({ path: { id }, query: this.directoryQuery() }))
+  // الإيقاف اليدوي بيوقف الطلب الشغّال وبيشيل كل الطلبات اللي مستنية في الطابور.
+  async abort(id: string): Promise<{ aborted: boolean; cleared: number }> {
+    const cleared = this.promptQueues.get(id)?.length ?? 0
+    this.promptQueues.delete(id)
+    this.runningSessions.delete(id)
+    const aborted = unwrap(await this.clientFor().session.abort({ path: { id }, query: this.directoryQuery() }))
+    return { aborted, cleared }
   }
 
   async statuses(): Promise<Record<string, SessionStatus>> {
+    const statuses = await this.rawStatuses()
+    for (const [sessionId, status] of Object.entries(statuses)) {
+      statuses[sessionId] = this.effectiveStatus(sessionId, status)
+    }
+    return statuses
+  }
+
+  // الحالة الخام من OpenCode من غير تعديل الطابور — الـ watchdog محتاجها عشان
+  // يفرّق بين "خلص فعلًا" و"خلص مؤقتًا وعندنا طلبات مستنية".
+  private async rawStatuses(): Promise<Record<string, SessionStatus>> {
     return unwrap(await this.clientFor().session.status({ query: this.directoryQuery() }))
   }
 
   // المحادثات الشغالة حاليًا في كل المشاريع — عشان تظهر قدام المستخدم
   // من غير ما يفتح قائمة المشاريع ويدوّر بنفسه
-  async activity(): Promise<ActiveSession[]> {
+  async activity(lang: ServerLang = "ar"): Promise<ActiveSession[]> {
     const sessions = await this.globalClient.experimental.session
       .list({ roots: true, limit: 1000 })
       .then(unwrap)
@@ -964,7 +1156,7 @@ export class OpenCodeService {
       const projectName = normalized.split(/[\\/]/).filter(Boolean).pop() || worktree
       items.push({
         id: session.id,
-        title: stripMobileSuffix(session.title) || "محادثة جديدة",
+        title: stripMobileSuffix(session.title) || serverMessage("newConversation", lang),
         directory: session.directory,
         worktree,
         projectName,
@@ -1204,6 +1396,12 @@ export class OpenCodeService {
 
   close(): void {
     this.abortController.abort()
+    if (this.queueWatchdog) {
+      clearInterval(this.queueWatchdog)
+      this.queueWatchdog = null
+    }
+    this.promptQueues.clear()
+    this.runningSessions.clear()
     this.closeServer?.()
     this.listeners.clear()
     this.clients.clear()
