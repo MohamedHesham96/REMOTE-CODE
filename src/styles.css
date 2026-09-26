@@ -555,7 +555,7 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .sidebar-action:hover { color: var(--text); }
 
 .main-panel { min-width: 0; min-height: 0; height: 100%; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.topbar { min-height: 84px; flex: 0 0 auto; display: flex; align-items: center; gap: 15px; padding: 18px clamp(18px, 4vw, 48px); border-bottom: 1px solid var(--border); background: var(--topbar-bg); position: sticky; top: 0; z-index: 10; }
+.topbar { min-height: 84px; flex: 0 0 auto; display: flex; align-items: center; gap: 15px; padding: 18px clamp(18px, 4vw, 48px); border-bottom: 1px solid var(--border); background: var(--topbar-bg); }
 .current-session { min-width: 0; flex: 1; }
 .session-title-row { min-width: 0; display: flex; align-items: center; gap: 6px; }
 .current-session h1 { min-width: 0; overflow: hidden; margin: 3px 0 0; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; }
@@ -1198,7 +1198,7 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   .sidebar.sidebar-open { transform: translateX(0); }
   .mobile-only { display: grid; }
   .topbar { min-height: 0; padding: 12px 12px 10px; flex-wrap: wrap; gap: 10px; row-gap: 8px; align-items: flex-start; }
-  .topbar > .mobile-only { order: 0; flex: 0 0 38px; align-self: stretch; }
+.topbar > .mobile-only { order: 0; flex: 0 0 38px; align-self: stretch; }
   .topbar > .mobile-only .icon-button { height: 100%; min-height: 68px; width: 44px; font-size: 22px; border-radius: 11px; }
   .current-session { order: 1; flex: 1 1 0; min-width: 0; }
   .topbar-project-row { gap: 6px; }
@@ -1233,7 +1233,6 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   .login-card { padding: 30px 23px; border-radius: 22px; }
   .permission-actions .button { flex: 1; }
   .project-grid { grid-template-columns: 1fr; }
-  .topbar.keyboard-open { position: fixed; top: 0; left: 0; right: 0; width: 100%; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3); }
   .project-picker { padding: 25px 17px; border-radius: 21px; }
   .project-picker-header h1 { font-size: 26px; }
   .task-summary { padding: 16px; }
