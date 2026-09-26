@@ -12,6 +12,29 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const method = (init.method || "GET").toUpperCase()
+  // إلغاء تكرار الـ GET المتزامن: نفس المورد المطلوب لحظيًا من كذا مصدر
+  // (poll + حدث SSE + resync) يشارك fetch واحدة بدل N طلبات متطابقة
+  if (method === "GET") {
+    const key = `${method}:${path}`
+    const running = inflightGets.get(key)
+    if (running) {
+      return running as Promise<T>
+    }
+    const task = doRequest<T>(path, init).finally(() => {
+      if (inflightGets.get(key) === task) {
+        inflightGets.delete(key)
+      }
+    })
+    inflightGets.set(key, task)
+    return task
+  }
+  return doRequest<T>(path, init)
+}
+
+const inflightGets = new Map<string, Promise<unknown>>()
+
+async function doRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   if (init.body && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json")
@@ -102,8 +125,55 @@ export function getHistory(id: string, lang: "ar" | "en" = "ar"): Promise<Histor
   return request<HistoryTurn[]>(`/api/session/${encodeURIComponent(id)}/history?lang=${lang}`)
 }
 
-export function getRequests(id: string, lang: "ar" | "en" = "ar"): Promise<SessionRequests> {
-  return request<SessionRequests>(`/api/session/${encodeURIComponent(id)}/requests?lang=${lang}`)
+// كاش ETag لطلبات المحادثة: السيرفر يرجّع 304 فاضي لما مفيش تغيير،
+// فنرجّع آخر payload من الذاكرة — نفس المرجع (reference) عشان React
+// يعمل bail-out وميعيدش الـ render أصلًا
+const requestsEtag = new Map<string, string>()
+const requestsCache = new Map<string, SessionRequests>()
+
+export async function getRequests(id: string, lang: "ar" | "en" = "ar"): Promise<SessionRequests> {
+  const key = `${id}:${lang}`
+  const url = `/api/session/${encodeURIComponent(id)}/requests?lang=${lang}`
+  const headers: Record<string, string> = {}
+  const tag = requestsEtag.get(key)
+  if (tag) {
+    headers["If-None-Match"] = tag
+  }
+  const response = await fetch(url, { headers, credentials: "include" })
+  if (response.status === 304) {
+    const cached = requestsCache.get(key)
+    if (cached) {
+      return cached
+    }
+    // الكاش اتمسح لسبب ما — أعد المحاولة من غير ETag
+    requestsEtag.delete(key)
+    return getRequests(id, lang)
+  }
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch {
+    payload = undefined
+  }
+  if (!response.ok) {
+    const data = payload as { message?: string; error?: string } | undefined
+    throw new ApiError(data?.message || `Request failed (${response.status})`, response.status, data?.error)
+  }
+  const etag = response.headers.get("ETag")
+  if (etag) {
+    requestsEtag.set(key, etag)
+  }
+  const result = payload as SessionRequests
+  // سقف الكاش: جلسات قديمة كثيرة لا تتراكم في الذاكرة (LRU بسيط)
+  if (requestsCache.size >= 30 && !requestsCache.has(key)) {
+    const oldest = requestsCache.keys().next()
+    if (!oldest.done) {
+      requestsCache.delete(oldest.value)
+      requestsEtag.delete(oldest.value)
+    }
+  }
+  requestsCache.set(key, result)
+  return result
 }
 
 export function sendMessage(id: string, text: string, agent?: string, model?: SessionModelRef): Promise<{ accepted: boolean; queued: boolean }> {

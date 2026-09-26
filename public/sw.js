@@ -1,4 +1,4 @@
-const CACHE_NAME = "opencode-mobile-shell-v7"
+const CACHE_NAME = "opencode-mobile-shell-v8"
 const SHELL = ["/", "/manifest.webmanifest", "/icon.svg"]
 
 // ملفات Vite في وضع التطوير (HMR) — لا تُخزّن أبدًا عشان التعديلات تبان فورًا على الموبايل
@@ -12,18 +12,12 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
-      // كاش جديد = امسح الكاش القديم كله
+      // كاش جديد = امسح الكاش القديم كله (بأسمائه القديمة فقط).
+      // ملاحظة: لا نمسح /assets داخل الكاش الحالي — أسماء الملفات فيها hash
+      // فالقديم لا يتعارض مع الجديد، ومسحها كان يجبر كل عميل على إعادة
+      // تحميل الحزم كاملة مع كل تحديث SW حتى لو لم تتغير.
       const keys = await caches.keys()
       await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))
-      // وامسح حزم /assets القديمة اللي فضلت متنسخة من بيلدات سابقة
-      // (نفس اسم الكاش بيتقاس) — أي طلب بعد كده بيرجع من الشبكة ويتخزن تاني
-      const cache = await caches.open(CACHE_NAME)
-      const stale = await cache.keys()
-      await Promise.all(
-        stale
-          .filter((request) => new URL(request.url).pathname.startsWith("/assets/"))
-          .map((request) => cache.delete(request)),
-      )
       await self.clients.claim()
     })(),
   )
@@ -45,18 +39,23 @@ self.addEventListener("fetch", (event) => {
     return
   }
 
-  // ملفات الإنتاج المبنية فيها hash في الاسم (immutable) — كاش أولًا ماشي
+  // ملفات الإنتاج المبنية فيها hash في الاسم (immutable) — كاش أولًا خالص.
+  // لا نعيد الكتابة فوق المخزّن مع كل طلب: الاسم hash يعني المحتوى ثابت،
+  // فالـ put عند الـ miss فقط يوفّر عمليات الكاش والبطارية على الموبايل.
   const isHashedAsset = url.pathname.startsWith("/assets/")
   if (isHashedAsset) {
     event.respondWith(
       caches.match(request).then((cached) => {
-        const network = fetch(request).then((response) => {
+        if (cached) {
+          return cached
+        }
+        return fetch(request).then((response) => {
           if (response.ok) {
-            void caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()))
+            const copy = response.clone()
+            void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy))
           }
           return response
         })
-        return cached || network
       }),
     )
     return

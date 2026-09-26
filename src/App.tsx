@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
 import {
   ApiError,
   abortSession,
@@ -34,10 +34,34 @@ import {
   subscribePush,
   unsubscribePush,
 } from "./api"
-import type { ActiveSession, AppConfig, ClientEvent, ConversationQuestionAnswers, ConversationQuestionRequest, GitChangeFile, GitChangeStatus, GitChanges, HistoryTurn, ModelInfo, Permission, Project, RequestState, ResultFile, Session, SessionModelRef, SessionRequest, SessionStatus, Todo } from "./types"
+import type { ActiveSession, AppConfig, ClientEvent, ConversationQuestionAnswers, ConversationQuestionRequest, GitChanges, HistoryTurn, ModelInfo, Permission, Project, RequestState, ResultFile, Session, SessionModelRef, SessionRequest, SessionStatus, Todo } from "./types"
 import { isSoundEnabled, playAttentionSound, playCompletionSound, setSoundEnabled, unlockAudio, vibrate } from "./sound"
 import { applyTheme, getSavedTheme, nextTheme, saveTheme, THEMES, THEME_META, type AppTheme } from "./theme"
 import { applyLanguage, getSavedLanguage, getStrings, localeOf, saveLanguage, type Language, type Strings } from "./i18n"
+import {
+  displayTitle,
+  formatDate,
+  formatTime,
+  getVarietyLevels,
+  GitBranchIcon,
+  modelLabel,
+  projectName,
+  samePath,
+  statusLabel,
+  variantLabel,
+  VARIANT_ORDER,
+} from "./display"
+
+// أدراج ثقيلة تُحمّل عند الطلب فقط (code-splitting): القائمة الرئيسية
+// والشات يظهران فورًا، وهذه اللوحات تنزل عند أول فتح لها
+const ModelPicker = lazy(() => import("./panels").then((module) => ({ default: module.ModelPicker })))
+const ActiveSessionsPanel = lazy(() => import("./panels").then((module) => ({ default: module.ActiveSessionsPanel })))
+const GitChangesPanel = lazy(() => import("./panels").then((module) => ({ default: module.GitChangesPanel })))
+const HistoryPanel = lazy(() => import("./panels").then((module) => ({ default: module.HistoryPanel })))
+
+function PanelFallback() {
+  return <div className="picker-loading"><span className="loader" /></div>
+}
 
 type AuthState = "loading" | "signedOut" | "signedIn"
 type ToastKind = "info" | "success" | "error"
@@ -80,50 +104,6 @@ function themeDescription(value: AppTheme, t: Strings): string {
   return t.themeDarkDesc
 }
 
-function formatTime(value: number | undefined, lang: Language): string {
-  if (!value) {
-    return ""
-  }
-  return new Intl.DateTimeFormat(localeOf(lang), { hour: "2-digit", minute: "2-digit" }).format(new Date(value))
-}
-
-function formatDate(value: number, lang: Language): string {
-  return new Intl.DateTimeFormat(localeOf(lang), { day: "numeric", month: "short" }).format(new Date(value))
-}
-
-function formatDateTime(value: number | undefined, lang: Language): string {
-  if (!value) {
-    return ""
-  }
-  return new Intl.DateTimeFormat(localeOf(lang), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(value))
-}
-
-function projectName(project: Project): string {
-  const normalized = project.worktree.replace(/[\\/]+$/, "")
-  return normalized.split(/[\\/]/).filter(Boolean).pop() || project.worktree
-}
-
-function samePath(left: string | undefined | null, right: string | undefined | null): boolean {
-  if (!left || !right) {
-    return false
-  }
-  const normalize = (value: string) => value.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase()
-  return normalize(left) === normalize(right)
-}
-
-function statusLabel(status: SessionStatus | undefined, t: Strings): string {
-  if (!status) {
-    return t.statusReady
-  }
-  if (status.type === "busy") {
-    return t.statusBusy
-  }
-  if (status.type === "retry") {
-    return t.statusRetry
-  }
-  return t.statusReady
-}
-
 // الحالة الخام مش موثوقة لحظيًا: الـ SSE والـ poll بيقولوا حاجات مختلفة
 // لأجزاء من الثانية، وكمان OpenCode نفسه بيعدّي بلحظات idle وسيطة بين
 // خطوات المهمة الواحدة (بين أداة والتانية). من غير مهلة، عنوان
@@ -134,7 +114,6 @@ function statusLabel(status: SessionStatus | undefined, t: Strings): string {
 // أما التحديثات المحلية (إرسال جديد) فدي مش عيّنة، وبتتطبّق فورًا.
 const STATUS_TO_IDLE_MS = 8000
 const STATUS_TO_BUSY_MS = 0
-const STATUS_TICK_MS = 500
 
 function statusKind(status: SessionStatus | undefined): string {
   return status?.type ?? "idle"
@@ -150,17 +129,23 @@ function useSettledStatuses(
   toBusyMs: number = STATUS_TO_BUSY_MS,
 ): [Record<string, SessionStatus>, (id: string, status: SessionStatus) => void] {
   const [settled, setSettled] = useState<Record<string, SessionStatus>>(raw)
-  const [tick, setTick] = useState(0)
   const settledRef = useRef(settled)
-  const candidateRef = useRef<Map<string, { kind: string; at: number }>>(new Map())
+  const rawRef = useRef(raw)
+  // مؤقتات عند الطلب فقط: لا توجد حلقة tick دائمة. المؤقت يُزرع فقط عندما
+  // يكون هناك انتقال "لجاهز" معلّق، ويُلغى لو تغيّرت العيّنة قبل انتهائه.
+  const timersRef = useRef(new Map<string, number>())
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setTick((value) => value + 1), STATUS_TICK_MS)
-    return () => window.clearInterval(timer)
+  const clearTimer = useCallback((id: string) => {
+    const timer = timersRef.current.get(id)
+    if (timer !== undefined) {
+      window.clearTimeout(timer)
+      timersRef.current.delete(id)
+    }
   }, [])
 
   useEffect(() => {
-    const now = Date.now()
+    // أحدث عيّنة معروفة للمؤقتات المعلّقة — تُقرأ عند انتهاء المؤقت لا عند زرعه
+    rawRef.current = raw
     const current = settledRef.current
     const next: Record<string, SessionStatus> = { ...current }
     let changed = false
@@ -170,55 +155,69 @@ function useSettledStatuses(
       // جلسة جديدة: اعرضها زي ما هي من غير مهلة
       if (incoming && current[id] === undefined) {
         next[id] = incoming
-        candidateRef.current.delete(id)
+        clearTimer(id)
         changed = true
         continue
       }
       if (current[id]?.type === kind) {
-        candidateRef.current.delete(id)
+        clearTimer(id)
         continue
       }
       // اتجاه التحوّل هو اللي يحدد المهلة: لشغّال فوري، لجاهز بعد ثبات
       const settleMs = isBusyKind(kind) ? toBusyMs : toIdleMs
-      const candidate = candidateRef.current.get(id)
-      if (!candidate || candidate.kind !== kind) {
-        candidateRef.current.set(id, { kind, at: now })
-        // مهلة صفر = طبّق فورًا من غير انتظار الـ tick الجاي
-        if (settleMs <= 0) {
-          candidateRef.current.delete(id)
-          if (incoming) {
-            next[id] = incoming
-          } else {
-            delete next[id]
-          }
-          changed = true
+      if (settleMs <= 0) {
+        clearTimer(id)
+        if (incoming) {
+          next[id] = incoming
+        } else {
+          delete next[id]
         }
+        changed = true
         continue
       }
-      if (now - candidate.at < settleMs) {
-        continue
+      // انتقال مؤجّل: ازرع مؤقتًا واحدًا فقط، وعند انتهائه طبّق آخر عيّنة
+      // معروفة (rawRef) بدل العيّنة القديمة — فلا يطبّق حالة منتهية الصلاحية
+      if (!timersRef.current.has(id)) {
+        timersRef.current.set(id, window.setTimeout(() => {
+          timersRef.current.delete(id)
+          const latest = rawRef.current[id]
+          const latestKind = statusKind(latest)
+          const settledNow = settledRef.current
+          if (settledNow[id]?.type === latestKind) {
+            return
+          }
+          const applied = { ...settledNow }
+          if (latest) {
+            applied[id] = latest
+          } else {
+            delete applied[id]
+          }
+          settledRef.current = applied
+          setSettled(applied)
+        }, settleMs))
       }
-      candidateRef.current.delete(id)
-      if (incoming) {
-        next[id] = incoming
-      } else {
-        delete next[id]
-      }
-      changed = true
     }
     if (changed) {
       settledRef.current = next
       setSettled(next)
     }
-  }, [raw, toIdleMs, toBusyMs, tick])
+  }, [raw, toIdleMs, toBusyMs, clearTimer])
+
+  // إلغاء كل المؤقتات عند الفك — منع تسريب واستیقاظ بعد unmount
+  useEffect(() => () => {
+    for (const timer of timersRef.current.values()) {
+      window.clearTimeout(timer)
+    }
+    timersRef.current.clear()
+  }, [])
 
   // تحديث محلي مؤكد (Optimistic) — مش عيّنة، يتطبّق على طول
   const setStatus = useCallback((id: string, status: SessionStatus) => {
-    candidateRef.current.delete(id)
+    clearTimer(id)
     const next = { ...settledRef.current, [id]: status }
     settledRef.current = next
     setSettled(next)
-  }, [])
+  }, [clearTimer])
 
   return [settled, setStatus]
 }
@@ -227,559 +226,8 @@ function sessionMatches(sessions: Session[], id: string | null): Session | undef
   return id ? sessions.find((session) => session.id === id) : undefined
 }
 
-function displayTitle(title: string | undefined | null, t: Strings): string {
-  const clean = (title || "").replace(/\s*\(mobile\)\s*$/i, "").trim()
-  return clean || t.newConversation
-}
-
-function modelLabel(ref: SessionModelRef | null | undefined, t: Strings): string {
-  if (!ref) {
-    return t.defaultModel
-  }
-  const base = `${ref.providerID}/${ref.modelID}`
-  return ref.variant ? `${base} · ${ref.variant}` : base
-}
-
-function shortModelName(model: ModelInfo): string {
-  return model.name && model.name !== model.id ? model.name : model.id
-}
-
-// خيارات الـ variety بتجيبها من السيرفر مباشرة — كل موديل ليه مستويات مختلفة
-// (مثلاً free models: low/medium/high/xhigh/max) والـ API بيرجّعها لكل موديل على حدة.
-function getVarietyLevels(model: ModelInfo): string[] {
-  return model.variants || []
-}
-
-// ترتيب العرض: low قبل high قبل max — أي اسم تاني (xhigh مثلاً) في مكانه
-const VARIANT_ORDER = ["minimal", "none", "low", "medium", "high", "xhigh", "max"]
-
-function variantLabel(variant: string, t: Strings): string {
-  switch (variant) {
-    case "max":
-      return t.varietyMax
-    case "high":
-      return t.varietyHigh
-    case "medium":
-      return t.varietyMedium
-    case "low":
-      return t.varietyLow
-    case "minimal":
-      return t.varietyMinimal
-    default:
-      return variant
-  }
-}
-
-function ModelPicker({
-  models,
-  loading,
-  current,
-  busy,
-  switching,
-  onSelect,
-  onRefresh,
-  onClose,
-  t,
-}: {
-  models: ModelInfo[]
-  loading: boolean
-  current: SessionModelRef | null
-  busy: boolean
-  switching: string | null
-  onSelect: (model: ModelInfo, variant?: string) => void
-  onRefresh: () => void
-  onClose: () => void
-  t: Strings
-}) {
-  const [query, setQuery] = useState("")
-  // الموجودين في opencode فقط + المتاح (enabled) + free فقط — القائمة حية من السيرفر
-  const freeOnly = useMemo(() => models.filter((model) => model.free && model.enabled !== false), [models])
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) {
-      return freeOnly
-    }
-    return freeOnly.filter((model) =>
-      `${model.providerID}/${model.id} ${model.name}`.toLowerCase().includes(q),
-    )
-  }, [freeOnly, query])
-
-  // خيارات الـ variety بتتغير حسب الموديل المختار — بنجيبها من الموديل نفسه
-  const currentModel = useMemo(
-    () => models.find((model) => model.providerID === current?.providerID && model.id === current?.modelID) ?? null,
-    [models, current],
-  )
-  const variants = useMemo(() => (currentModel ? getVarietyLevels(currentModel) : []).sort((a, b) => {
-    const left = VARIANT_ORDER.indexOf(a)
-    const right = VARIANT_ORDER.indexOf(b)
-    if (left !== -1 && right !== -1) return left - right
-    if (left !== -1) return -1
-    if (right !== -1) return 1
-    return a.localeCompare(b)
-  }), [currentModel])
-  const activeVariant = current?.variant || ""
-
-  return (
-    <div className="drawer-backdrop" onClick={onClose}>
-      <aside className="drawer model-drawer" onClick={(event) => event.stopPropagation()}>
-        <div className="drawer-header">
-          <div><div className="eyebrow">{t.currentModel}: {modelLabel(current, t)}</div><h2>{t.chooseFreeModel} 🆓</h2></div>
-          <button className="icon-button" onClick={onClose} aria-label={t.close}>×</button>
-        </div>
-        {variants.length > 0 && currentModel ? (
-          <div className="variant-picker">
-            <div className="variant-label">
-              <span>{t.modelVariety}</span>
-              <small dir="ltr">{currentModel.providerID}/{currentModel.id}</small>
-            </div>
-            <div className="variant-chips" role="radiogroup" aria-label={t.modelVariety}>
-              {activeVariant ? (
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked="true"
-                  className="variant-chip active"
-                  onClick={() => onSelect(currentModel, "")}
-                >
-                  {t.varietyDefault}
-                </button>
-              ) : null}
-              {variants.map((variant) => (
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={activeVariant === variant}
-                  className={`variant-chip${activeVariant === variant ? " active" : ""}`}
-                  key={variant}
-                  onClick={() => onSelect(currentModel, variant)}
-                >
-                  {variantLabel(variant, t)}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        <div className="model-toolbar">
-          <input
-            className="model-search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t.searchModelsPlaceholder}
-            aria-label={t.searchModelsAria}
-          />
-          <button className="icon-button" onClick={onRefresh} aria-label={t.refreshList} title={t.refreshFromOpencode} disabled={loading}>↻</button>
-        </div>
-        <div className="model-count">{loading ? t.updatingFromOpencode : `${t.availableNow}: ${freeOnly.length} ${t.freeModels}`}</div>
-        {loading && freeOnly.length === 0 ? (
-          <div className="picker-loading"><span className="loader" /> {t.loadingModels}</div>
-        ) : filtered.length === 0 ? (
-          <div className="empty-state">{t.noFreeModels}</div>
-        ) : (
-          <div className="model-list">
-            {filtered.map((model) => {
-              const key = `${model.providerID}/${model.id}`
-              const isCurrent = current?.providerID === model.providerID && current?.modelID === model.id
-              const isSwitching = switching === key
-              const modelVariants = getVarietyLevels(model)
-              return (
-                <button
-                  className={`model-card${isCurrent ? " selected" : ""}`}
-                  key={key}
-                  disabled={busy || Boolean(switching)}
-                  onClick={() => onSelect(model, "")}
-                >
-                  <span className="model-card-body">
-                    <strong>{shortModelName(model)}</strong>
-                    <small dir="ltr">{isCurrent && activeVariant ? `${key} · ${variantLabel(activeVariant, t)}` : key}</small>
-                  </span>
-                  <span className="model-card-side">
-                    {modelVariants.length > 0 ? (
-                      <span className="variant-badge">{isCurrent && activeVariant ? variantLabel(activeVariant, t) : `${modelVariants.length} ${t.varietyOptions}`}</span>
-                    ) : null}
-                    <span className="free-badge">FREE 🆓</span>
-                    {isCurrent ? <span className="current-badge">{t.current} ✓</span> : null}
-                    {isSwitching ? <span className="loader small" /> : null}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        )}
-        <div className="model-footnote">{t.modelListLive}</div>
-      </aside>
-    </div>
-  )
-}
-
 function isRequestsEmpty(candidate: SessionRequest[] | null): boolean {
   return !candidate || candidate.length === 0
-}
-
-function ActiveSessionsPanel({ items, recent, graceLeft, activeId, jumpingId, onJump, onClose, t, lang }: {
-  items: ActiveSession[]
-  recent: ActiveSession[]
-  graceLeft: (id: string) => number
-  activeId: string | null
-  jumpingId: string | null
-  onJump: (item: ActiveSession) => void
-  onClose: () => void
-  t: Strings
-  lang: Language
-}) {
-  // تجميع المحادثات النشطة حسب المشروع — كل المشاريع في مكان واحد
-  const groupByProject = useCallback((list: ActiveSession[]) => {
-    const map = new Map<string, ActiveSession[]>()
-    for (const item of list) {
-      const bucket = map.get(item.projectName) || []
-      bucket.push(item)
-      map.set(item.projectName, bucket)
-    }
-    return [...map.entries()].sort((a, b) => b[1].length - a[1].length)
-  }, [])
-
-  const grouped = useMemo(() => groupByProject(items), [groupByProject, items])
-  const recentGrouped = useMemo(() => groupByProject(recent), [groupByProject, recent])
-
-  const renderRow = (item: ActiveSession, working: boolean) => {
-    const isCurrent = item.id === activeId
-    const left = graceLeft(item.id)
-    const body = (
-      <>
-        {working ? <span className="working-spinner" aria-hidden /> : <span className="status-dot" aria-hidden />}
-        <span className="activity-row-body">
-          <strong>{displayTitle(item.title, t)}</strong>
-          <small>
-            {working ? statusLabel(item.status, t) : t.activeRecently}
-            {' · '}
-            {formatDateTime(item.updatedAt, lang)}
-            {!working && left > 0 ? <> · <span className="session-grace-timer">{formatCountdown(left)}</span></> : null}
-          </small>
-        </span>
-        {isCurrent ? <span className="current-badge">{t.currentBadge} ✓</span> : null}
-      </>
-    )
-    if (isCurrent) {
-      return <div className={`activity-row ${working ? "" : "activity-row-recent"}`} key={item.id}>{body}</div>
-    }
-    return (
-      <button
-        type="button"
-        className={`activity-row activity-row-tap ${working ? "" : "activity-row-recent"}`}
-        key={item.id}
-        disabled={jumpingId !== null}
-        onClick={() => onJump(item)}
-      >
-        {body}
-      </button>
-    )
-  }
-
-  const renderProjectGroups = (entries: [string, ActiveSession[]][], working: boolean) => entries.map(([projectName, group]) => (
-    <section className="activity-group" key={projectName}>
-      <div className="activity-group-header">
-        <span className="activity-group-icon" aria-hidden>📁</span>
-        <strong>{projectName}</strong>
-        <span className="activity-group-count">{group.length}</span>
-      </div>
-      {group.map((item) => renderRow(item, working))}
-    </section>
-  ))
-
-  const empty = items.length === 0 && recent.length === 0
-
-  return (
-    <div className="drawer-backdrop" onClick={onClose}>
-      <aside className="drawer activity-drawer" onClick={(event) => event.stopPropagation()}>
-        <div className="drawer-header">
-          <div>
-            <div className="eyebrow">⚡ {t.activeNow} · {items.length > 0 ? `${items.length} ${items.length === 1 ? t.conversation : t.conversations}` : t.none} · {t.allProjects}</div>
-            <h2>{t.activeConversations}</h2>
-          </div>
-          <button className="icon-button" onClick={onClose} aria-label={t.close}>×</button>
-        </div>
-        {empty ? (
-          <div className="empty-state">{t.noActiveConversations}</div>
-        ) : (
-          <div className="activity-groups">
-            {grouped.length > 0 ? (
-              <div className="activity-section" aria-label={t.activeNow}>
-                <div className="activity-section-header">
-                  <strong><span aria-hidden>⚡</span> {t.activeNow}</strong>
-                  <span className="activity-section-count" aria-label={`${items.length} ${t.conversations}`}>{items.length}</span>
-                </div>
-                {renderProjectGroups(grouped, true)}
-              </div>
-            ) : null}
-            {recentGrouped.length > 0 ? (
-              <div className="activity-section" aria-label={t.recentlyActiveConversations}>
-                <div className="activity-section-header">
-                  <strong><span aria-hidden>⏳</span> {t.activeRecently}</strong>
-                  <span className="activity-section-count" aria-label={`${recent.length} ${t.conversations}`}>{recent.length}</span>
-                </div>
-                {renderProjectGroups(recentGrouped, false)}
-              </div>
-            ) : null}
-          </div>
-        )}
-        <div className="model-footnote">{t.activityLiveNote}</div>
-      </aside>
-    </div>
-  )
-}
-
-const EMPTY_GIT_FILES: GitChangeFile[] = []
-
-function splitChangePath(path: string): { name: string; dir: string } {
-  const index = path.lastIndexOf("/")
-  if (index < 0) {
-    return { name: path, dir: "" }
-  }
-  return { name: path.slice(index + 1), dir: path.slice(0, index) }
-}
-
-function gitStatusMeta(status: GitChangeStatus, t: Strings): { label: string; glyph: string; className: string } {
-  if (status === "added") {
-    return { label: t.gitChangesAdded, glyph: "＋", className: "git-status-added" }
-  }
-  if (status === "deleted") {
-    return { label: t.gitChangesDeleted, glyph: "－", className: "git-status-deleted" }
-  }
-  return { label: t.gitChangesModified, glyph: "✎", className: "git-status-modified" }
-}
-
-function GitBranchIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="6" cy="5" r="2.2" />
-      <circle cx="6" cy="19" r="2.2" />
-      <circle cx="18" cy="9" r="2.2" />
-      <path d="M6 7.2v9.6" />
-      <path d="M18 11.2c0 3.4-2.3 4.6-5.2 5.2" />
-    </svg>
-  )
-}
-
-function GitChangesPanel({ changes, loading, onRefresh, onCommitPush, commitBusy, onClose, t }: {
-  changes: GitChanges | null
-  loading: boolean
-  onRefresh: () => void
-  onCommitPush: () => void
-  commitBusy: boolean
-  onClose: () => void
-  t: Strings
-}) {
-  // قائمة الملفات المتغيّرة في git للمشروع الحالي، مع ملخص سريع فوقها
-  const files = changes?.files ?? EMPTY_GIT_FILES
-  const canCommit = Boolean(changes?.available) && files.length > 0 && !loading && !commitBusy
-  const summary = useMemo(() => files.reduce((total, file) => {
-    if (file.status === "added") {
-      total.added += 1
-    } else if (file.status === "deleted") {
-      total.deleted += 1
-    } else {
-      total.modified += 1
-    }
-    return total
-  }, { added: 0, modified: 0, deleted: 0 }), [files])
-
-  return (
-    <div className="drawer-backdrop" onClick={onClose}>
-      <aside className="drawer git-drawer" onClick={(event) => event.stopPropagation()}>
-        <div className="drawer-header">
-          <div>
-            <div className="eyebrow">
-              <span aria-hidden>⑂</span> {t.gitChangesBranch}: <span dir="ltr">{changes?.branch || t.gitChangesNoBranch}</span>
-            </div>
-            <h2>{t.gitChangesTitle}</h2>
-          </div>
-          <button className="icon-button" onClick={onClose} aria-label={t.close}>×</button>
-        </div>
-        <div className="git-toolbar">
-          <div className="git-summary">
-            <span className="git-summary-pill git-status-added">＋{summary.added}</span>
-            <span className="git-summary-pill git-status-modified">✎{summary.modified}</span>
-            <span className="git-summary-pill git-status-deleted">－{summary.deleted}</span>
-          </div>
-          <button className="icon-button" onClick={onRefresh} aria-label={t.refreshList} title={`${t.refreshList} ↻`} disabled={loading}>↻</button>
-        </div>
-        {changes && !changes.available ? (
-          <div className="empty-state">{t.gitChangesNotRepo}</div>
-        ) : files.length === 0 ? (
-          <div className="empty-state">{loading ? "…" : t.gitChangesClean}</div>
-        ) : (
-          <div className="git-file-list">
-            {files.map((file) => {
-              const meta = gitStatusMeta(file.status, t)
-              const { name, dir } = splitChangePath(file.path)
-              return (
-                <div className="git-file-item" key={file.path}>
-                  <span className={`git-status-mark ${meta.className}`} aria-hidden>{meta.glyph}</span>
-                  <span className="git-file-body">
-                    <strong dir="ltr" title={file.path}>{name}</strong>
-                    <small dir="ltr">{dir || "—"}</small>
-                  </span>
-                  <span className="git-file-stats">
-                    <span className="git-file-label">{meta.label}</span>
-                    {file.added > 0 ? <span className="git-diff git-diff-added">+{file.added}</span> : null}
-                    {file.removed > 0 ? <span className="git-diff git-diff-removed">−{file.removed}</span> : null}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        )}
-        <div className="model-footnote">{t.gitChangesNote}</div>
-        {changes?.available && files.length > 0 ? (
-          <button
-            type="button"
-            className="button button-primary git-commit-button"
-            disabled={!canCommit}
-            onClick={onCommitPush}
-          >
-            {commitBusy ? t.gitCommitPushBusy : `⑂ ${t.gitCommitPush}`}
-          </button>
-        ) : null}
-      </aside>
-    </div>
-  )
-}
-
-function HistoryPanel({
-  turns,
-  loading,
-  error,
-  sessionId,
-  onClose,
-  onCopy,
-  onRetry,
-  t,
-  lang,
-}: {
-  turns: HistoryTurn[]
-  loading: boolean
-  error: string
-  sessionId: string | null
-  onClose: () => void
-  onCopy: (text: string) => void
-  onRetry: () => void
-  t: Strings
-  lang: Language
-}) {
-  const [query, setQuery] = useState("")
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) {
-      return turns
-    }
-    return turns.filter((turn) =>
-      `${turn.prompt}\n${turn.finalResult}`.toLowerCase().includes(q),
-    )
-  }, [turns, query])
-
-  const toggleExpanded = (id: string) => {
-    setExpanded((current) => {
-      const next = new Set(current)
-      if (next.has(id)) {
-        next.delete(id)
-      } else {
-        next.add(id)
-      }
-      return next
-    })
-  }
-
-  return (
-    <div className="drawer-backdrop" onClick={onClose}>
-      <aside className="drawer history-drawer" onClick={(event) => event.stopPropagation()}>
-        <div className="drawer-header">
-          <div>
-            <div className="eyebrow">{t.conversationLog} · {turns.length > 0 ? `${turns.length} ${turns.length === 1 ? t.message : t.messages}` : t.historyEyebrowNone}</div>
-            <h2>{t.historyTitle} 🕘</h2>
-          </div>
-          <button className="icon-button" onClick={onClose} aria-label={t.close}>×</button>
-        </div>
-        <div className="history-toolbar">
-          <input
-            className="history-search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t.historySearchPlaceholder}
-            aria-label={t.historySearchAria}
-          />
-          {query ? <button className="icon-button" onClick={() => setQuery("")} aria-label={t.clearSearch}>×</button> : null}
-        </div>
-        {loading ? (
-          <div className="picker-loading"><span className="loader" /> {t.loadingHistory}</div>
-        ) : error ? (
-          <div className="empty-state">{error}<br /><button className="button button-secondary" onClick={onRetry}>{t.retry}</button></div>
-        ) : turns.length === 0 ? (
-          <div className="empty-state">{t.noHistoryYet}</div>
-        ) : filtered.length === 0 ? (
-          <div className="empty-state">{t.noMatchFor} «{query}».<br />{t.tryAnotherWord}</div>
-        ) : (
-          <div className="history-list">
-            {filtered.map((turn) => {
-              const isOpen = expanded.has(turn.id)
-              const result = turn.finalResult.trim()
-              const isLong = result.length > 400
-              const visibleResult = !isLong || isOpen ? result : `${result.slice(0, 400)}…`
-              return (
-                <article className="history-card" key={turn.id}>
-                  <div className="history-card-top">
-                    <span className="history-index">#{turn.index}</span>
-                    <span className="history-date">{formatDateTime(turn.createdAt, lang)}</span>
-                    {turn.steps > 0 ? <span className="history-steps">⚙️ {turn.steps} {turn.steps === 1 ? t.step : t.steps}</span> : null}
-                  </div>
-                  <div className="history-block history-question">
-                    <div className="history-label">💬 {t.yourQuestion}</div>
-                    <p>{turn.prompt || "—"}</p>
-                    <button className="history-copy" onClick={() => onCopy(turn.prompt)}>{t.copyQuestion}</button>
-                  </div>
-                  <div className="history-block history-answer">
-                    <div className="history-label">✅ {t.finalResult}</div>
-                    {result ? (
-                      <>
-                        <div className="history-result-text">{visibleResult}</div>
-                        <div className="history-actions">
-                          {isLong ? (
-                            <button className="history-copy" onClick={() => toggleExpanded(turn.id)}>
-                              {isOpen ? `${t.showLess} ↑` : `${t.showMore} ↓`}
-                            </button>
-                          ) : null}
-                          <button className="history-copy" onClick={() => onCopy(turn.finalResult)}>{t.copyResult}</button>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="result-pending">{t.noFinalResultYet}</div>
-                    )}
-                    {sessionId && turn.files.length > 0 ? (
-                      <div className="history-files">
-                        <div className="history-label">📎 {t.files} ({turn.files.length})</div>
-                        {turn.files.map((file) => (
-                          <a
-                            key={file.id}
-                            className="file-part file-download-link"
-                            href={fileDownloadUrl(sessionId, file)}
-                            download={file.name}
-                            rel="noopener"
-                          >
-                            ⬇ {file.name}
-                          </a>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                </article>
-              )
-            })}
-          </div>
-        )}
-        <div className="model-footnote">{t.historyNote}</div>
-      </aside>
-    </div>
-  )
 }
 
 function PermissionCard({ permission, onReply, t }: { permission: Permission; onReply: (value: "once" | "always" | "reject") => void; t: Strings }) {
@@ -887,13 +335,6 @@ function isTouchComposer(): boolean {
     return false
   }
   return window.matchMedia(TOUCH_QUERY).matches
-}
-
-function formatCountdown(ms: number): string {
-  const total = Math.max(0, Math.ceil(ms / 1000))
-  const minutes = Math.floor(total / 60)
-  const seconds = total % 60
-  return `${minutes}:${String(seconds).padStart(2, "0")}`
 }
 
 function loadRecentProjects(): string[] {
@@ -1748,6 +1189,23 @@ function App() {
   const messageRefreshTimer = useRef<number | null>(null)
   const showHistoryRef = useRef(false)
   showHistoryRef.current = showHistory
+  // تنسيق الـ polling مع الـ SSE: طول ما الستريم حي والأحداث واصلة، الـ polls
+  // الدورية fallback فقط — لا طلبات مكررة لنفس البيانات اللي الـ SSE جابها.
+  const sseLiveRef = useRef(false)
+  const lastSseAtRef = useRef(0)
+  // آخر جلب ناجح لكل مورد — يمنع refetch متكرر من كذا مصدر لحظيًا
+  // (mount + event + visibility + reconnect) لنفس البيانات الطازجة
+  const lastFetchRef = useRef<Record<string, number>>({})
+  const FRESH_MS = 8000
+  const isFresh = useCallback((key: string, ttlMs: number = FRESH_MS): boolean => {
+    return Date.now() - (lastFetchRef.current[key] ?? 0) < ttlMs
+  }, [])
+  const markFetched = useCallback((key: string): void => {
+    lastFetchRef.current[key] = Date.now()
+  }, [])
+  // تحديث النشاط مؤجّل ومدمج: أحداث الرسائل عالية التكرار (عشرات/ثانية)
+  // للجلسات الخلفية كانت بتضرب /api/activity مع كل حدث — الآن حد أقصى واحد
+  const activityTimerRef = useRef<number | null>(null)
 
   const activeSession = useMemo(() => sessionMatches(sessions, activeId), [sessions, activeId])
   const activeTitle = displayTitle(activeSession?.title, t)
@@ -1813,9 +1271,16 @@ function App() {
 
   // التنبيه لازم يطلع مرة واحدة بس لكل مهمة: نفس المفتاح = نفس المهمة، فمهما
   // تكرّرنا في الحالة أو وصلنا الحدث مرتين، الصوت والـ toast هيبانوا مرة واحدة.
+  // سقف الحجم يمنع نمو غير محدود لجلسات قديمة محذوفة (LRU بسيط: الأقدم أولًا).
   const notifyOnce = useCallback((sessionId: string, taskKey: string) => {
     if (notifiedRef.current.get(sessionId) === taskKey) {
       return
+    }
+    if (notifiedRef.current.size >= 200) {
+      const oldest = notifiedRef.current.keys().next()
+      if (!oldest.done) {
+        notifiedRef.current.delete(oldest.value)
+      }
     }
     notifiedRef.current.set(sessionId, taskKey)
     notifyCompletion()
@@ -1897,6 +1362,12 @@ function App() {
           // قبل كده كان بيزيد مع كل poll (كل ٤ ثواني) فالرقم كان بيتغيّر
           // والمفتاح `busy:N` كان بيتحدّد جديد فالتنبيه بيتكرّر لنفس المهمة.
           if (!wasBusy) {
+            if (busyPeriodsRef.current.size >= 200) {
+              const oldest = busyPeriodsRef.current.keys().next()
+              if (!oldest.done) {
+                busyPeriodsRef.current.delete(oldest.value)
+              }
+            }
             busyPeriodsRef.current.set(id, (busyPeriodsRef.current.get(id) ?? 0) + 1)
           }
           continue
@@ -1939,10 +1410,11 @@ function App() {
     try {
       const nextStatuses = await getStatuses()
       setRawStatuses(nextStatuses)
+      markFetched("status")
     } catch {
       // Keep last known statuses when the poll fails (offline / reconnecting).
     }
-  }, [])
+  }, [markFetched])
 
   // المحادثات الشغالة في كل المشاريع — بتتحدث مع نفس poll الحالات
   const refreshActivity = useCallback(async () => {
@@ -1950,22 +1422,36 @@ function App() {
       const items = await getActivity(langRef.current)
       setActivity(items)
       trackActivity(items, Date.now())
+      markFetched("activity")
     } catch {
       // Keep last known activity when the poll fails (offline / reconnecting).
     }
-  }, [trackActivity])
+  }, [trackActivity, markFetched])
+
+  // نسخة مدمجة من تحديث النشاط للأحداث عالية التكرار: مهما اتنادت،
+  // التنفيذ الفعلي مرة واحدة بعد 700ms من آخر نداء — تمنع عاصفة /api/activity
+  const requestActivityRefresh = useCallback(() => {
+    if (activityTimerRef.current !== null) {
+      return
+    }
+    activityTimerRef.current = window.setTimeout(() => {
+      activityTimerRef.current = null
+      void refreshActivity()
+    }, 700)
+  }, [refreshActivity])
 
   // حالة git للمشروع المختار — بنجيبها صامتة عشان الأيقونة في الهيدر محدّثة
   const refreshGitChanges = useCallback(async () => {
     setGitLoading(true)
     try {
       setGitChanges(await getGitChanges())
+      markFetched("git")
     } catch {
       // نسيب آخر حالة معروفة — الخادم لسه بيوصل أو المشروع مش git
     } finally {
       setGitLoading(false)
     }
-  }, [])
+  }, [markFetched])
 
   const openGitChanges = useCallback(() => {
     setShowGitChanges(true)
@@ -1979,6 +1465,7 @@ function App() {
       listSessions(),
       getStatuses().catch(() => null),
     ])
+    markFetched("sessions")
     const sorted = sortSessionsByCreated(nextSessions)
     setSessions(sorted)
     if (nextStatuses) {
@@ -1994,7 +1481,7 @@ function App() {
       activeIdRef.current = next
       return next
     })
-  }, [])
+  }, [markFetched])
 
   const openProject = useCallback(async (project: Project, targetSessionId?: string) => {
     // لو دايس على الحالي خلاص — مفيش داعي للتحميل
@@ -2240,23 +1727,43 @@ function App() {
     void refreshActivity()
     void refreshSessions().catch(() => undefined)
     void refreshGitChanges()
+    // Fallback فقط: طول ما اتصال الـ SSE مفتوح، الأحداث هي مصدر التحديث
+    // (الحالة والنشاط والجلسات تتحدث مع كل حدث لحظيًا) — فالـ polls الدورية
+    // تتخطى لتوفير الطلبات. عند انقطاع الاتصال (error/close) ترجع الـ polls
+    // فورًا كشبكة أمان. هذا تنسيق وليس إطالة للمهلة.
     const timer = window.setInterval(() => {
+      if (document.hidden || sseLiveRef.current) {
+        return
+      }
       void refreshStatuses()
       void refreshActivity()
     }, 4000)
     // جلسات اللاب الجديدة تلتقط حتى لو الـ SSE ضاع — كل 12 ثانية كفاية ومش تقيلة
     const sessionsTimer = window.setInterval(() => {
+      if (document.hidden || sseLiveRef.current) {
+        return
+      }
       void refreshSessions().catch(() => undefined)
     }, 12000)
-    // لما ترجع لتاب اللاب بعد ما كان في الخلفية: حدّث فورًا بدل ما تستنى الـ poll
-    // (المتصفح بيخنق الـ timers في التبويبات الخلفية فالوقت كان بيبان واقف).
+    // لما ترجع لتاب اللاب بعد ما كان في الخلفية: حدّث الطازج فقط بدل العاصفة
+    // الكاملة — كل مورد يتخطى لو اتجلب حديثًا، والباقي يتوزع على مهل صغيرة
+    // (stagger) عشان reconnect + focus + event ميضربوش نفس الـ endpoints لحظيًا.
     // ومعاه حدّث الموديلات بصمت عشان القائمة تعكس المتاح في opencode لحظيًا.
+    const staggerTimers: number[] = []
     const onVisible = () => {
       if (document.visibilityState === "visible") {
-        void refreshStatuses()
-        void refreshActivity()
-        void refreshSessions().catch(() => undefined)
-        void refreshGitChanges()
+        if (!isFresh("status")) {
+          void refreshStatuses()
+        }
+        if (!isFresh("activity")) {
+          staggerTimers.push(window.setTimeout(() => void refreshActivity(), 400))
+        }
+        if (!isFresh("sessions")) {
+          staggerTimers.push(window.setTimeout(() => void refreshSessions().catch(() => undefined), 900))
+        }
+        if (!isFresh("git", 30000)) {
+          staggerTimers.push(window.setTimeout(() => void refreshGitChanges(), 1400))
+        }
         void loadModels(true)
         const id = activeIdRef.current
         if (id) {
@@ -2269,12 +1776,17 @@ function App() {
     return () => {
       window.clearInterval(timer)
       window.clearInterval(sessionsTimer)
+      for (const stagger of staggerTimers) {
+        window.clearTimeout(stagger)
+      }
       document.removeEventListener("visibilitychange", onVisible)
       window.removeEventListener("focus", onVisible)
     }
-  }, [authState, selectedProject, refreshStatuses, refreshRequests, loadModels, refreshActivity, refreshGitChanges, refreshSessions])
+  }, [authState, selectedProject, refreshStatuses, refreshRequests, loadModels, refreshActivity, refreshGitChanges, refreshSessions, isFresh])
 
   const handleOpenCodeEvent = useCallback((event: ClientEvent) => {
+    // أي حدث واصل = الستريم حي — يحدّث ساعة الصحة للـ fallback والـ safety checks
+    lastSseAtRef.current = Date.now()
     if (event.type === "session.status") {
       setRawStatuses((current) => ({ ...current, [event.properties.sessionID]: event.properties.status }))
       // حالة شغل اتغيرت في أي مشروع — حدّث شريط "شغال الآن" فورًا
@@ -2300,8 +1812,8 @@ function App() {
       if (event.properties.sessionID === activeIdRef.current) {
         void refreshRequests(event.properties.sessionID)
       } else {
-        // شغل على جلسة خلفية (غالبًا من اللاب) — حدّث النشطة فورًا
-        void refreshActivity()
+        // شغل على جلسة خلفية (غالبًا من اللاب) — حدّث النشطة مدمجًا لا فوريًا
+        requestActivityRefresh()
       }
     }
     // النص الحي للرد الجاري: أي جزء جديد من رسالة opencode يحدّث كارت
@@ -2332,8 +1844,9 @@ function App() {
             }, 1200)
           }
         } else {
-          // رسايل بتتكتب في جلسة خلفية (من اللاب) — حدّث النشطة فورًا
-          void refreshActivity()
+          // رسايل بتتكتب في جلسة خلفية (من اللاب) — حدّث النشطة مدمجًا
+          // (الأحداث بالعشرات/ثانية، والفوري كان عاصفة polls)
+          requestActivityRefresh()
         }
       }
     }
@@ -2341,8 +1854,9 @@ function App() {
       (event.type === "question.asked" || event.type === "question.v2.asked")
     ) {
       notifyAttention(t.questionNeedsChoice)
-      // سؤال من أي جلسة (حتى اللاب) يحدّث النشطة فورًا
-      void refreshActivity()
+      // سؤال من أي جلسة (حتى اللاب) يحدّث النشطة — مدمجًا (حدث نادر لكن حرج،
+      // والكارت نفسه يتحدث فوريًا أدناه فلا يضيع التنبيه)
+      requestActivityRefresh()
       if (event.properties.sessionID === activeIdRef.current) {
         void refreshRequests(event.properties.sessionID)
       }
@@ -2355,15 +1869,15 @@ function App() {
     if (event.type === "permission.updated") {
       setPermissions((current) => [...current.filter((permission) => permission.id !== event.properties.id), event.properties])
       notifyAttention(t.permissionNeedsApproval)
-      void refreshActivity()
+      requestActivityRefresh()
     }
     if (event.type === "permission.replied") {
       setPermissions((current) => current.filter((permission) => permission.id !== event.properties.permissionID))
     }
     if (event.type === "session.created" || event.type === "session.updated" || event.type === "session.deleted") {
       void refreshSessions().catch(() => undefined)
-      // جلسة جديدة من اللاب تبان في النشطة فورًا
-      void refreshActivity()
+      // جلسة جديدة من اللاب تبان في النشطة — مدمجًا مع أي أحداث متتابعة
+      requestActivityRefresh()
       // لو الجلسة النشطة اتحدثت (ممكن الموديل اتغير من الديسكتوب) حدّث الموديل المعروض
       if (event.type === "session.updated" && event.properties.info.id === activeIdRef.current) {
         const id = event.properties.info.id
@@ -2381,15 +1895,21 @@ function App() {
     if (event.type === "session.error" && event.properties.sessionID === activeIdRef.current) {
       notifyAttention(t.taskStoppedWithError)
     }
-  }, [notifyAttention, refreshSessions, refreshRequests, refreshActivity, t])
+  }, [notifyAttention, refreshSessions, refreshRequests, refreshActivity, requestActivityRefresh, t])
 
   useEffect(() => {
     if (authState !== "signedIn") {
       return
     }
     const source = new EventSource("/api/events", { withCredentials: true })
+    // EventSource يعيد الاتصال تلقائيًا بفاصل متزايد داخليًا؛ هنا نضيف:
+    // (1) تتبّع حالة الاتصال لإيقاف الـ polls الدورية أثناء الاتصال الحي،
+    // (2) resync متدرج (stagger) يتخطى الموارد الطازجة بدل العاصفة الكاملة.
+    const resyncTimers: number[] = []
     source.addEventListener("ready", () => {
       setEventConnected(true)
+      sseLiveRef.current = true
+      lastSseAtRef.current = Date.now()
       // First connection: the mount effects already fetch. Any later one means the
       // stream dropped (screen lock, network change) and every event in that window
       // is gone, so re-sync now instead of waiting for the next poll tick.
@@ -2397,11 +1917,15 @@ function App() {
         eventsConnectedOnce.current = true
         return
       }
-      void refreshStatuses()
-      void refreshActivity()
+      if (!isFresh("status")) {
+        void refreshStatuses()
+      }
       const id = activeIdRef.current
       if (id) {
-        void refreshRequests(id).catch(() => undefined)
+        resyncTimers.push(window.setTimeout(() => void refreshRequests(id).catch(() => undefined), 300))
+      }
+      if (!isFresh("activity")) {
+        resyncTimers.push(window.setTimeout(() => void refreshActivity(), 700))
       }
     })
     source.addEventListener("opencode", (rawEvent) => {
@@ -2411,12 +1935,19 @@ function App() {
         addToast(t.unknownEvent, "error")
       }
     })
-    source.onerror = () => setEventConnected(false)
+    source.onerror = () => {
+      setEventConnected(false)
+      sseLiveRef.current = false
+    }
     return () => {
+      for (const timer of resyncTimers) {
+        window.clearTimeout(timer)
+      }
       source.close()
+      sseLiveRef.current = false
       setEventConnected(false)
     }
-  }, [authState, addToast, handleOpenCodeEvent, refreshActivity, refreshRequests, refreshStatuses, t])
+  }, [authState, addToast, handleOpenCodeEvent, refreshActivity, refreshRequests, refreshStatuses, isFresh, t])
 
   useEffect(() => {
     if (authState !== "signedIn") {
@@ -2709,17 +2240,18 @@ function App() {
       // asynchronously, so the first refreshRequests may still see idle.
       setSettledStatus(sessionId, { type: "busy" })
       await refreshRequests(sessionId).catch(() => undefined)
-      // Re-assert busy if the backend hasn't flipped yet; delayed refreshes
+      // Re-assert busy if the backend hasn't flipped yet; the safety refresh
       // below plus SSE plus polling will correct to the real status.
       await refreshSessions().catch(() => undefined)
-      // Follow-up refreshes catch the busy transition without manual refresh.
-      for (const delay of [1500, 4000, 8000]) {
-        window.setTimeout(() => {
-          if (activeIdRef.current === sessionId) {
-            void refreshRequests(sessionId).catch(() => undefined)
-          }
-        }, delay)
-      }
+      // فحص أمان واحد بدل ٣ مؤقتات ثابتة: لو وصل أي حدث SSE بعد الإرسال
+      // فالحالة تتحدث عبر الأحداث ولا داعي لطلب إضافي. لو مفيش أحداث
+      // (SSE فاصل) نحدّث مرة واحدة كـ fallback — من غير عاصفة polls.
+      const sentAt = Date.now()
+      window.setTimeout(() => {
+        if (activeIdRef.current === sessionId && lastSseAtRef.current <= sentAt) {
+          void refreshRequests(sessionId).catch(() => undefined)
+        }
+      }, 6000)
     } catch (error: unknown) {
       setRequests((current) => current.filter((request) => request.id !== optimisticId))
       // رجّع النص بس لو المستخدم لسه ميكتبش حاجة جديدة
@@ -3257,54 +2789,62 @@ function App() {
       </main>
 
       {showActivity ? (
-        <ActiveSessionsPanel
-          items={activity}
-          recent={activityRecent}
-          graceLeft={activityGraceLeft}
-          activeId={activeId}
-          jumpingId={jumpingId}
-          onJump={(item) => { setShowActivity(false); void jumpToActivitySession(item) }}
-          onClose={() => setShowActivity(false)}
-          t={t}
-          lang={lang}
-        />
+        <Suspense fallback={<PanelFallback />}>
+          <ActiveSessionsPanel
+            items={activity}
+            recent={activityRecent}
+            graceLeft={activityGraceLeft}
+            activeId={activeId}
+            jumpingId={jumpingId}
+            onJump={(item) => { setShowActivity(false); void jumpToActivitySession(item) }}
+            onClose={() => setShowActivity(false)}
+            t={t}
+            lang={lang}
+          />
+        </Suspense>
       ) : null}
       {showGitChanges ? (
-        <GitChangesPanel
-          changes={gitChanges}
-          loading={gitLoading}
-          onRefresh={() => void refreshGitChanges()}
-          onCommitPush={() => void handleCommitPush()}
-          commitBusy={sending}
-          onClose={() => setShowGitChanges(false)}
-          t={t}
-        />
+        <Suspense fallback={<PanelFallback />}>
+          <GitChangesPanel
+            changes={gitChanges}
+            loading={gitLoading}
+            onRefresh={() => void refreshGitChanges()}
+            onCommitPush={() => void handleCommitPush()}
+            commitBusy={sending}
+            onClose={() => setShowGitChanges(false)}
+            t={t}
+          />
+        </Suspense>
       ) : null}
       {showHistory ? (
-        <HistoryPanel
-          turns={historyTurns}
-          loading={historyLoading}
-          error={historyError}
-          sessionId={activeId}
-          onClose={() => setShowHistory(false)}
-          onCopy={copyText}
-          onRetry={() => void loadHistory()}
-          t={t}
-          lang={lang}
-        />
+        <Suspense fallback={<PanelFallback />}>
+          <HistoryPanel
+            turns={historyTurns}
+            loading={historyLoading}
+            error={historyError}
+            sessionId={activeId}
+            onClose={() => setShowHistory(false)}
+            onCopy={copyText}
+            onRetry={() => void loadHistory()}
+            t={t}
+            lang={lang}
+          />
+        </Suspense>
       ) : null}
       {showModels ? (
-        <ModelPicker
-          models={models}
-          loading={modelsLoading}
-          current={displayedModel}
-          busy={isBusy}
-          switching={switchingKey}
-          onSelect={(model, variant) => void handleSelectModel(model, variant)}
-          onRefresh={() => void loadModels()}
-          onClose={() => setShowModels(false)}
-          t={t}
-        />
+        <Suspense fallback={<PanelFallback />}>
+          <ModelPicker
+            models={models}
+            loading={modelsLoading}
+            current={displayedModel}
+            busy={isBusy}
+            switching={switchingKey}
+            onSelect={(model, variant) => void handleSelectModel(model, variant)}
+            onRefresh={() => void loadModels()}
+            onClose={() => setShowModels(false)}
+            t={t}
+          />
+        </Suspense>
       ) : null}
       {showSettings ? (
         <div className="drawer-backdrop" onClick={() => setShowSettings(false)}>

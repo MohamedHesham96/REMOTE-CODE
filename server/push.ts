@@ -3,6 +3,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import webpush, { type PushSubscription } from "web-push"
 import { isServerLang, serverMessage, type ServerLang } from "./i18n.js"
+import { mapWithConcurrency } from "./http-utils.js"
+
+// حد تزامن إرسال الإشعارات: إرسال غير محدود لكل الاشتراكات لحظيًا
+// كان بيعلّق مسار الأحداث لما endpoint يهنّج — 5 concurrent تكفي وتُبقي الترتيب
+const PUSH_SEND_CONCURRENCY = 5
 
 interface StoredSubscriptions {
   version: 1
@@ -183,21 +188,21 @@ export class PushService {
   private async broadcast(build: (lang: ServerLang) => PushPayload): Promise<void> {
     const expired: string[] = []
 
-    await Promise.all(
-      [...this.subscriptions.values()].map(async (subscription) => {
-        try {
-          const lang = this.languages.get(subscription.endpoint) ?? "ar"
-          await this.send(subscription, build(lang))
-        } catch (error) {
-          const statusCode = typeof error === "object" && error !== null && "statusCode" in error ? error.statusCode : undefined
-          if (statusCode === 404 || statusCode === 410) {
-            expired.push(subscription.endpoint)
-          } else {
-            console.error("Push delivery failed", error)
-          }
+    // تزامن محدود بدل Promise.all غير المحدود: endpoint بطيء واحد
+    // لا يوقف الباقي ولا يعلّق معالج الأحداث
+    await mapWithConcurrency([...this.subscriptions.values()], PUSH_SEND_CONCURRENCY, async (subscription) => {
+      try {
+        const lang = this.languages.get(subscription.endpoint) ?? "ar"
+        await this.send(subscription, build(lang))
+      } catch (error) {
+        const statusCode = typeof error === "object" && error !== null && "statusCode" in error ? error.statusCode : undefined
+        if (statusCode === 404 || statusCode === 410) {
+          expired.push(subscription.endpoint)
+        } else {
+          console.error("Push delivery failed", error)
         }
-      }),
-    )
+      }
+    })
 
     if (expired.length > 0) {
       for (const endpoint of expired) {

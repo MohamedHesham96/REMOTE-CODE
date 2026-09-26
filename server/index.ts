@@ -1,4 +1,5 @@
 import express, { type NextFunction, type Request, type Response } from "express"
+import compression from "compression"
 import { createServer as createHttpServer } from "node:http"
 import { createServer as createHttpsServer } from "node:https"
 import { readFileSync, existsSync } from "node:fs"
@@ -10,12 +11,22 @@ import { clearSessionCookie, isValidAccessToken, requireAuthentication, setSessi
 import { OpenCodeService } from "./opencode.js"
 import { PushService } from "./push.js"
 import { getServerLang, serverMessage } from "./i18n.js"
+import { createRateLimiter, etagFor } from "./http-utils.js"
 import type { Event } from "@opencode-ai/sdk"
 
 const app = express()
 const openCode = new OpenCodeService(config.openCode)
 const push = new PushService(config.push)
 const eventClients = new Set<Response>()
+
+// سقف عملاء SSE: منع نمو غير محدود + إسقاط الأقدم عند الامتلاء بدل الانهيار
+const MAX_EVENT_CLIENTS = 100
+// حد buffer الكتابة لكل عميل بطيء قبل فصله (هيعيد الاتصال ويعمل resync)
+const SSE_SLOW_CLIENT_BYTES = 1024 * 1024
+
+// حد معدل سخي للنقاط الساخنة: الاستخدام الطبيعي (~15-20 poll/min لكل عميل)
+// بعيد عن السقف، لكن حلقات الخلل والعواصف بتتوقف بـ 429 + Retry-After
+const pollLimiter = createRateLimiter({ windowMs: 60_000, max: 300 })
 
 function questionEvent(event: Event): { type: string; properties: { sessionID: string; requestID?: string } } | null {
   const candidate = event as unknown as { type?: unknown; properties?: unknown; data?: unknown }
@@ -97,6 +108,9 @@ function clientEvent(event: Event): Record<string, unknown> | null {
 }
 
 app.disable("x-powered-by")
+// ضغط gzip/deflate للأصول والـ JSON — يفرق على شبكات Wi-Fi الضعيفة.
+// ملاحظة: /api/events عليه `no-transform` فالضغط يتخطاه تلقائيًا ولا يعلّق الستريم.
+app.use(compression())
 app.use(express.json({ limit: "2mb" }))
 
 app.use((request, response, next) => {
@@ -316,7 +330,7 @@ app.delete("/api/session/:id", async (request, response) => {
   }
 })
 
-app.get("/api/session/status", async (request, response) => {
+app.get("/api/session/status", pollLimiter, async (request, response) => {
   try {
     response.json(await openCode.statuses())
   } catch (error) {
@@ -324,7 +338,7 @@ app.get("/api/session/status", async (request, response) => {
   }
 })
 
-app.get("/api/activity", async (request, response) => {
+app.get("/api/activity", pollLimiter, async (request, response) => {
   try {
     response.json(await openCode.activity(getServerLang(request)))
   } catch (error) {
@@ -349,9 +363,20 @@ app.get("/api/session/:id/history", async (request, response) => {
 })
 
 // كارت لكل طلب في المحادثة، الأقدم فوق والأحدث تحت
-app.get("/api/session/:id/requests", async (request, response) => {
+// ETag من بصمة الحالة: العميل يبعت If-None-Match وياخد 304 فاضي لما مفيش
+// تغيير — يوفّر إعادة تحميل كامل (حتى 200 رسالة) مع كل poll
+app.get("/api/session/:id/requests", pollLimiter, async (request, response) => {
   try {
-    response.json(await openCode.requests(request.params.id, getServerLang(request)))
+    // Express 5 + middleware overload يوسّع نوع params — ثبّته صراحة
+    const sessionId = String((request.params as { id?: unknown }).id ?? "")
+    const result = await openCode.requests(sessionId, getServerLang(request))
+    const etag = etagFor(result.version)
+    response.setHeader("ETag", etag)
+    if (request.headers["if-none-match"] === etag) {
+      response.status(304).end()
+      return
+    }
+    response.json(result)
   } catch (error) {
     handleError(error, response, request)
   }
@@ -523,12 +548,87 @@ app.get("/api/session/:id/file", async (request, response) => {
       response.status(400).json({ error: "FILE_PATH_REQUIRED", message: serverMessage("filePathRequired", getServerLang(request)) })
       return
     }
-    const file = await openCode.readResultFile(request.params.id, filePath)
+    const file = await openCode.openResultFile(request.params.id, filePath)
+    const stream = file.stream as NodeJS.ReadableStream & { destroy?: (error?: Error) => void }
+    const onStreamError = (error: unknown): void => {
+      try {
+        stream.destroy?.(error instanceof Error ? error : new Error("Stream failed"))
+      } catch {
+        // تجاهل — الرد قد يكون اتقفل
+      }
+      if (!response.headersSent) {
+        response.status(500).end()
+      } else {
+        response.end()
+      }
+    }
+    ;(stream as { once?: (event: string, listener: (error: unknown) => void) => void }).once?.("error", onStreamError)
+    request.on("close", () => {
+      try {
+        stream.destroy?.()
+      } catch {
+        // تجاهل
+      }
+    })
     response.setHeader("Content-Type", file.mime)
-    response.setHeader("Content-Length", String(file.size))
     response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`)
     response.setHeader("Cache-Control", "no-store")
-    response.send(file.content)
+    response.setHeader("Accept-Ranges", "bytes")
+    // دعم Range: الموبايل يقدر يكمّل التحميل بدل ما يعيده كله من الأول
+    const range = typeof request.headers.range === "string" ? request.headers.range : ""
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim())
+    if (match) {
+      const total = file.size
+      const start = match[1] ? Number.parseInt(match[1], 10) : Math.max(0, total - (match[2] ? Number.parseInt(match[2], 10) : 0))
+      const end = match[2] ? Number.parseInt(match[2], 10) : total - 1
+      if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || start >= total) {
+        response.setHeader("Content-Range", `bytes */${total}`)
+        response.status(416).end()
+        try {
+          stream.destroy?.()
+        } catch {
+          // تجاهل
+        }
+        return
+      }
+      const clampedEnd = Math.min(end, total - 1)
+      response.status(206)
+      response.setHeader("Content-Range", `bytes ${start}-${clampedEnd}/${total}`)
+      response.setHeader("Content-Length", String(clampedEnd - start + 1))
+      let remaining = clampedEnd - start + 1
+      // الستريم يبدأ من 0 دايمًا: نتجاهل حتى start ونأخذ المطلوب فقط
+      let skipped = 0
+      const { Transform } = await import("node:stream")
+      const ranger = new Transform({
+        transform(chunk: Buffer, _encoding, callback): void {
+          if (remaining <= 0) {
+            callback(null, null)
+            return
+          }
+          let from = 0
+          if (skipped < start) {
+            from = Math.min(chunk.length, start - skipped)
+            skipped += from
+          }
+          const left = chunk.length - from
+          const take = Math.min(left, remaining)
+          remaining -= take
+          callback(null, take > 0 ? chunk.subarray(from, from + take) : null)
+          if (remaining <= 0) {
+            try {
+              stream.destroy?.()
+            } catch {
+              // تجاهل
+            }
+          }
+        },
+      })
+      ;(stream as unknown as { pipe: (dest: unknown) => void }).pipe(ranger)
+      ranger.pipe(response)
+      return
+    }
+    response.setHeader("Content-Length", String(file.size))
+    ;(stream as unknown as { pipe: (dest: unknown) => void }).pipe(response)
   } catch (error) {
     const message = error instanceof Error ? error.message : "File download failed"
     const status = /not found/i.test(message) ? 404 : 400
@@ -587,6 +687,19 @@ app.get("/api/events", (request, response) => {
   response.setHeader("X-Accel-Buffering", "no")
   response.flushHeaders()
   response.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`)
+  // سقف العملاء: عند الامتلاء نفصل الأقدم (هيعيد الاتصال تلقائيًا ويعمل
+  // resync) بدل نمو غير محدود يوقع السيرفر
+  if (eventClients.size >= MAX_EVENT_CLIENTS) {
+    const oldest = eventClients.values().next()
+    if (!oldest.done) {
+      try {
+        oldest.value.end()
+      } catch {
+        // تجاهل
+      }
+      eventClients.delete(oldest.value)
+    }
+  }
   eventClients.add(response)
 
   const heartbeat = setInterval(() => {
@@ -632,18 +745,49 @@ openCode.onEvent((event) => {
     return
   }
   const data = `event: opencode\ndata: ${JSON.stringify(visibleEvent)}\n\n`
-  for (const client of eventClients) {
-    if (!client.writableEnded) {
+  // بثّ غير حاجب: عميل بطيء/ميت لا يوقف الباقي. اللي الـ buffer بتاعه
+  // تجاوز الحد يتفصل (EventSource يعيد الاتصال + resync) بدل تراكم gigabytes
+  for (const client of [...eventClients]) {
+    try {
+      if (client.writableEnded) {
+        eventClients.delete(client)
+        continue
+      }
+      const buffered = typeof client.writableLength === "number" ? client.writableLength : 0
+      if (buffered > SSE_SLOW_CLIENT_BYTES) {
+        try {
+          client.end()
+        } catch {
+          // تجاهل
+        }
+        eventClients.delete(client)
+        continue
+      }
       client.write(data)
+    } catch {
+      eventClients.delete(client)
     }
   }
 })
 
 const distDirectory = resolve(process.cwd(), "dist")
 if (existsSync(distDirectory)) {
-  app.use(express.static(distDirectory, { index: false }))
+  // سياسة كاش: ملفات /assets فيها hash فصالحة للأبد، والـ SW والـ manifest
+  // لازم no-cache عشان التحديثات توصل من أول refresh
+  app.use(express.static(distDirectory, {
+    index: false,
+    setHeaders: (response, filePath) => {
+      const relative = filePath.replace(distDirectory, "").replace(/\\/g, "/")
+      if (relative.startsWith("/assets/")) {
+        response.setHeader("Cache-Control", "public, max-age=31536000, immutable")
+      } else if (relative === "/sw.js" || relative.endsWith(".webmanifest")) {
+        response.setHeader("Cache-Control", "no-cache")
+      }
+    },
+  }))
   app.use((request, response, next) => {
     if (request.method === "GET" && !request.path.startsWith("/api/")) {
+      response.setHeader("Cache-Control", "no-cache")
       response.sendFile(join(distDirectory, "index.html"))
       return
     }

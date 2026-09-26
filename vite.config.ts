@@ -66,7 +66,20 @@ export default defineConfig(({ mode }) => {
     port: 4173,
   },
   build: {
-    sourcemap: true,
+    // لا sourcemaps في الإنتاج: كانت ~1.2MB تُبنى وتُخدم مع كل تحميل.
+    // للتشخيص استخدم `vite build --sourcemap` يدويًا عند الحاجة فقط.
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        // React في chunk مستقل طويل الكاش + لوحات panels في chunk يُحمّل عند الطلب
+        manualChunks: (id) => {
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) {
+            return "vendor"
+          }
+          return undefined
+        },
+      },
+    },
   },
   }
 })

@@ -75,6 +75,8 @@ export interface SessionRequests {
   requests: SessionRequest[]
   questions: ConversationQuestionRequest[]
   queued: number
+  // بصمة الحالة من السيرفر لدعم ETag/304 — غيابها (ردود قديمة) يعني "دايمًا جديد"
+  version: string
 }
 
 export interface ResultFile {

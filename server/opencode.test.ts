@@ -1,4 +1,6 @@
 import type { Event, Message, Part, SessionStatus } from "@opencode-ai/sdk"
+import { mkdir, unlink, writeFile } from "node:fs/promises"
+import { resolve } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import { OpenCodeService } from "./opencode.js"
 
@@ -489,5 +491,182 @@ describe("model variety levels", () => {
     const models = await service.models()
 
     expect(models[0]?.variants).toBeUndefined()
+  })
+})
+
+describe("response caching and dedup", () => {
+  function activityService(counts: { list: number; status: number }) {
+    const service = new OpenCodeService({ projectDirectory: process.cwd(), username: "test", port: 0 })
+    const internals = service as unknown as Internals
+    internals.globalClient = {
+      experimental: {
+        session: {
+          list: () => {
+            counts.list += 1
+            return Promise.resolve({ data: [] })
+          },
+        },
+      },
+      question: { list: () => Promise.resolve({ data: [] }) },
+    }
+    internals.clientFor = () => ({
+      session: {
+        status: () => {
+          counts.status += 1
+          return Promise.resolve({ data: {} })
+        },
+      },
+    })
+    return { service, internals }
+  }
+
+  it("serves activity from the short cache and dedups concurrent calls", async () => {
+    const counts = { list: 0, status: 0 }
+    const { service } = activityService(counts)
+
+    // طلبان متزامنان = حساب واحد فقط (in-flight dedup)
+    const [first, second] = await Promise.all([service.activity("ar"), service.activity("ar")])
+    expect(first).toEqual([])
+    expect(second).toEqual([])
+    expect(counts.list).toBe(1)
+
+    // طلب ثالث خلال الـ TTL = من الكاش من غير upstream جديد
+    await service.activity("ar")
+    expect(counts.list).toBe(1)
+  })
+
+  it("invalidates the activity cache on session lifecycle events", async () => {
+    const counts = { list: 0, status: 0 }
+    const { service, internals } = activityService(counts)
+
+    await service.activity("ar")
+    expect(counts.list).toBe(1)
+
+    internals.trackEvent({ type: "session.status", properties: { sessionID: SESSION, status: { type: "busy" } } } as unknown as Event)
+    await service.activity("ar")
+    expect(counts.list).toBe(2)
+  })
+
+  it("caches the model catalog between calls", async () => {
+    let providerCalls = 0
+    const service = new OpenCodeService({ projectDirectory: process.cwd(), username: "test", port: 0 })
+    const internals = service as unknown as Internals
+    internals.globalClient = {
+      config: {
+        providers: () => {
+          providerCalls += 1
+          return Promise.resolve({
+            data: {
+              providers: [{
+                id: "opencode",
+                models: {
+                  "space-bunny-free": {
+                    name: "Space Bunny Free",
+                    cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+                    variants: { low: {} },
+                  },
+                },
+              }],
+            },
+          })
+        },
+      },
+      v2: { model: { list: () => Promise.resolve({ data: [] }) } },
+    }
+    internals.variantsCache = null
+
+    const first = await service.models()
+    const second = await service.models()
+    expect(first).toHaveLength(1)
+    expect(second).toEqual(first)
+    expect(providerCalls).toBe(1)
+  })
+
+  it("caches question lists and invalidates them on question events", async () => {
+    let listCalls = 0
+    const service = new OpenCodeService({ projectDirectory: process.cwd(), username: "test", port: 0 })
+    const internals = service as unknown as Internals
+    internals.globalClient = {
+      question: {
+        list: () => {
+          listCalls += 1
+          return Promise.resolve({ data: [] })
+        },
+      },
+    }
+
+    await service.sessionQuestions(SESSION)
+    await service.sessionQuestions(SESSION)
+    expect(listCalls).toBe(1)
+
+    internals.trackEvent({ type: "question.asked", properties: { sessionID: SESSION } } as unknown as Event)
+    await service.sessionQuestions(SESSION)
+    expect(listCalls).toBe(2)
+  })
+})
+
+describe("session cleanup and state version", () => {
+  it("cleans up all session state on delete", async () => {
+    const { service, busySessions, runningSessions, internals } = createService()
+    // لا نلمس نظام الملفات الحقيقي في التست — السلوك المطلوب هو التنظيف فقط
+    ;(service as unknown as Record<string, unknown>).persistMobileSessions = async () => undefined
+    busySessions.add(SESSION)
+    runningSessions.add(SESSION)
+    internals.idlePolls.set(SESSION, 2)
+    ;(service as unknown as { finishedRuns: Set<string> }).finishedRuns.add(SESSION)
+
+    await expect(service.deleteSession(SESSION)).resolves.toBe(true)
+
+    expect(busySessions.has(SESSION)).toBe(false)
+    expect(runningSessions.has(SESSION)).toBe(false)
+    expect(internals.idlePolls.has(SESSION)).toBe(false)
+    expect((service as unknown as { finishedRuns: Set<string> }).finishedRuns.has(SESSION)).toBe(false)
+  })
+
+  it("exposes a state version that changes with new content", async () => {
+    const { service, fake } = createService()
+
+    const empty = await service.requests(SESSION)
+    expect(typeof empty.version).toBe("string")
+
+    fake.messages = [
+      userMessage("msg_u1", "الطلب", 1_000),
+      assistantMessage("msg_a1", "النتيجة", 1_100, 1_200),
+    ]
+    const filled = await service.requests(SESSION)
+    expect(filled.version).not.toBe(empty.version)
+
+    // نفس المحتوى = نفس البصمة (تسمح بـ 304 وتوفّر إعادة التحميل)
+    const again = await service.requests(SESSION)
+    expect(again.version).toBe(filled.version)
+
+    // نمو النص الحي نفسه يغيّر البصمة حتى لو الأوقات ثابتة
+    fake.messages = [
+      userMessage("msg_u1", "الطلب", 1_000),
+      assistantMessage("msg_a1", "النتيجة النهائية الكاملة بعد اكتمال كل الخطوات", 1_100, 1_200),
+    ]
+    const grown = await service.requests(SESSION)
+    expect(grown.version).not.toBe(filled.version)
+  })
+
+  it("streams result files from disk with their real size", async () => {
+    const { service } = createService()
+    // القائمة فاضية في الـ fake فالمسار يتحلّل تحت projectDirectory (cwd)
+    await mkdir(resolve(process.cwd(), "data"), { recursive: true })
+    const name = `data/.perf-test-${Date.now()}.txt`
+    const absolute = resolve(process.cwd(), name)
+    await writeFile(absolute, "hello-stream")
+    try {
+      const file = await service.openResultFile("missing-session", name)
+      expect(file.filename).toBe(name.split("/").pop())
+      expect(file.size).toBe(12)
+      const chunks: Buffer[] = []
+      for await (const chunk of file.stream as unknown as AsyncIterable<Buffer>) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+      }
+      expect(Buffer.concat(chunks).toString("utf8")).toBe("hello-stream")
+    } finally {
+      await unlink(absolute)
+    }
   })
 })

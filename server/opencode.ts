@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { stat } from "node:fs/promises"
 import { basename as pathBasename, extname, isAbsolute, resolve } from "node:path"
 import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk"
@@ -203,6 +203,10 @@ export interface SessionRequests {
   requests: SessionRequest[]
   questions: ConversationQuestionRequest[]
   queued: number
+  // بصمة خفيفة للحالة الكاملة: السيرفر بيحسب ETag منها، والعميل يوفّر
+  // إعادة التحميل لما مفيش تغيير (304). أي تغيير في النص الحي، الحالة،
+  // الطابور، الأسئلة أو الـ todos لازم يغيّرها — وإلا يحصل stale.
+  version: string
 }
 
 interface QueuedPrompt {
@@ -275,6 +279,19 @@ const MAX_FILE_DOWNLOAD_BYTES = 25 * 1024 * 1024
 
 // قائمة الـ variants نادرًا ما تتغير، فبنخزّنها 5 دقايق بدل ما نطلبها كل مرة
 const VARIANTS_CACHE_MS = 5 * 60 * 1000
+
+// كاش قصير لقائمة النشاط: الـ poll بيجي كل ٤ ثواني من كل عميل، فالتخزين
+// ٣ ثواني بيحوّل العاصفة لـ upstream call واحد لكل نافذة بدل N عملاء × N مشاريع
+const ACTIVITY_CACHE_MS = 3000
+
+// كاش قائمة الموديلات كاملة (مش الـ variants بس): الـ endpoints بطيئة ومتتكررة
+const MODELS_CACHE_MS = 5 * 60 * 1000
+
+// كاش قوائم الأسئلة: بتتقرأ مع كل poll للـ requests، وبتتبطل مع أحداث الأسئلة
+const QUESTIONS_CACHE_MS = 2000
+
+// سقف عملاء SDK المحفوظين لكل directory — منع نمو غير محدود للذاكرة
+const MAX_CACHED_CLIENTS = 12
 
 // ترتيب معروف لمستويات التفكير، عشان الكيبس تظهر بترتيب متوقع مش أبجدي
 const VARIANT_ORDER = ["minimal", "none", "low", "medium", "high", "xhigh", "max"]
@@ -409,6 +426,15 @@ export class OpenCodeService {
   private eventsStarted = false
   // كاش Variants:endpoint واحد بس وبطيء، والقائمة مش بتتغير كتير
   private variantsCache: { directory: string; expiresAt: number; map: Map<string, string[]> } | null = null
+  // إلغاء تكرار الطلبات المتزامنة: نفس المورد المطلوب لحظيًا يشارك promise واحدة
+  private readonly inflight = new Map<string, Promise<unknown>>()
+  // كاش النشاط قصير المدى ( Issue: fan-out كل ٤ ثواني لكل عميل )
+  private activityCache: { expiresAt: number; lang: ServerLang; value: ActiveSession[] } | null = null
+  // كاش الموديلات الكامل + قوائم الأسئلة لكل directory
+  private modelsCache: { expiresAt: number; directory: string; value: ModelInfo[] } | null = null
+  private readonly questionsCache = new Map<string, { expiresAt: number; value: QuestionRequest[] }>()
+  // سلسلة كتابة ملف الجلسات: ترتيب مضمون من غير حظر الـ event loop
+  private persistChain: Promise<void> = Promise.resolve()
 
   constructor(private readonly options: ServiceOptions) {
     this.selectedProjectDirectory = options.projectDirectory
@@ -432,10 +458,35 @@ export class OpenCodeService {
     }
   }
 
-  private persistMobileSessions(): void {
-    mkdirSync(resolve(process.cwd(), "data"), { recursive: true, mode: 0o700 })
-    const data: MobileSessionFile = { sessions: [...this.mobileSessions] }
-    writeFileSync(this.mobileSessionsPath, JSON.stringify(data, null, 2), { encoding: "utf8", mode: 0o600 })
+  private persistMobileSessions(): Promise<void> {
+    const write = async (): Promise<void> => {
+      try {
+        const { mkdir, writeFile } = await import("node:fs/promises")
+        await mkdir(resolve(process.cwd(), "data"), { recursive: true, mode: 0o700 })
+        const data: MobileSessionFile = { sessions: [...this.mobileSessions] }
+        await writeFile(this.mobileSessionsPath, JSON.stringify(data, null, 2), { encoding: "utf8", mode: 0o600 })
+      } catch {
+        // التخزين اختياري — الفشل لا يوقع الطلب
+      }
+    }
+    // تسلسل الكتابات عشان ترتيب الملف يفضل صح من غير await متزامن يحظر الـ loop
+    this.persistChain = this.persistChain.then(write, write)
+    return this.persistChain
+  }
+
+  // نفس المورد يُطلب لحظيًا من كذا poll متزامن: شارك promise واحدة بدل N calls
+  private dedup<T>(key: string, build: () => Promise<T>): Promise<T> {
+    const existing = this.inflight.get(key)
+    if (existing) {
+      return existing as Promise<T>
+    }
+    const task = build().finally(() => {
+      if (this.inflight.get(key) === task) {
+        this.inflight.delete(key)
+      }
+    })
+    this.inflight.set(key, task)
+    return task
   }
 
   private clientFor(directory = this.selectedProjectDirectory): OpencodeClient {
@@ -450,6 +501,15 @@ export class OpenCodeService {
       headers: this.authHeaders,
     })
     this.clients.set(directory, client)
+    // سقف LRU: اطرد أقدم directory غير محمي (المختار والجديد محميان دايمًا)
+    if (this.clients.size > MAX_CACHED_CLIENTS) {
+      for (const key of this.clients.keys()) {
+        if (key !== this.selectedProjectDirectory && key !== directory) {
+          this.clients.delete(key)
+          break
+        }
+      }
+    }
     return client
   }
 
@@ -527,6 +587,23 @@ export class OpenCodeService {
   }
 
   private trackEvent(event: Event): void {
+    const eventType = event.type as string
+    // أي دورة حياة جلسة تبطل كاش النشاط فورًا (من غير انتظار TTL) عشان
+    // القائمة متعرضش حالة قديمة، والـ TTL القصير يمتص العواصف بين الأحداث
+    if (
+      eventType === "session.status"
+      || eventType === "session.idle"
+      || eventType === "session.error"
+      || eventType === "session.created"
+      || eventType === "session.updated"
+      || eventType === "session.deleted"
+    ) {
+      this.activityCache = null
+    }
+    // أحداث الأسئلة تبطل كاش الأسئلة لنفس الـ directory المختار
+    if (eventType.startsWith("question.")) {
+      this.questionsCache.delete(this.selectedProjectDirectory)
+    }
     if (event.type === "permission.updated") {
       this.pendingPermissions.set(event.properties.id, event.properties)
     }
@@ -809,7 +886,7 @@ export class OpenCodeService {
     }
 
     this.mobileSessions.add(session.id)
-    this.persistMobileSessions()
+    await this.persistMobileSessions()
     return session
   }
 
@@ -826,7 +903,19 @@ export class OpenCodeService {
     this.mobileSessions.delete(id)
     this.promptQueues.delete(id)
     this.runningSessions.delete(id)
-    this.persistMobileSessions()
+    // تنظيف كل الحالة المرتبطة بالجلسة عشان مفيش تسريب ذاكرة طويل المدى:
+    // أعلام الشغل، عدّادات الـ watchdog، أحكام "خلص"، وأذوناتها المعلّقة
+    this.skippingSessions.delete(id)
+    this.busySessions.delete(id)
+    this.finishedRuns.delete(id)
+    this.idlePolls.delete(id)
+    for (const [permissionId, permission] of this.pendingPermissions) {
+      if (permission.sessionID === id) {
+        this.pendingPermissions.delete(permissionId)
+      }
+    }
+    this.activityCache = null
+    await this.persistMobileSessions()
     return unwrap(await this.clientFor().session.delete({ path: { id }, query: this.directoryQuery() }))
   }
 
@@ -1036,7 +1125,21 @@ export class OpenCodeService {
       })
     }
 
-    return { status, requests, questions, queued: queue.length }
+    // بصمة الحالة: أي تغيير مرئي (نص حي، إتمام، طابور، أسئلة، todos) يغيّرها.
+    // الطول التراكمي للنصوص يلتقط نمو الـ live text حتى لو الأوقات لم تتغير.
+    const turnSig = turns
+      .map((turn) => `${turn.updatedAt}:${turn.completedAt}:${turn.texts.join("").length}`)
+      .join(";")
+    const version = [
+      status.type,
+      turns.length,
+      turnSig,
+      queue.map((item) => item.id).join(","),
+      questions.map((question) => question.id).join(","),
+      `${todos.length}:${completedTodos}:${activeTodo?.id ?? ""}`,
+    ].join("|")
+
+    return { status, requests, questions, queued: queue.length, version }
   }
 
   private collectResultFiles(
@@ -1149,7 +1252,9 @@ export class OpenCodeService {
     return this.selectedProjectDirectory
   }
 
-  async readResultFile(sessionId: string, requestedPath: string): Promise<{ filename: string; mime: string; size: number; content: Buffer }> {
+  // ستريم قراءة ملف نتيجة: تحقق + stat، والقراءة الفعلية بالـ stream
+  // عشان ملف 25MB ميتحملش كله في الذاكرة مع كل تحميل موبايل متزامن
+  async openResultFile(sessionId: string, requestedPath: string): Promise<{ filename: string; mime: string; size: number; stream: NodeJS.ReadableStream }> {
     const trimmed = (requestedPath || "").trim()
     if (!trimmed || trimmed.length > 1024) {
       throw new Error("Invalid file path")
@@ -1179,10 +1284,9 @@ export class OpenCodeService {
     }
 
     try {
-      const { readFile } = await import("node:fs/promises")
-      const content = await readFile(absolutePath)
+      const { createReadStream } = await import("node:fs")
       const filename = pathBasename(absolutePath)
-      return { filename, mime: mimeFromName(filename), size: content.length, content }
+      return { filename, mime: mimeFromName(filename), size: fileStat.size, stream: createReadStream(absolutePath) }
     } catch {
       throw new Error("Unable to read file")
     }
@@ -1374,11 +1478,14 @@ export class OpenCodeService {
   }
 
   async statuses(): Promise<Record<string, SessionStatus>> {
-    const statuses = await this.rawStatuses()
-    for (const [sessionId, status] of Object.entries(statuses)) {
-      statuses[sessionId] = this.effectiveStatus(sessionId, status)
-    }
-    return statuses
+    // polls الـ ٤ ثواني من كذا عميل/مصدر لحظيًا تشترك في نتيجة واحدة
+    return this.dedup("statuses", async () => {
+      const statuses = await this.rawStatuses()
+      for (const [sessionId, status] of Object.entries(statuses)) {
+        statuses[sessionId] = this.effectiveStatus(sessionId, status)
+      }
+      return statuses
+    })
   }
 
   // الحالة الخام من OpenCode من غير تعديل الطابور — الـ watchdog محتاجها عشان
@@ -1387,9 +1494,22 @@ export class OpenCodeService {
     return unwrap(await this.clientFor().session.status({ query: this.directoryQuery() }))
   }
 
+  async activity(lang: ServerLang = "ar"): Promise<ActiveSession[]> {
+    const cached = this.activityCache
+    if (cached && cached.lang === lang && cached.expiresAt > Date.now()) {
+      return cached.value
+    }
+    // الطلبات المتزامنة من كذا عميل تشترك في نفس الحساب بدل N× fan-out
+    return this.dedup(`activity:${lang}`, async () => {
+      const value = await this.computeActivity(lang)
+      this.activityCache = { expiresAt: Date.now() + ACTIVITY_CACHE_MS, lang, value }
+      return value
+    })
+  }
+
   // المحادثات الشغالة حاليًا في كل المشاريع — عشان تظهر قدام المستخدم
   // من غير ما يفتح قائمة المشاريع ويدوّر بنفسه
-  async activity(lang: ServerLang = "ar"): Promise<ActiveSession[]> {
+  private async computeActivity(lang: ServerLang = "ar"): Promise<ActiveSession[]> {
     const sessions = await this.globalClient.experimental.session
       .list({ roots: true, limit: 1000 })
       .then(unwrap)
@@ -1516,6 +1636,19 @@ export class OpenCodeService {
   }
 
   async models(): Promise<ModelInfo[]> {
+    const directory = this.selectedProjectDirectory
+    const cached = this.modelsCache
+    if (cached && cached.directory === directory && cached.expiresAt > Date.now()) {
+      return cached.value
+    }
+    return this.dedup(`models:${directory}`, async () => {
+      const value = await this.computeModels()
+      this.modelsCache = { expiresAt: Date.now() + MODELS_CACHE_MS, directory, value }
+      return value
+    })
+  }
+
+  private async computeModels(): Promise<ModelInfo[]> {
     const variantMap = await this.modelVariants()
     // OpenCode بيرجّع الـ variants بشكلين: object map في /config/providers
     // ({ low: {...}, high: {...} }) و array في الكتالوج v2 ([{ id, ... }]).
@@ -1700,13 +1833,28 @@ export class OpenCodeService {
     })
   }
 
+  // قوائم الأسئلة بتتقرأ مع كل poll للـ requests: كاش قصير لكل directory
+  // يمتص التكرار، وبيتبطل مع أحداث الأسئلة أو بعد الرد/الرفض مباشرة
+  private async listQuestions(): Promise<QuestionRequest[]> {
+    const directory = this.selectedProjectDirectory
+    const cached = this.questionsCache.get(directory)
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value
+    }
+    return this.dedup(`questions:${directory}`, async () => {
+      const value = unwrap(await this.globalClient.question.list({ directory }))
+      this.questionsCache.set(directory, { expiresAt: Date.now() + QUESTIONS_CACHE_MS, value })
+      return value
+    })
+  }
+
   async sessionQuestions(id: string): Promise<ConversationQuestionRequest[]> {
-    const requests = unwrap(await this.globalClient.question.list({ directory: this.selectedProjectDirectory }))
+    const requests = await this.listQuestions()
     return requests.filter((request) => request.sessionID === id).map((request) => this.mapQuestionRequest(request))
   }
 
   async replyQuestion(sessionId: string, requestId: string, answers: unknown): Promise<boolean> {
-    const requests = unwrap(await this.globalClient.question.list({ directory: this.selectedProjectDirectory }))
+    const requests = await this.listQuestions()
     const request = requests.find((candidate) => candidate.id === requestId)
     if (!request || request.sessionID !== sessionId) {
       throw new Error("Question not found")
@@ -1720,11 +1868,13 @@ export class OpenCodeService {
     if (result.error) {
       throw new Error(errorMessage(result.error))
     }
+    // الرد غيّر حالة الأسئلة — ابطل الكاش فورًا عشان الـ poll الجاي يشوفها
+    this.questionsCache.delete(this.selectedProjectDirectory)
     return result.data
   }
 
   async rejectQuestion(sessionId: string, requestId: string): Promise<boolean> {
-    const requests = unwrap(await this.globalClient.question.list({ directory: this.selectedProjectDirectory }))
+    const requests = await this.listQuestions()
     const request = requests.find((candidate) => candidate.id === requestId)
     if (!request || request.sessionID !== sessionId) {
       throw new Error("Question not found")
@@ -1733,6 +1883,7 @@ export class OpenCodeService {
     if (result.error) {
       throw new Error(errorMessage(result.error))
     }
+    this.questionsCache.delete(this.selectedProjectDirectory)
     return result.data
   }
 
@@ -1808,6 +1959,13 @@ export class OpenCodeService {
     this.runningSessions.clear()
     this.skippingSessions.clear()
     this.idlePolls.clear()
+    this.inflight.clear()
+    this.questionsCache.clear()
+    this.activityCache = null
+    this.modelsCache = null
+    this.pendingPermissions.clear()
+    this.busySessions.clear()
+    this.finishedRuns.clear()
     this.closeServer?.()
     this.listeners.clear()
     this.clients.clear()

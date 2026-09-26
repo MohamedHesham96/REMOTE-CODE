@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { getRequests, rejectQuestion, removeQueuedRequest, renameSession, replyQuestion, runQueuedRequest, sendMessage, skipRunningRequest } from "./api"
-import type { Session, SessionRequest, SessionRequests } from "./types"
+import { getRequests, getStatuses, rejectQuestion, removeQueuedRequest, renameSession, replyQuestion, runQueuedRequest, sendMessage, skipRunningRequest } from "./api"
+import type { Session, SessionRequest, SessionRequests, SessionStatus } from "./types"
 
 function decodeBase64(value: string): Uint8Array {
   const padding = "=".repeat((4 - (value.length % 4)) % 4)
@@ -105,7 +105,7 @@ describe("parallel requests", () => {
   })
 
   it("returns the stacked request cards oldest first", async () => {
-    const payload: SessionRequests = { status: { type: "busy" }, requests: [queued], questions: [], queued: 1 }
+    const payload: SessionRequests = { status: { type: "busy" }, requests: [queued], questions: [], queued: 1, version: "busy|1||q|..." }
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify(payload), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -163,5 +163,51 @@ describe("parallel requests", () => {
       method: "POST",
       credentials: "include",
     }))
+  })
+})
+
+describe("request efficiency", () => {
+  it("dedups concurrent identical GETs into a single fetch", async () => {
+    const statuses = { "session/id": { type: "idle" } as SessionStatus }
+    let calls = 0
+    const fetchMock = vi.fn().mockImplementation(() => {
+      calls += 1
+      return new Promise((resolve) => setTimeout(() => resolve(new Response(JSON.stringify(statuses), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })), 10))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const [first, second] = await Promise.all([getStatuses(), getStatuses()])
+    expect(first).toEqual(statuses)
+    expect(second).toEqual(statuses)
+    expect(calls).toBe(1)
+  })
+
+  it("sends If-None-Match and reuses the cached payload on 304", async () => {
+    const payload: SessionRequests = { status: { type: "busy" }, requests: [], questions: [], queued: 0, version: "busy|0|||" }
+    const seen: Array<Record<string, string>> = []
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      seen.push({ ...(init?.headers as Record<string, string>) })
+      if (seen.length === 1) {
+        return Promise.resolve(new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ETag: 'W/"abc-9"' },
+        }))
+      }
+      return Promise.resolve(new Response(null, { status: 304 }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const first = await getRequests("session/etag")
+    expect(first).toEqual(payload)
+    expect(seen[0]).not.toHaveProperty("If-None-Match")
+
+    // 304 = نفس المرجع المخزّن (React يعمل bail-out ولا يعيد الـ render)
+    const second = await getRequests("session/etag")
+    expect(second).toBe(first)
+    expect(seen[1]?.["If-None-Match"]).toBe('W/"abc-9"')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })
