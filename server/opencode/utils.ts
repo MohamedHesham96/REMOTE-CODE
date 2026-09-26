@@ -1,5 +1,6 @@
 import { extname, basename as pathBasename } from "node:path"
 import type { Part, Project } from "@opencode-ai/sdk"
+import type { GlobalSession } from "@opencode-ai/sdk/v2"
 import type { SessionModelRef } from "./types.js"
 
 // ── دوال خالصة (pure) مستخرجة من opencode.ts — بلا حالة ولا IO ──
@@ -90,6 +91,24 @@ export function isChildDirectory(directory: string, parent: string): boolean {
   const child = directoryKey(directory)
   const root = directoryKey(parent)
   return child !== root && child.startsWith(`${root}/`)
+}
+
+// مشروع المحادثة = الـ worktree اللي بيفتحها فعلاً. أحيانًا project.worktree
+// بيكون قديم أو الجلسة جواه، فاعتمد session.directory في الحالة دي عشان الفتح
+// ما يوديكش لمشروع غلط. نفس القاعدة للمحادثات النشطة (شريط "شغال الآن")
+// وللمثبّتات من غير مسار محفوظ — مصدر واحد للاثنين.
+export function sessionProject(session: GlobalSession): { worktree: string; projectName: string } | null {
+  const sessionDir = typeof session.directory === "string" ? session.directory.trim() : ""
+  if (!sessionDir) {
+    return null
+  }
+  const declared = typeof session.project?.worktree === "string" ? session.project.worktree : ""
+  const projectWorktree = declared && declared !== "/" ? declared : sessionDir
+  const insideProject = directoryKey(sessionDir) === directoryKey(projectWorktree)
+    || isChildDirectory(sessionDir, projectWorktree)
+  const worktree = insideProject ? projectWorktree : sessionDir
+  const name = worktree.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean).pop() || worktree
+  return { worktree, projectName: name }
 }
 
 export function isFreeCost(input: number, output: number, cacheRead: number, cacheWrite: number): boolean {

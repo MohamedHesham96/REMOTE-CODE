@@ -3,6 +3,13 @@ import type { Response } from "express"
 export const MAX_EVENT_CLIENTS = 100
 export const SSE_SLOW_CLIENT_BYTES = 1024 * 1024
 
+// إطار بثّ المثبّتات: نفس شكل أحداث OpenCode (event/data) عشان يوصل بنفس
+// قناة الـ SSE وتبقى للعميل قناة واحدة. العميل بيطبّق القائمة المضمّنة
+// مباشرة، فمفيش طلب زيادة ولا تعارض بين الأجهزة.
+export function pinsEvent(pins: unknown): string {
+  return `event: pins\ndata: ${JSON.stringify({ pins })}\n\n`
+}
+
 export class EventHub {
   private readonly clients = new Set<Response>()
 

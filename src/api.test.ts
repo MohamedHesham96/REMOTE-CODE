@@ -1,6 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { addPin, forgetPins, getPins, mergePins, removePin } from "./api"
 import { getRequests, getStatuses, rejectQuestion, removeQueuedRequest, renameSession, replyQuestion, runQueuedRequest, sendMessage, skipRunningRequest } from "./api"
-import type { Session, SessionRequest, SessionRequests, SessionStatus } from "./types"
+import type { PinnedConversation, Session, SessionRequest, SessionRequests, SessionStatus } from "./types"
+
+function pin(id: string, overrides: Partial<PinnedConversation> = {}): PinnedConversation {
+  return {
+    id,
+    title: `title ${id}`,
+    created: 1000,
+    directory: "/srv/one",
+    worktree: "/srv/one",
+    projectKey: "/srv/one",
+    projectName: "one",
+    ...overrides,
+  }
+}
 
 function decodeBase64(value: string): Uint8Array {
   const padding = "=".repeat((4 - (value.length % 4)) % 4)
@@ -162,6 +176,56 @@ describe("parallel requests", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/session/session%2Fid/request/queued%3Aq2/run", expect.objectContaining({
       method: "POST",
       credentials: "include",
+    }))
+  })
+})
+
+describe("pinned conversations", () => {
+  function respondWith(pins: PinnedConversation[]): ReturnType<typeof vi.fn> {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ pins }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+    return fetchMock
+  }
+
+  it("reads the whole list from the server", async () => {
+    const fetchMock = respondWith([pin("ses_a")])
+    await expect(getPins()).resolves.toEqual([pin("ses_a")])
+    expect(fetchMock).toHaveBeenCalledWith("/api/pin", expect.objectContaining({ credentials: "include" }))
+  })
+
+  it("pins a conversation with its project and takes the server list back", async () => {
+    const fetchMock = respondWith([pin("ses_a")])
+    await expect(addPin(pin("ses_a"))).resolves.toEqual([pin("ses_a")])
+    expect(fetchMock).toHaveBeenCalledWith("/api/pin", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ pin: pin("ses_a") }),
+    }))
+  })
+
+  it("unpins a conversation by its id", async () => {
+    const fetchMock = respondWith([])
+    await expect(removePin("ses/a")).resolves.toEqual([])
+    expect(fetchMock).toHaveBeenCalledWith("/api/pin/ses%2Fa", expect.objectContaining({ method: "DELETE" }))
+  })
+
+  it("forgets deleted conversations in one call", async () => {
+    const fetchMock = respondWith([])
+    await forgetPins(["ses_a", "ses_b"])
+    expect(fetchMock).toHaveBeenCalledWith("/api/pin/forget", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ ids: ["ses_a", "ses_b"] }),
+    }))
+  })
+
+  it("merges a device cache instead of replacing the server list", async () => {
+    const fetchMock = respondWith([pin("ses_a")])
+    await mergePins([pin("ses_a"), pin("ses_b")])
+    expect(fetchMock).toHaveBeenCalledWith("/api/pin/merge", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ pins: [pin("ses_a"), pin("ses_b")] }),
     }))
   })
 })

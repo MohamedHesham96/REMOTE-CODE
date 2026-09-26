@@ -24,7 +24,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["server/**/*.ts", "vite.config.ts"],
+    files: ["server/**/*.ts", "vite.config.ts", "vitest.config.ts"],
     languageOptions: {
       ecmaVersion: 2022,
       globals: globals.node,

@@ -7,6 +7,9 @@ export const LAST_SESSION_KEY = "opencode.lastSessionByProject"
 export const PINNED_SESSIONS_KEY = "opencode.pinnedSessions"
 // سقف للمحادثات المثبّتة المحفوظة — يمنع التخزين من النمو بلا حد
 export const PINNED_SESSIONS_LIMIT = 200
+// حدث داخلي: السيرفر بثّ قائمة المثبّتات الجديدة (تغيير من جهاز تاني أو من
+// نافذة تانية) والـ hook بيسمعه فالتطبيقات كلها بتتحدّد من غير poll
+export const PINS_SYNC_EVENT = "opencode:pins"
 export const ACTIVE_GRACE_MS = 5 * 60 * 1000
 export const COMPOSER_MAX_LINES = 6
 export const TOUCH_QUERY = "(hover: none), (pointer: coarse)"

@@ -1,14 +1,29 @@
 import type { Express, Request, Response } from "express"
 import { getServerLang, serverMessage } from "../i18n.js"
+import { pinProjectKey } from "../pins.js"
 import type { RouteContext } from "./context.js"
 
 // المثبّتات على السيرفر عشان تكون مشتركة بين كل الأجهزة. كل التغييرات متطبّقة
-// على السيرفر (تثبيت/إزالة/مسح) — مفيش استبدال كامل إلا في حالة الاسترجاع،
-// عشان جهازين ما يخسروش تحديث بعض. ودي مالها علاقة بـ OpenCode أصلًا، فبتشتغل
-// حتى وهو واقع.
+// على السيرفر (تثبيت/إزالة/مسح) ومفيش استبدال كامل — الدمج بيضيف الجديد
+// فوق الموجود، فجهازين ما يخسروش تحديث بعض. ودي مالها علاقة بـ OpenCode أصلًا،
+// فبتشتغل حتى وهو واقع. البثّ لكل الأجهزة بيحصل من PinService نفسه
+// (server/index.ts) عشان كل مسار تعديل — حتى مسار حذف الجلسة — يوصل لكل
+// الـ clients.
 export function registerPinRoutes(app: Express, ctx: RouteContext): void {
-  app.get("/api/pin", (_request, response) => {
-    response.json({ pins: ctx.pins.list() })
+  // ?project=<worktree> = مثبّتات مشروع واحد بس (اللي بتعرضه اللوحة).
+  // من غيره = المرآة الكاملة لكل المشاريع (العداد والفتح من أي مكان).
+  // بارام فاضي أو تالف = لا شيء: أحسن ما نرجّع كل المثبّتات بالغلط.
+  app.get("/api/pin", (request, response) => {
+    if (request.query.project === undefined) {
+      response.json({ pins: ctx.pins.list(), total: ctx.pins.list().length })
+      return
+    }
+    const project = typeof request.query.project === "string" ? request.query.project.trim() : ""
+    response.json({
+      pins: ctx.pins.listForProject(project),
+      projectKey: pinProjectKey(project, ""),
+      total: ctx.pins.list().length,
+    })
   })
 
   app.post("/api/pin", async (request, response) => {
@@ -19,9 +34,11 @@ export function registerPinRoutes(app: Express, ctx: RouteContext): void {
     }
   })
 
-  app.put("/api/pin", async (request, response) => {
+  // دمج قادم من جهاز (ترقية الكاش القديم على أجهزة لسه محدّثة): اللي عندنا
+  // ما بيتمسحش والجاي الجديد بيتضاف — فمفيش مثبّتة بتضيع في أي اتجاه.
+  app.post("/api/pin/merge", async (request, response) => {
     try {
-      response.json({ pins: await ctx.pins.replace(request.body?.pins) })
+      response.json({ pins: await ctx.pins.merge(request.body?.pins) })
     } catch (error) {
       invalidPinResponse(error, response, request, ctx)
     }

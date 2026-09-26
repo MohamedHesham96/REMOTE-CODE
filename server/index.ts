@@ -11,7 +11,7 @@ import { PinService } from "./pins.js"
 import { PushService } from "./push.js"
 import { createRateLimiter } from "./utils/rate-limit.js"
 import { OpenCodeConnection } from "./connection.js"
-import { EventHub } from "./sse/hub.js"
+import { EventHub, pinsEvent } from "./sse/hub.js"
 import { clientEvent, eventSessionId, isIdleEvent } from "./sse/filter.js"
 import { securityHeaders } from "./middleware/security.js"
 import { registerStatic } from "./static.js"
@@ -46,6 +46,22 @@ const hub = new EventHub()
 const pollLimiter = createRateLimiter({ windowMs: 60_000, max: 300 })
 
 const routeContext: RouteContext = { openCode, pins, push, connection, hub, pollLimiter }
+
+// مثبّتات: مصدر الحقيقة الوحيد، فلازم يتغيّر في كل الأجهزة والـ tabs المفتوحة.
+// البثّ من الـ service نفسه مش من الـ routes، فأي تعديل يوصل — حتى اللي
+// بيحصل مع حذف جلسة (forget) أو مع ترقية كاش جهاز تاني (merge).
+pins.subscribe((list) => {
+  hub.broadcast(pinsEvent(list))
+})
+
+// ترقية المثبّتات القديمة اللي مالها مسار (كاش ids مجرّدة): OpenCode هو اللي
+// يعرف مكان كل محادثة، فننسبها لمشروعها بدل ما تفضل مختفية أو — الأسوأ —
+// تظهر في مشروع غلط. بنجرّب أول ما الـ resolver يتركّب وأول ما OpenCode يبقى
+// جاهز، وبعدها مع كل تعديل جديد.
+pins.setProjectResolver((sessionIds) => openCode.sessionProjects(sessionIds))
+connection.onReady(() => {
+  void pins.attributeMissing()
+})
 
 app.disable("x-powered-by")
 // ضغط gzip/deflate للأصول والـ JSON — يفرق على شبكات Wi-Fi الضعيفة.

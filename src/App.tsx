@@ -40,12 +40,11 @@ import {
   GitBranchIcon,
   getVarietyLevels,
   projectName,
-  projectNameFromPath,
   samePath,
   shortModelName,
   statusLabel,
 } from "./display"
-import { ACTIVE_GRACE_MS, COMPOSER_MAX_LINES, RECENT_PROJECTS_KEY, emptyConfig } from "./constants"
+import { ACTIVE_GRACE_MS, COMPOSER_MAX_LINES, PINS_SYNC_EVENT, RECENT_PROJECTS_KEY, emptyConfig } from "./constants"
 import { PanelFallback } from "./components/PanelFallback"
 import { PermissionCard } from "./components/PermissionCard"
 import { ProjectDropdown, ProjectPicker } from "./components/projects/ProjectPicker"
@@ -207,9 +206,12 @@ function App() {
   // ("نشط أخيرًا") موجودة في لوحة "المحادثات النشطة" بس.
   // المحادثات المثبّتة بتفضل في مجموعتها العادية بالترتيب العادي: التثبيت
   // ما بيحرّكش الصف ولا بيغيّر ترتيب القائمة — بيبان بس كعلامة في الصف.
-  // قائمة المثبّتات نفسها (لوحة الدبوس في الهيدر) شايفة كل المشاريع والمخزّنة
-  // على السيرفر، فتبقى على كل الأجهزة مش على هذا الجهاز بس.
-  const { pins: pinnedConversations, isPinned, togglePin, forgetPinned } = usePinnedConversations()
+  // قائمة المثبّتات نفسها (لوحة الدبوس في الهيدر) بتعرض مثبّتات المشروع
+  // المفتوح بس، وهي متخزّنة على السيرفر فتبقى على كل الأجهزة وعلى كل الجلسات.
+  const { projectPins, isPinned, togglePin, forgetPinned } = usePinnedConversations(
+    selectedProject?.worktree ?? null,
+    selectedProject ? projectName(selectedProject) : "",
+  )
   const sidebarActiveSessions = useMemo(() => sessions.filter((session) => isSessionWorking(session.id)), [sessions, isSessionWorking])
   const sidebarInactiveSessions = useMemo(() => sessions.filter((session) => !isSessionWorking(session.id)), [sessions, isSessionWorking])
 
@@ -961,6 +963,16 @@ function App() {
         addToast(t.unknownEvent, "error")
       }
     })
+    // تغيير في المثبّتات (جهاز تاني أو نافذة تانية): نحوّله لحدث داخلي
+    // يسمعه hook المثبّتات — نفس اتصال SSE واحد لكل نافذة، مش اتصال تاني.
+    source.addEventListener("pins", (rawEvent) => {
+      try {
+        const payload = JSON.parse((rawEvent as MessageEvent<string>).data) as { pins?: PinnedConversation[] }
+        window.dispatchEvent(new CustomEvent(PINS_SYNC_EVENT, { detail: { pins: payload.pins } }))
+      } catch {
+        // رد مش مفهوم — الـ resync والـ poll بيجيبوا الصورة الصح
+      }
+    })
     source.onerror = () => {
       setEventConnected(false)
       sseLiveRef.current = false
@@ -1213,22 +1225,24 @@ function App() {
   }
 
   // تبديل التثبيت: بيغيّر حالة واحدة بس (المحادثة دي) من غير ما يمس الباقي.
-  // المدخلات فيها كل بيانات العرض والفتح، عشان اللوحة تقدر تعرض المحادثة
-  // وتفتحها من غير ما يكون مشروعها هو المشروع الحالي.
+  // هنا بيانات العرض بس — المشروع ومعرّفه الثابت هما مسؤولية الـ hook
+  // (المشروع المفتوح دلوقتي)، فمش ممكن المثبّتة تطلع في لوحة مشروع تاني.
+  // والمخزّن على سيرفر واحد عشان كل الأجهزة والتطبيقات التانية تشوفها فورًا.
   const handlePinSession = (session: Session) => {
-    const worktree = selectedProject?.worktree || session.directory || ""
     togglePin({
       id: session.id,
       title: session.title || "",
       created: session.time.created,
-      directory: session.directory || worktree,
-      worktree,
-      projectName: selectedProject ? projectName(selectedProject) : projectNameFromPath(worktree),
+      directory: session.directory || "",
+      worktree: "",
+      projectKey: "",
+      projectName: "",
     })
   }
 
-  // فتح محادثة مثبّتة: لو في المشروع الحالي بنختارها مباشرة، ولو في مشروع
-  // تاني بنبدّل المشروع الأول وبعدين نفتحها — زي القفز من "شغال الآن" بالظبط.
+  // فتح محادثة مثبّتة: اللوحة بتعرض مثبّتات المشروع المفتوح بس، فبنختارها
+  // على طول. الفروع اللي ورا guards دي بتخدم الحالة النادرة لمثبّتة لسه ما
+  // اتنسبتش لمشروع (كاش قديم) — بنفس سلوك تبديل المشروع في "النشطة".
   const openPinnedConversation = async (pin: PinnedConversation) => {
     if (pin.id === activeIdRef.current) {
       closePinnedPanel()
@@ -1798,10 +1812,10 @@ function App() {
               className="icon-button icon-pinned"
               onClick={() => setShowPinned(true)}
               aria-label={t.pinnedConversations}
-              title={`${t.pinnedConversations} 📌`}
+              title={`${t.pinnedConversations} — ${selectedProject ? projectName(selectedProject) : t.unknownProject} 📌`}
             >
               <span aria-hidden>📌</span>
-              {pinnedConversations.length > 0 ? <span className="count-badge">{pinnedConversations.length}</span> : null}
+              {projectPins.length > 0 ? <span className="count-badge">{projectPins.length}</span> : null}
             </button>
             <button className="icon-button activity-button git-button icon-git" onClick={openGitChanges} aria-label={t.gitChangesAria} title={`${t.gitChangesAria} ⑂`}><GitBranchIcon />{gitChangedCount > 0 ? <span className="count-badge">{gitChangedCount}</span> : null}</button>
             <button className="icon-button icon-theme" onClick={toggleTheme} aria-label={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`} title={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`}><span aria-hidden>{THEME_META[theme].icon}</span></button>
@@ -1911,9 +1925,9 @@ function App() {
       {showPinned ? (
         <Suspense fallback={<PanelFallback />}>
           <PinnedConversationsPanel
-            pins={pinnedConversations}
+            pins={projectPins}
             activeId={activeId}
-            activeWorktree={selectedProject?.worktree ?? null}
+            projectName={selectedProject ? projectName(selectedProject) : ""}
             statuses={statuses}
             onSelect={(pin) => { void openPinnedConversation(pin) }}
             onUnpin={(pin) => togglePin(pin)}

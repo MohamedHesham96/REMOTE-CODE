@@ -5,13 +5,17 @@ import {
   forgetPinnedConversations,
   hasLegacyPinnedFormat,
   loadPinnedConversations,
+  pinBelongsToProject,
   pinConversation,
+  pinProjectKey,
+  pinsForProject,
   savePinnedConversations,
+  stampPinnedProject,
   unpinConversation,
 } from "./storage"
 
 function pin(id: string, overrides: Partial<PinnedConversation> = {}): PinnedConversation {
-  return {
+  const merged = {
     id,
     title: `title ${id}`,
     created: 1000,
@@ -20,6 +24,7 @@ function pin(id: string, overrides: Partial<PinnedConversation> = {}): PinnedCon
     projectName: "srv",
     ...overrides,
   }
+  return { ...merged, projectKey: pinProjectKey(merged.worktree, merged.directory) }
 }
 
 function write(value: string): void {
@@ -74,8 +79,22 @@ describe("pinned conversations cache", () => {
       created: 0,
       directory: "",
       worktree: "",
+      projectKey: "",
       projectName: "",
     })
+  })
+
+  it("derives the project key from the stored paths, not from the cache", () => {
+    // كاش باين أو متعدّل من الـ devtools: الـ projectKey بيتحسب من المسارات
+    // عشان مثبّتة ما تقدرش تنسب نفسها لمشروع تاني
+    write(JSON.stringify([{ ...pin("ses_a"), projectKey: "/srv/evil" }]))
+    expect(loadPinnedConversations()[0]?.projectKey).toBe("/srv")
+  })
+
+  it("keeps an entry with no known project unattributed instead of guessing one", () => {
+    write(JSON.stringify([{ id: "ses_legacy", title: "", created: 0, directory: "", worktree: "", projectName: "" }]))
+    expect(loadPinnedConversations()[0]).toMatchObject({ id: "ses_legacy", projectKey: "" })
+    expect(pinsForProject(loadPinnedConversations(), "/srv")).toEqual([])
   })
 
   it("flags the legacy format only while it is still there", () => {
@@ -122,6 +141,59 @@ describe("pinned conversations cache", () => {
     })
     expect(loadPinnedConversations()).toEqual([])
     expect(() => savePinnedConversations([pin("ses_a")])).not.toThrow()
+  })
+})
+
+describe("pinned conversations per project", () => {
+  const one = pin("ses_a", { worktree: "/srv/one", directory: "/srv/one", projectName: "one" })
+  const two = pin("ses_b", { worktree: "/srv/two", directory: "/srv/two", projectName: "two" })
+  const list = [one, two]
+
+  it("uses the normalized project path as the stable key", () => {
+    expect(pinProjectKey("/srv/one/", "")).toBe("/srv/one")
+    expect(pinProjectKey("/srv/one", "/srv/one/nested")).toBe("/srv/one")
+    expect(pinProjectKey("", "/srv/two")).toBe("/srv/two")
+    expect(pinProjectKey("", "")).toBe("")
+    // نفس المسار بكتابة مختلفة (Windows) = نفس المشروع
+    expect(pinProjectKey("C:\\Work\\App", "")).toBe(pinProjectKey("c:/work/app/", ""))
+  })
+
+  it("shows only the pins of the selected project", () => {
+    expect(pinsForProject(list, "/srv/one").map((item) => item.id)).toEqual(["ses_a"])
+    expect(pinsForProject(list, "/srv/two").map((item) => item.id)).toEqual(["ses_b"])
+    expect(pinsForProject(list, "/srv/three")).toEqual([])
+  })
+
+  it("matches the project no matter how the path was written", () => {
+    expect(pinsForProject(list, "/srv/one/").map((item) => item.id)).toEqual(["ses_a"])
+  })
+
+  it("shows nothing without a selected project, so pins never leak sideways", () => {
+    expect(pinsForProject(list, null)).toEqual([])
+    expect(pinsForProject(list, "")).toEqual([])
+    expect(pinBelongsToProject(one, null)).toBe(false)
+  })
+
+  it("keeps the same array reference when the project owns every pin", () => {
+    const only = [one]
+    expect(pinsForProject(only, "/srv/one")).toBe(only)
+  })
+
+  it("stamps a pin with the open project so it can never land in another one", () => {
+    const stamped = stampPinnedProject(
+      { ...one, worktree: "/srv/evil", directory: "/srv/evil", projectKey: "/srv/evil", projectName: "evil" },
+      "/srv/one",
+      "one",
+    )
+    expect(stamped).toMatchObject({ worktree: "/srv/one", directory: "/srv/one", projectKey: "/srv/one", projectName: "one" })
+    expect(pinsForProject([stamped], "/srv/one")).toHaveLength(1)
+    expect(pinsForProject([stamped], "/srv/evil")).toEqual([])
+  })
+
+  it("keeps the session directory when the project path is unknown", () => {
+    const stamped = stampPinnedProject(pin("ses_a"), "", "")
+    expect(stamped.projectKey).toBe("/srv")
+    expect(stamped.directory).toBe("/srv/ses_a")
   })
 })
 

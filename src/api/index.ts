@@ -6,6 +6,7 @@ export { createSession, deleteSession, getActivity, getConfig, getStatuses, list
 export { abortSession, getDiff, getHistory, getMessages, getRequests, getTodos, removeQueuedRequest, runQueuedRequest, sendMessage, skipRunningRequest } from "./conversation"
 export { getModels, getSessionModel, setSessionModel } from "./models"
 export { listPermissions, rejectQuestion, replyPermission, replyQuestion } from "./interaction"
+export { addPin, forgetPins, getPins, mergePins, removePin } from "./pins"
 export { getGitChanges } from "./git"
 export { downloadResultFile, fileDownloadUrl, shareResultFile } from "./files"
 export { subscribePush, testPush, unsubscribePush } from "./push"

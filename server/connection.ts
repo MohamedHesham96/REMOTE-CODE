@@ -8,6 +8,7 @@ const CONNECT_RETRY_MS = 5000
 export class OpenCodeConnection {
   private ready = false
   private lastError = "Connecting to OpenCode…"
+  private readonly readyListeners = new Set<() => void>()
 
   constructor(private readonly openCode: OpenCodeService) {}
 
@@ -17,6 +18,12 @@ export class OpenCodeConnection {
 
   get error(): string {
     return this.lastError
+  }
+
+  // حاجات تعتمد على OpenCode بس لازم تتحرك في أول فرصة: ترقية المثبّتات
+  // القديمة مثلًا.
+  onReady(listener: () => void): void {
+    this.readyListeners.add(listener)
   }
 
   unavailable(request: Request, response: Response): void {
@@ -52,7 +59,9 @@ export class OpenCodeConnection {
         || path === "/permission"
         || path === "/events"
         // المثبّتات بيانات ملف محلي — مالها صلة بـ OpenCode، فبتشتغل وهو واقع
+        // (كل مساراتها: /pin و /pin/merge و /pin/forget و /pin/:id)
         || path === "/pin"
+        || path.startsWith("/pin/")
         || path.startsWith("/push/")
       ) {
         next()
@@ -74,6 +83,13 @@ export class OpenCodeConnection {
         this.ready = true
         this.lastError = ""
         console.log("OpenCode connected ✓")
+        for (const listener of [...this.readyListeners]) {
+          try {
+            listener()
+          } catch {
+            // متابع واحد مش لازم يوقع الباقي
+          }
+        }
       } catch (error) {
         this.ready = false
         this.lastError = error instanceof Error ? error.message : String(error)

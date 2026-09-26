@@ -49,6 +49,7 @@ import {
   QUEUED_ID_PREFIX,
   queuedItemId,
   QUESTIONS_CACHE_MS,
+  sessionProject,
   sortVariants,
   STALE_BUSY_GRACE_MS,
   stripMobileSuffix,
@@ -1294,29 +1295,46 @@ export class OpenCodeService {
       if (!busy) {
         continue
       }
-      const projectWorktree = session.project && session.project.worktree !== "/"
-        ? session.project.worktree
-        : session.directory
-      // أحيانًا project.worktree بيكون قديم/مختلف عن مكان الجلسة الحقيقي —
-      // اعتمد session.directory لما الجلسة مش جواه، عشان زرار الانتقال
-      // يفتح المشروع الصح بدل ما يوديك مشروع غلط.
-      const sessionDir = session.directory as string
-      const insideProject = directoryKey(sessionDir) === directoryKey(projectWorktree)
-        || isChildDirectory(sessionDir, projectWorktree)
-      const worktree = insideProject ? projectWorktree : sessionDir
-      const normalized = worktree.replace(/[\\/]+$/, "")
-      const projectName = normalized.split(/[\\/]/).filter(Boolean).pop() || worktree
+      const project = sessionProject(session)
+      if (!project) {
+        continue
+      }
       items.push({
         id: session.id,
         title: stripMobileSuffix(session.title) || serverMessage("newConversation", lang),
-        directory: session.directory,
-        worktree,
-        projectName,
+        directory: session.directory as string,
+        worktree: project.worktree,
+        projectName: project.projectName,
         status: status || { type: "busy" },
         updatedAt: session.time.updated,
       })
     }
     return items.sort((left, right) => right.updatedAt - left.updatedAt)
+  }
+
+  // مشاريع محادثات معيّنة بالـ ids — بيتستعملوا لنسب المثبّتات القديمة اللي
+  // ماتسجّلتش لها مسار لمشروعها. طلب واحد مهما كان العدد، وأي فشل (أو جلسة
+  // مش موجودة) بيرجّعها مش موجودة والمثبّتة بتفضل متسجّلة زي ما هي.
+  async sessionProjects(ids: string[]): Promise<Map<string, { worktree: string; projectName: string }>> {
+    const wanted = new Set(ids.filter(Boolean))
+    const found = new Map<string, { worktree: string; projectName: string }>()
+    if (wanted.size === 0) {
+      return found
+    }
+    const sessions = await this.globalClient.experimental.session
+      .list({ roots: true, limit: 1000 })
+      .then(unwrap)
+      .catch(() => [] as GlobalSession[])
+    for (const session of sessions) {
+      if (!wanted.has(session.id)) {
+        continue
+      }
+      const project = sessionProject(session)
+      if (project) {
+        found.set(session.id, project)
+      }
+    }
+    return found
   }
 
   async todos(id: string): Promise<Todo[]> {

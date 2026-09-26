@@ -157,14 +157,18 @@ export interface ActiveSession {
   updatedAt: number
 }
 
-// محادثة مثبّتة — مصدرها السيرفر (مش localStorage) عشان تظهر في كل الأجهزة.
-// ومعاه كل بياناته عشان اللوحة تعرضها وتفتحها من غير ما يكون مشروعها هو الحالي.
+// محادثة مثبّتة — مصدرها السيرفر (مش localStorage) عشان تظهر في كل الأجهزة
+// وتفضل بعد ما المتصفح يعمل refresh. ومعاه كل بياناته عشان اللوحة تعرضها
+// وتفتحها. projectKey = معرّف المشروع الثابت اللي بتتبّpan بيه (مش الـ id).
 export interface PinnedConversation {
   id: string
   title: string
   created: number
   directory: string
   worktree: string
+  // معرّف المشروع الثابت (المسار المطبّع). فاضي = مشروع المحادثة لسه مجهول
+  // (كاش قديم من غير مسار): ما بتظهرش في أي مشروع لحد ما السيرفر يعرفها.
+  projectKey: string
   projectName: string
 }
 

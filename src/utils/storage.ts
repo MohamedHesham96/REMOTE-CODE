@@ -78,9 +78,61 @@ export function loadRecentProjects(): string[] {
 }
 
 // ── المثبّتات ──
-// المصدر الحقيقي على السيرفر (يتشارك بين كل الأجهزة)؛ الـ localStorage هنا كاش
-// للعرض الأول بس. النسخة القديمة كانت array من ids مجرّدة، والبعدي entries
-// كاملة — التطبيع بيزرع الـ format القديم تلقائيًا.
+const EMPTY_PINS: PinnedConversation[] = []
+
+// المصدر الحقيقي على السيرفر (يتشارك بين كل الأجهزة وبيفضل بعد الـ refresh)؛
+// الـ localStorage هنا كاش للعرض الأول بس. النسخة القديمة كانت array من ids
+// مجرّدة، والبعدي entries كاملة — التطبيع بيزرع الـ format القديم تلقائيًا.
+//
+// كل مثبّتة متربوطة بمشروعها بمعرّف ثابت (المسار المطبّع) مش بالـ id: ده اللي
+// بيخلّي كل مشروع بيشوف مثبّتاته هو بس، والعميل مش بيقدر ينسب محادثة لمشروع
+// تاني (والسيرفر بيتحسب الـ projectKey نفسه من المسارات).
+
+// نفس قاعدة server/pins.ts pinProjectKey — لازم يتطابقوا حرفيًا
+export function pinProjectKey(worktree: string, directory: string): string {
+  return normalizeProjectPath(worktree) || normalizeProjectPath(directory)
+}
+
+// التثبيت بيتم من صف المحادثة في مشروع مفتوح، فالمشروع الحالي هو صاحب
+// القرار: نحوّل أي مسارات جاية في البيانات لمسار المشروع الفعلي. كده مستحيل
+// مثبّتة تطلع في لوحة مشروع تاني بالغلط.
+export function stampPinnedProject(
+  pin: PinnedConversation,
+  worktree: string,
+  projectName: string,
+): PinnedConversation {
+  const target = worktree || pin.worktree || pin.directory
+  const key = normalizeProjectPath(target)
+  const session = normalizeProjectPath(pin.directory)
+  // مجلد الجلسة بيتقبل بس لو جوه المشروع فعلًا — غير كده بنخليه المشروع
+  // نفسه، عشان بيانات المثبّتة ماتبقاش متضاربة (محادثة مشروع تاني منسوبة لده)
+  const inside = Boolean(session) && (session === key || session.startsWith(`${key}/`))
+  const directory = inside ? pin.directory : target
+  return {
+    ...pin,
+    directory,
+    worktree: target,
+    projectKey: key,
+    projectName: projectName || pin.projectName,
+  }
+}
+
+// مثبّتة بتاعة المشروع ده؟ المشروع الفاضي/المجهول = لا شيء — أحسن ما نعرضش
+// محادثات مشروع تاني بالغلط.
+export function pinBelongsToProject(pin: PinnedConversation, worktree: string | null): boolean {
+  const key = worktree ? normalizeProjectPath(worktree) : ""
+  return Boolean(key) && pin.projectKey === key
+}
+
+// مثبّتات مشروع واحد بس، بنفس ترتيب "الأحدث تثبيتًا أولًا". نفس المرجع لو
+// مفيش تغيير (React يعمل bail-out بدل رندر على كل تعديل في مشروع تاني).
+export function pinsForProject(pins: PinnedConversation[], worktree: string | null): PinnedConversation[] {
+  if (!worktree) {
+    return EMPTY_PINS
+  }
+  const next = pins.filter((pin) => pinBelongsToProject(pin, worktree))
+  return next.length === pins.length ? pins : next
+}
 
 export function loadPinnedConversations(): PinnedConversation[] {
   try {
@@ -128,7 +180,8 @@ function pinnedText(value: unknown, max: number): string {
 }
 
 // بتتحمل بيانات قديمة/تالفة أو تعديل يدوي من الـ devtools، وبتعيد ترتيب
-// "الأحدث تثبيتًا الأول" مع شيل المكرر والسفلي الفاضي.
+// "الأحدث تثبيتًا الأول" مع شيل المكرر والسفلي الفاضي، وبتحسب معرّف المشروع
+// من المسارات (الكاش القديم مالوش projectKey).
 export function normalizePinnedConversations(values: unknown): PinnedConversation[] {
   if (!Array.isArray(values)) {
     return []
@@ -147,12 +200,17 @@ export function normalizePinnedConversations(values: unknown): PinnedConversatio
     const created = typeof candidate.created === "number" && Number.isFinite(candidate.created)
       ? Math.trunc(candidate.created)
       : 0
+    const directory = pinnedText(candidate.directory, 1024)
+    const worktree = pinnedText(candidate.worktree, 1024)
     result.push({
       id,
       title: pinnedText(candidate.title, 200),
       created,
-      directory: pinnedText(candidate.directory, 1024),
-      worktree: pinnedText(candidate.worktree, 1024),
+      directory,
+      worktree,
+      // بيتحسب من المسارات نفسها مش من الكاش — كده كاش باين أو متعدّل
+      // ما يقدرش ينسب محادثة لمشروع تاني
+      projectKey: pinProjectKey(worktree, directory),
       projectName: pinnedText(candidate.projectName, 200),
     })
     if (result.length >= PINNED_SESSIONS_LIMIT) {
