@@ -4,6 +4,7 @@ import type { RequestState, SessionRequest, ToastKind } from "../../types"
 import { useNowTick } from "../../hooks/useNowTick"
 import { TodoList } from "./TodoList"
 import { ResultFilesList } from "./ResultFilesList"
+import { useState } from "react"
 
 export const REQUEST_STATE_LABEL: Record<RequestState, keyof Strings> = {
   queued: "inQueue",
@@ -32,6 +33,31 @@ const REQUEST_STATE_MARK: Record<RequestState, string> = {
   running: "◐",
   done: "✓",
   stopped: "×",
+}
+
+function ExpandableText({ text, maxLines = 6, className = "", t }: { text: string; maxLines?: number; className?: string; t: Strings }) {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const lines = text.split("\n")
+  const shouldTruncate = lines.length > maxLines
+  const displayText = isExpanded || !shouldTruncate ? text : lines.slice(0, maxLines).join("\n") + "…"
+
+  if (!shouldTruncate) {
+    return <span className={className}>{text}</span>
+  }
+
+  return (
+    <span className={className}>
+      {displayText}
+      <button
+        type="button"
+        className="expand-toggle"
+        onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+        aria-expanded={isExpanded}
+      >
+        {isExpanded ? t.showLess : t.showMore}
+      </button>
+    </span>
+  )
 }
 
 export function RequestRow({ request, expanded, onToggle, sessionId, onCopy, onToast, onSkip, onRunNow, onRemove, busyAction, t, lang }: { request: SessionRequest; expanded: boolean; onToggle: () => void; sessionId: string | null; onCopy: (text: string) => void; onToast: (message: string, kind?: ToastKind) => void; onSkip: () => void; onRunNow: () => void; onRemove: () => void; busyAction: string | null; t: Strings; lang: Language }) {
@@ -84,7 +110,7 @@ export function RequestRow({ request, expanded, onToggle, sessionId, onCopy, onT
         <button type="button" className="request-row-toggle" onClick={onToggle} aria-expanded={expanded}>
           <span className="request-row-mark" aria-hidden>{REQUEST_STATE_MARK[request.state]}</span>
           <span className="request-row-index">{t.requestNumber} {request.index}</span>
-          <span className="request-row-prompt">{request.prompt || t.yourRequest}</span>
+          <span className="request-row-prompt"><ExpandableText text={request.prompt || t.yourRequest} t={t} /></span>
           <span className="request-row-state">{t[REQUEST_STATE_LABEL[request.state]]}</span>
           <span className="request-row-caret" aria-hidden>{expanded ? "▾" : "▸"}</span>
         </button>
@@ -116,8 +142,8 @@ export function RequestRow({ request, expanded, onToggle, sessionId, onCopy, onT
             </div>
           ) : null}
           {running ? <TodoList todos={request.todos} t={t} /> : null}
-          {running && request.liveText ? <div className="final-result live-result"><div className="final-result-label">{t.liveResponse}</div><div className="final-result-text">{request.liveText}<span className="live-cursor" aria-hidden>▍</span></div><button className="copy-result" onClick={() => onCopy(request.liveText)}>{t.copyResult}</button></div> : null}
-          {request.finalResult && !running ? <div className="final-result"><div className="final-result-label">{t.finalResult}</div><div className="final-result-text">{request.finalResult}</div><button className="copy-result" onClick={() => onCopy(request.finalResult)}>{t.copyResult}</button></div> : running && !request.liveText ? <div className="result-pending">{t.resultWillAppear}</div> : null}
+          {running && request.liveText ? <div className="final-result live-result"><div className="final-result-label">{t.liveResponse}</div><div className="final-result-text"><ExpandableText text={request.liveText} t={t} /><span className="live-cursor" aria-hidden>▍</span></div><button className="copy-result" onClick={() => onCopy(request.liveText)}>{t.copyResult}</button></div> : null}
+          {request.finalResult && !running ? <div className="final-result"><div className="final-result-label">{t.finalResult}</div><div className="final-result-text"><ExpandableText text={request.finalResult} t={t} /></div><button className="copy-result" onClick={() => onCopy(request.finalResult)}>{t.copyResult}</button></div> : running && !request.liveText ? <div className="result-pending">{t.resultWillAppear}</div> : null}
           {sessionId && request.resultFiles.length > 0 ? <ResultFilesList files={request.resultFiles} sessionId={sessionId} onToast={onToast} t={t} /> : null}
           {sessionId && !running && request.resultFiles.length === 0 && request.finalResult ? <div className="result-files-hint">{t.noResultFileHint}</div> : null}
         </div>
