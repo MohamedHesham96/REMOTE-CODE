@@ -47,6 +47,7 @@ import {
   modelLabel,
   projectName,
   samePath,
+  shortModelName,
   statusLabel,
   variantLabel,
   VARIANT_ORDER,
@@ -1708,8 +1709,15 @@ function App() {
           <div className="topbar-actions">
             <button className="model-pill" onClick={() => setShowModels(true)} title={t.modelInUse}>
               <span aria-hidden>🤖</span>
-              <span className="model-pill-name" dir="ltr">{modelLabel(displayedModel, t)}</span>
-              <span className="free-badge">FREE</span>
+              <span className="model-pill-name" dir="ltr">
+                {displayedModel ? (() => {
+                  const model = models.find((m) => m.providerID === displayedModel.providerID && m.id === displayedModel.modelID);
+                  return model ? shortModelName(model) : displayedModel.modelID;
+                })() : t.defaultModel}
+              </span>
+              {displayedModel?.variant && (
+                <span className="model-pill-variant" dir="ltr">{displayedModel.variant}</span>
+              )}
             </button>
             <button className="icon-button activity-button icon-activity" onClick={() => setShowActivity(true)} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activity.length > 0 ? <span className="count-badge">{activity.length}</span> : null}</button>
             <button className="icon-button activity-button git-button icon-git" onClick={openGitChanges} aria-label={t.gitChangesAria} title={`${t.gitChangesAria} ⑂`}><GitBranchIcon />{gitChangedCount > 0 ? <span className="count-badge">{gitChangedCount}</span> : null}</button>
