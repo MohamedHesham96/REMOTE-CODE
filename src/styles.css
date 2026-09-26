@@ -1198,8 +1198,8 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   .sidebar.sidebar-open { transform: translateX(0); }
   .mobile-only { display: grid; }
   .topbar { min-height: 0; padding: 12px 12px 10px; flex-wrap: wrap; gap: 10px; row-gap: 8px; align-items: flex-start; }
-  .topbar > .mobile-only { order: 0; flex: 0 0 38px; }
-  .topbar > .mobile-only .icon-button { height: 36px; width: 44px; font-size: 22px; border-radius: 11px; }
+  .topbar > .mobile-only { order: 0; flex: 0 0 38px; align-self: stretch; }
+  .topbar > .mobile-only .icon-button { height: 100%; min-height: 68px; width: 44px; font-size: 22px; border-radius: 11px; }
   .current-session { order: 1; flex: 1 1 0; min-width: 0; }
   .topbar-project-row { gap: 6px; }
   .new-chat-top { padding: 4px 10px; font-size: 11px; }
