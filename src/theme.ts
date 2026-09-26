@@ -7,7 +7,7 @@ const THEME_KEY = "opencode-theme"
 export const THEME_META: Record<AppTheme, { label: string; icon: string; description: string }> = {
   glass: { label: "نهاري", icon: "☀", description: "وضع فاتح — زجاج سائل بأسلوب Apple" },
   dark: { label: "داكن", icon: "☾", description: "وضع داكن — أريح للعين ليلًا" },
-  hacker: { label: "هاكر", icon: "💻", description: "طرفية خضراء كلاسيكية — جمال المصفوفة" },
+  hacker: { label: "هاكر", icon: "👾", description: "طرفية خضراء كلاسيكية — جمال المصفوفة" },
 }
 
 export function getSavedTheme(): AppTheme {

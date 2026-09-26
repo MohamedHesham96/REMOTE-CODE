@@ -2699,12 +2699,12 @@ function App() {
               <span className="model-pill-name" dir="ltr">{modelLabel(displayedModel, t)}</span>
               <span className="free-badge">FREE</span>
             </button>
-            <button className="icon-button activity-button" onClick={() => setShowActivity(true)} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activity.length > 0 ? <span className="count-badge">{activity.length}</span> : null}</button>
-            <button className="icon-button activity-button git-button" onClick={openGitChanges} aria-label={t.gitChangesAria} title={`${t.gitChangesAria} ⑂`}><GitBranchIcon />{gitChangedCount > 0 ? <span className="count-badge">{gitChangedCount}</span> : null}</button>
-            <button className="icon-button" onClick={toggleTheme} aria-label={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`} title={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`}>{THEME_META[theme].icon}</button>
-            <button className="icon-button lang-button" onClick={toggleLanguage} aria-label={t.language} title={t.language}>{lang === "ar" ? "EN" : "ع"}</button>
-            <button className="icon-button" onClick={() => setShowHistory(true)} aria-label={t.historyAria} title={`${t.historyAria} 🕘`}>🕘</button>
-            <button className="icon-button" onClick={() => setShowSettings(true)} aria-label={t.settingsAria}>⚙</button>
+            <button className="icon-button activity-button icon-activity" onClick={() => setShowActivity(true)} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activity.length > 0 ? <span className="count-badge">{activity.length}</span> : null}</button>
+            <button className="icon-button activity-button git-button icon-git" onClick={openGitChanges} aria-label={t.gitChangesAria} title={`${t.gitChangesAria} ⑂`}><GitBranchIcon />{gitChangedCount > 0 ? <span className="count-badge">{gitChangedCount}</span> : null}</button>
+            <button className="icon-button icon-theme" onClick={toggleTheme} aria-label={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`} title={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`}><span aria-hidden>{THEME_META[theme].icon}</span></button>
+            <button className="icon-button lang-button icon-lang" onClick={toggleLanguage} aria-label={t.language} title={t.language}><span className="lang-globe" aria-hidden>🌐</span><span className={`lang-code${lang === "ar" ? "" : " lang-ar"}`}>{lang === "ar" ? "EN" : "ع"}</span></button>
+            <button className="icon-button icon-history" onClick={() => setShowHistory(true)} aria-label={t.historyAria} title={`${t.historyAria} 🕘`}>🕘</button>
+            <button className="icon-button icon-settings" onClick={() => setShowSettings(true)} aria-label={t.settingsAria}>⚙</button>
           </div>
         </header>
 
@@ -2758,32 +2758,34 @@ function App() {
                 </button>
               </div>
             </form>
-            <button className="composer-model-line" onClick={() => setShowModels(true)} title={t.changeModelTitle}>
-              <span aria-hidden>🤖</span>
-              <span dir="ltr">{modelLabel(displayedModel, t)}</span>
-              <span className="free-badge">FREE 🆓</span>
-              <span className="change-link">{t.change}</span>
-            </button>
-            {composerVariety ? (
-              <div className="composer-variety-row">
-                <label className="composer-variety-label" htmlFor="composer-variety-select">{t.modelVariety}</label>
-                <select
-                  id="composer-variety-select"
-                  className="composer-variety-select"
-                  value={composerVariety.active}
-                  disabled={composerVariety.busy}
-                  onChange={(event) => void handleSelectModel(composerVariety.model, event.target.value)}
-                  aria-label={t.modelVariety}
-                >
-                  <option value="">{t.varietyDefault}</option>
-                  {composerVariety.variants.map((variant) => (
-                    <option value={variant} key={variant}>
-                      {variantLabel(variant, t)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
+            <div className="composer-model-row">
+              <button className="composer-model-line" onClick={() => setShowModels(true)} title={t.changeModelTitle}>
+                <span aria-hidden>🤖</span>
+                <span dir="ltr">{modelLabel(displayedModel, t)}</span>
+                <span className="free-badge">FREE 🆓</span>
+                <span className="change-link">{t.change}</span>
+              </button>
+              {composerVariety ? (
+                <div className="composer-variety-row">
+                  <label className="composer-variety-label" htmlFor="composer-variety-select">{t.modelVariety}</label>
+                  <select
+                    id="composer-variety-select"
+                    className="composer-variety-select"
+                    value={composerVariety.active}
+                    disabled={composerVariety.busy}
+                    onChange={(event) => void handleSelectModel(composerVariety.model, event.target.value)}
+                    aria-label={t.modelVariety}
+                  >
+                    <option value="">{t.varietyDefault}</option>
+                    {composerVariety.variants.map((variant) => (
+                      <option value={variant} key={variant}>
+                        {variantLabel(variant, t)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </main>
