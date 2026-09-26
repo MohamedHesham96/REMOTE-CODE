@@ -1,4 +1,4 @@
-import { LAST_SESSION_KEY, RECENT_PROJECTS_KEY } from "../constants"
+import { LAST_SESSION_KEY, PINNED_SESSIONS_KEY, RECENT_PROJECTS_KEY } from "../constants"
 import type { Session, SessionRequest } from "../types"
 import { normalizeProjectPath } from "./paths"
 
@@ -75,4 +75,46 @@ export function loadRecentProjects(): string[] {
   } catch {
     return []
   }
+}
+
+export function loadPinnedSessions(): string[] {
+  try {
+    const raw = localStorage.getItem(PINNED_SESSIONS_KEY)
+    if (!raw) {
+      return []
+    }
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []
+  } catch {
+    return []
+  }
+}
+
+export function savePinnedSessions(sessionIds: string[]): void {
+  try {
+    localStorage.setItem(PINNED_SESSIONS_KEY, JSON.stringify(sessionIds))
+  } catch {
+    // ignore
+  }
+}
+
+export function togglePinSession(sessionId: string): void {
+  const pinned = loadPinnedSessions()
+  const index = pinned.indexOf(sessionId)
+  if (index >= 0) {
+    pinned.splice(index, 1)
+  } else {
+    pinned.unshift(sessionId)
+  }
+  savePinnedSessions(pinned)
+}
+
+export function isSessionPinned(sessionId: string): boolean {
+  return loadPinnedSessions().includes(sessionId)
+}
+
+export function getPinnedSessionsInOrder(sessions: Session[]): Session[] {
+  const pinnedIds = loadPinnedSessions()
+  const sessionMap = new Map(sessions.map((s) => [s.id, s]))
+  return pinnedIds.map((id) => sessionMap.get(id)).filter((s): s is Session => s !== undefined)
 }

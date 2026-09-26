@@ -1,5 +1,19 @@
-const CACHE_NAME = "opencode-mobile-shell-v8"
-const SHELL = ["/", "/manifest.webmanifest", "/icon.svg"]
+const CACHE_NAME = "opencode-mobile-shell-v9"
+const SHELL = [
+  "/",
+  "/manifest.webmanifest",
+  "/icon.svg",
+  "/icons/icon-72x72.png",
+  "/icons/icon-96x96.png",
+  "/icons/icon-128x128.png",
+  "/icons/icon-144x144.png",
+  "/icons/icon-152x152.png",
+  "/icons/icon-192x192.png",
+  "/icons/icon-192x192-maskable.png",
+  "/icons/icon-384x384.png",
+  "/icons/icon-512x512.png",
+  "/icons/icon-512x512-maskable.png"
+]
 
 // ملفات Vite في وضع التطوير (HMR) — لا تُخزّن أبدًا عشان التعديلات تبان فورًا على الموبايل
 const DEV_BYPASS = ["/src/", "/@vite", "/@fs/", "/@react-refresh", "__vite", "hot-update", ".tsx", ".ts"]

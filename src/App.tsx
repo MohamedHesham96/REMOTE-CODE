@@ -59,7 +59,7 @@ import { useActivityGrace } from "./hooks/useActivityGrace"
 import { useSettledStatuses } from "./hooks/useSettledStatuses"
 import { isTouchComposer } from "./utils/device"
 import { normalizeProjectPath } from "./utils/paths"
-import { forgetLastSession, isRequestsEmpty, loadLastSessions, loadRecentProjects, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
+import { forgetLastSession, getPinnedSessionsInOrder, isRequestsEmpty, loadLastSessions, loadPinnedSessions, loadRecentProjects, saveLastSession, savePinnedSessions, sessionMatches, sortSessionsByCreated, togglePinSession } from "./utils/storage"
 
 // أدراج ثقيلة تُحمّل عند الطلب فقط (code-splitting): القائمة الرئيسية
 // والشات يظهران فورًا، وهذه اللوحات تنزل عند أول فتح لها
@@ -67,6 +67,7 @@ const ModelPicker = lazy(() => import("./panels").then((module) => ({ default: m
 const ActiveSessionsPanel = lazy(() => import("./panels").then((module) => ({ default: module.ActiveSessionsPanel })))
 const GitChangesPanel = lazy(() => import("./panels").then((module) => ({ default: module.GitChangesPanel })))
 const HistoryPanel = lazy(() => import("./panels").then((module) => ({ default: module.HistoryPanel })))
+const PinnedSessionsPanel = lazy(() => import("./panels").then((module) => ({ default: module.PinnedSessionsPanel })))
 
 interface InstallPrompt {
   preventDefault: () => void
@@ -124,6 +125,7 @@ function App() {
   const [switchingKey, setSwitchingKey] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
+  const [showPinned, setShowPinned] = useState(false)
   const [historyTurns, setHistoryTurns] = useState<HistoryTurn[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState("")
@@ -206,8 +208,10 @@ function App() {
 
   // القائمة الجانبية: "النشطة" = الشغالة دلوقتي بس. مهلة الـ ٥ دقايق
   // ("نشط أخيرًا") موجودة في لوحة "المحادثات النشطة" بس.
-  const sidebarActiveSessions = useMemo(() => sessions.filter((session) => isSessionWorking(session.id)), [sessions, isSessionWorking])
-  const sidebarInactiveSessions = useMemo(() => sessions.filter((session) => !isSessionWorking(session.id)), [sessions, isSessionWorking])
+  const pinnedSessionIds = useMemo(() => loadPinnedSessions(), [sessions])
+  const sidebarPinnedSessions = useMemo(() => getPinnedSessionsInOrder(sessions), [sessions, pinnedSessionIds])
+  const sidebarActiveSessions = useMemo(() => sessions.filter((session) => isSessionWorking(session.id) && !pinnedSessionIds.includes(session.id)), [sessions, isSessionWorking, pinnedSessionIds])
+  const sidebarInactiveSessions = useMemo(() => sessions.filter((session) => !isSessionWorking(session.id) && !pinnedSessionIds.includes(session.id)), [sessions, isSessionWorking, pinnedSessionIds])
 
   // في لوحة "المحادثات النشطة": اللي شغالة دلوقتي، واللي كانت نشطة في آخر ٥ دقايق
   const { track: trackActivity, recent: activityRecent, graceLeft: activityGraceLeft } = useActivityGrace(activity, ACTIVE_GRACE_MS, showActivity)
@@ -1187,12 +1191,18 @@ function App() {
       await deleteSession(session.id)
       const remaining = sessions.filter((item) => item.id !== session.id)
       setSessions(remaining)
+      // Also remove from pinned sessions if it was pinned
+      const pinned = loadPinnedSessions()
+      const pinnedIndex = pinned.indexOf(session.id)
+      if (pinnedIndex >= 0) {
+        pinned.splice(pinnedIndex, 1)
+        savePinnedSessions(pinned)
+      }
       if (activeId === session.id) {
         const next = remaining[0]?.id || null
         setActiveId(next)
         activeIdRef.current = next
         if (!next) {
-          // مفيش جلسات: نرجع لمسودة فاضية بدون إنشاء جلسة على السيرفر
           setRequests([])
           setRequestQuestions([])
           setComposer("")
@@ -1200,10 +1210,15 @@ function App() {
           await refreshRequests(next)
         }
       }
-      // اتمسحت وشايفها بعينك — من غير toast نجاح
     } catch (error: unknown) {
       addToast(error instanceof Error ? error.message : t.deleteFailed, "error")
     }
+  }
+
+  const handlePinSession = (session: Session) => {
+    togglePinSession(session.id)
+    // Force re-render to update pinned section
+    setSessions((current) => [...current])
   }
 
   // إرسال نص كطلب — المشترك بين زرار الإرسال وزرار commit و push
@@ -1631,6 +1646,35 @@ function App() {
             <div className="empty-state">{t.noSessionsYet}</div>
           ) : (
             <>
+              {sidebarPinnedSessions.length > 0 ? (
+                <section className="session-group" aria-label={t.pinnedConversations}>
+                  <div className="session-group-header">
+                    <span className="session-group-title"><span aria-hidden>📌</span> {t.pinnedConversations}</span>
+                    <span className="session-group-count" aria-label={`${sidebarPinnedSessions.length} ${t.conversations}`}>{sidebarPinnedSessions.length}</span>
+                  </div>
+                  {sidebarPinnedSessions.map((session) => {
+                    const needsPermission = permissions.some((permission) => permission.sessionID === session.id)
+                    return (
+                      <div ref={session.id === activeId ? activeSessionItemRef : undefined} className={`session-item ${session.id === activeId ? "active" : ""}${needsPermission ? " needs-permission" : ""} is-pinned`} key={session.id}>
+                        <button className="session-select" onClick={() => void selectSession(session.id)}>
+                          <span className="session-title-row">
+                            <span className="session-title">{displayTitle(session.title, t)}</span>
+                            {needsPermission ? <span className="permission-badge">{t.needsPermission}</span> : null}
+                          </span>
+                          <span className="session-meta">
+                            <span className={isSessionWorking(session.id) ? "working-spinner" : "status-dot"} aria-hidden />
+                            <span>{statusLabel(statuses[session.id], t)}</span>
+                            <span aria-hidden>·</span>
+                            <span>{formatDate(session.time.created, lang)} · {formatTime(session.time.created, lang)}</span>
+                          </span>
+                        </button>
+                        <button className="session-pin" onClick={(e) => { e.stopPropagation(); void handlePinSession(session) }} aria-label={t.unpinConversation} title={t.unpinConversation}><span>📌</span></button>
+                        <button className="session-delete" onClick={() => void handleDeleteSession(session)} aria-label={t.deleteSession}>⌫</button>
+                      </div>
+                    )
+                  })}
+                </section>
+              ) : null}
               {sidebarActiveSessions.length > 0 ? (
                 <section className="session-group" aria-label={t.activeConversations}>
                   <div className="session-group-header">
@@ -1653,6 +1697,7 @@ function App() {
                             <span>{formatDate(session.time.created, lang)} · {formatTime(session.time.created, lang)}</span>
                           </span>
                         </button>
+                        <button className="session-pin" onClick={(e) => { e.stopPropagation(); void handlePinSession(session) }} aria-label={t.pinConversation} title={t.pinConversation}><span className="pin-disabled">📌</span></button>
                         <button className="session-delete" onClick={() => void handleDeleteSession(session)} aria-label={t.deleteSession}>⌫</button>
                       </div>
                     )
@@ -1678,6 +1723,7 @@ function App() {
                           </span>
                           <span className="session-meta"><span className="status-dot" aria-hidden /><span>{statusLabel(statuses[session.id], t)}</span><span aria-hidden>·</span><span>{formatDate(session.time.created, lang)} · {formatTime(session.time.created, lang)}</span></span>
                         </button>
+                        <button className="session-pin" onClick={(e) => { e.stopPropagation(); void handlePinSession(session) }} aria-label={t.pinConversation} title={t.pinConversation}><span className="pin-disabled">📌</span></button>
                         <button className="session-delete" onClick={() => void handleDeleteSession(session)} aria-label={t.deleteSession}>⌫</button>
                       </div>
                     )
@@ -1733,6 +1779,11 @@ function App() {
             </button>
             <button className="icon-button activity-button icon-activity" onClick={() => setShowActivity(true)} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activity.length > 0 ? <span className="count-badge">{activity.length}</span> : null}</button>
             <button className="icon-button activity-button git-button icon-git" onClick={openGitChanges} aria-label={t.gitChangesAria} title={`${t.gitChangesAria} ⑂`}><GitBranchIcon />{gitChangedCount > 0 ? <span className="count-badge">{gitChangedCount}</span> : null}</button>
+            {sidebarPinnedSessions.length > 0 && (
+              <button className="icon-button icon-pinned" onClick={() => setShowPinned(true)} aria-label={t.pinnedConversations} title={`${t.pinnedConversations} 📌`}>
+                📌<span className="count-badge">{sidebarPinnedSessions.length}</span>
+              </button>
+            )}
             <button className="icon-button icon-theme" onClick={toggleTheme} aria-label={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`} title={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`}><span aria-hidden>{THEME_META[theme].icon}</span></button>
             <button className="icon-button lang-button icon-lang" onClick={toggleLanguage} aria-label={t.language} title={t.language}><span className="lang-globe" aria-hidden>🌐</span><span className={`lang-code${lang === "ar" ? "" : " lang-ar"}`}>{lang === "ar" ? "EN" : "ع"}</span></button>
             <button className="icon-button icon-history" onClick={() => setShowHistory(true)} aria-label={t.historyAria} title={`${t.historyAria} 🕘`}>🕘</button>
@@ -1832,6 +1883,20 @@ function App() {
             onClose={() => setShowHistory(false)}
             onCopy={copyText}
             onRetry={() => void loadHistory()}
+            t={t}
+            lang={lang}
+          />
+        </Suspense>
+      ) : null}
+      {showPinned ? (
+        <Suspense fallback={<PanelFallback />}>
+          <PinnedSessionsPanel
+            sessions={sidebarPinnedSessions}
+            activeId={activeId}
+            statuses={statuses}
+            onSelect={(session) => { setShowPinned(false); void selectSession(session.id) }}
+            onUnpin={handlePinSession}
+            onClose={() => setShowPinned(false)}
             t={t}
             lang={lang}
           />
