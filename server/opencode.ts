@@ -184,6 +184,9 @@ export interface SessionRequest {
   state: RequestState
   activity: string
   finalResult: string
+  // النص الحي للرد الجاري (يُملأ أثناء state=running فقط) — نفس رسائل
+  // opencode وهي بتتكتب، قبل ما تكتمل وتبقى finalResult.
+  liveText: string
   stepsCompleted: number
   activeTool: string | null
   todos: Todo[]
@@ -273,6 +276,57 @@ const MAX_FILE_DOWNLOAD_BYTES = 25 * 1024 * 1024
 // قائمة الـ variants نادرًا ما تتغير، فبنخزّنها 5 دقايق بدل ما نطلبها كل مرة
 const VARIANTS_CACHE_MS = 5 * 60 * 1000
 
+// ترتيب معروف لمستويات التفكير، عشان الكيبس تظهر بترتيب متوقع مش أبجدي
+const VARIANT_ORDER = ["minimal", "none", "low", "medium", "high", "xhigh", "max"]
+
+// OpenCode بيرجّع الـ variants بشكلين حسب الـ endpoint:
+// - object map: { low: { reasoningEffort: "low" }, ... }  (من /config/providers)
+// - array:       [ { id: "low", ... }, ... ]                (من كتالوج v2)
+function variantIds(value: unknown): string[] | undefined {
+  const ids: string[] = []
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const id = typeof (entry as { id?: unknown })?.id === "string" ? (entry as { id: string }).id.trim() : ""
+      if (id) {
+        ids.push(id)
+      }
+    }
+  } else if (value && typeof value === "object") {
+    for (const key of Object.keys(value)) {
+      const id = key.trim()
+      if (id) {
+        ids.push(id)
+      }
+    }
+  }
+  return ids.length > 0 ? [...new Set(ids)] : undefined
+}
+
+// ترتيب العرض: المستويات المعروفة أولًا بترتيبها، وبعدها أي اسم تاني أبجديًا
+function sortVariants(variants: string[]): string[] {
+  return [...variants].sort((a, b) => {
+    const left = VARIANT_ORDER.indexOf(a)
+    const right = VARIANT_ORDER.indexOf(b)
+    if (left !== -1 && right !== -1) {
+      return left - right
+    }
+    if (left !== -1) {
+      return -1
+    }
+    if (right !== -1) {
+      return 1
+    }
+    return a.localeCompare(b)
+  })
+}
+
+// OpenCode بيقسّم المهمة الواحدة لرسائل assistant متتالية: كل خطوة/أداة
+// بتقفل رسالة (completedAt يتسجل) ويفتح اللي بعدها. فـ completedAt > 0
+// لوحده مش معناه إن المهمة خلصت — لازم نتأكد إن مفيش رسالة مفتوحة
+// وإن آخر تحديث قديم (مفيش نشاط جديد جاي). غير كده كل خطوة هتتفهم
+// "إتمام" والقائمة هتتنطط working ⇄ ready والصوت هيتكرر كل خطوة.
+const STALE_BUSY_GRACE_MS = 20_000
+
 // بعد كام محاولة فاشلة بنسقط الطلب من الطابور بدل ما نفضل نعيد تجربته
 const MAX_PROMPT_ATTEMPTS = 3
 
@@ -341,6 +395,12 @@ export class OpenCodeService {
   private readonly skippingSessions = new Set<string>()
   // عدد مرات poll متتالية OpenCode بيقول فيها "idle" لجلسة شغّالة عندنا
   private readonly idlePolls = new Map<string, number>()
+  // جessions اتأكدنا منها إن آخر ردّ خلص فعلًا (time.completed اتسجل) ومفيش
+  // شغل مستني وراها. OpenCode ساعات بيفضل واقف على "busy" والـ idle بتاعه
+  // يضيع، فلو كل endpoint حساب الحالة لوحده كان هيبقى في تعارض: /session/status
+  // بيقول "شغّال" و /api/session/:id بيقول "خلص" ⇒ عنوان الحالة في الواجهة
+  // بيتبدّل "شغّال ⇄ جاهز" كل بضع ثواني للأبد. فبنشارك الحكم ده مع الكل.
+  private readonly finishedRuns = new Set<string>()
   private promptSeq = 0
   private queueWatchdog: NodeJS.Timeout | null = null
   private readonly pendingPermissions = new Map<string, Permission>()
@@ -510,16 +570,33 @@ export class OpenCodeService {
     return this.runningSessions.has(sessionId) || (this.promptQueues.get(sessionId)?.length ?? 0) > 0
   }
 
+  // هل آخر turn لسه فيه رسالة assistant مفتوحة (من غير completed)؟
+  // طول ما فيه واحدة مفتوحة يبقى الشغل شغّال فعلًا حتى لو رسائل قبلها اتقفلت.
+  private turnHasOpenAssistant(turn: RequestTurn | undefined): boolean {
+    if (!turn) {
+      return false
+    }
+    return turn.entries.some((entry) => entry.info.role === "assistant" && !entry.info.time.completed)
+  }
+
   // جلسة مسجّلة "شغّالة" عندنا بس ردّها خلص فعلًا (OpenCode سجّل completedAt):
   // يا إما حدث الـ idle ضاع (سيرفر اتقفل / الـ SSE اتقطع) يا إما OpenCode واقف
   // على busy. في الحالتين الفلاج بتاعنا مبقاش صح، ولو فضل مسجّل كان هيخلي
   // الـ staleBusy ماتشتغلش والكارت يفضل "شغّال" للأبد. بنشيله بس لو مفيش
   // طلبات مستنية وراه، عشان الـ idle الحقيقي هو اللي يبعتهم.
+  // مهم: الخطوات الوسيطة بتقفل رسالة وتفتح اللي بعدها، فـ completedAt > 0
+  // مش كفاية — لازم مفيش رسالة مفتوحة وآخر تحديث قديم (عدّت مهلة الـ grace).
   private releaseFinishedRun(sessionId: string, lastTurn: RequestTurn | undefined): void {
     if (!this.runningSessions.has(sessionId) || lastTurn === undefined || lastTurn.completedAt === 0) {
       return
     }
     if ((this.promptQueues.get(sessionId)?.length ?? 0) > 0) {
+      return
+    }
+    if (this.turnHasOpenAssistant(lastTurn)) {
+      return
+    }
+    if (Date.now() - lastTurn.updatedAt < STALE_BUSY_GRACE_MS) {
       return
     }
     this.runningSessions.delete(sessionId)
@@ -528,6 +605,17 @@ export class OpenCodeService {
   private effectiveStatus(sessionId: string, status: SessionStatus): SessionStatus {
     if (status.type === "idle" && this.hasPendingWork(sessionId)) {
       return { type: "busy" }
+    }
+    // نفس حكم requests(): آخر ردّ خلص فعلًا ومفيش شغل مستني وراه ⇒ الجلسة
+    // جاهزة، حتى لو OpenCode لسه واقف على "busy" والـ idle بتاعه ضاع. من غير
+    // السطر ده الـ /session/status بيخالف /api/session/:id، والواجهة بتخطف
+    // "شغّال ⇄ جاهز" (وكمان بتكرّر صوت الإتمام) كل بضع ثواني.
+    if (
+      (status.type === "busy" || status.type === "retry")
+      && !this.hasPendingWork(sessionId)
+      && this.finishedRuns.has(sessionId)
+    ) {
+      return { type: "idle" }
     }
     return status
   }
@@ -562,6 +650,8 @@ export class OpenCodeService {
     }
 
     this.runningSessions.add(sessionId)
+    // طلب جديد اتبعت فعلًا ⇒ حكم "آخر ردّ خلص" القديم بقى ملغي
+    this.finishedRuns.delete(sessionId)
     void this.dispatchPrompt(sessionId, next).catch((error: unknown) => {
       // الطلب مانعتش — سيبه للـ watchdog يجرب تاني أو يشيله نهائيًا
       this.runningSessions.delete(sessionId)
@@ -840,10 +930,29 @@ export class OpenCodeService {
     // حقيقة أقوى من الحدث: هل آخر طلب خلص فعلًا؟ لو الرد الأخير اتقفل
     // (completedAt اتسجل) يبقى الطلب خلص مهما OpenCode لسه بيقول "شغّال"،
     // غير لو في طلبات مستنية في الطابور فالساعتها الشغل لسه بيكمل فعلًا.
-    const staleBusy = (rawStatus.type === "busy" || rawStatus.type === "retry")
-      && lastTurn !== undefined
+    // مهم: الخطوة الوسيطة بتقفل رسالة assistant واحدة وبتفتح اللي بعدها فورًا،
+    // فـ completedAt > 0 لوحده كان بيخلي كل خطوة تتفهم "خلص" والقائمة تتنطط
+    // والصوت يتكرر. لازم ٣ شروط مع بعض: مفيش رسالة مفتوحة + آخر تحديث قديم
+    // (عدّت مهلة الـ grace) + مفيش شغل مستني في الطابور.
+    const hasOpenAssistant = this.turnHasOpenAssistant(lastTurn)
+    const lastUpdateOld = lastTurn !== undefined && Date.now() - lastTurn.updatedAt >= STALE_BUSY_GRACE_MS
+    const pendingWork = this.hasPendingWork(id)
+    const trulyFinished = lastTurn !== undefined
       && lastTurn.completedAt > 0
-      && !this.hasPendingWork(id)
+      && !hasOpenAssistant
+      && lastUpdateOld
+      && !pendingWork
+    const staleBusy = (rawStatus.type === "busy" || rawStatus.type === "retry") && trulyFinished
+    // خلاصة "الرد الأخير خلص فعلًا" دي محفوظة في السيرفر عشان /session/status
+    // يعرض نفس الحكم. من غير التسجيل ده كان كل endpoint بيحسب لوحده فبيتقولوا
+    // حاجات متضاربة، والواجهة بتتبدّل "شغّال ⇄ جاهز" وتكرّر صوت الإتمام.
+    // وبنمسحها مع أي نشاط جديد (رسالة مفتوحة/تحديث حديث/شغل مستني) عشان
+    // حكم "خلص" القديم مايلزقش والمهمة الجديدة تتفهم غلط.
+    if (trulyFinished) {
+      this.finishedRuns.add(id)
+    } else {
+      this.finishedRuns.delete(id)
+    }
     const status = this.effectiveStatus(id, staleBusy ? { type: "idle" } : rawStatus)
     const busy = status.type === "busy" || status.type === "retry"
     const runningIndex = busy ? turns.length - 1 : -1
@@ -879,6 +988,10 @@ export class OpenCodeService {
         : turn.completedAt === 0 && turn.entries.length > 0
           ? "stopped"
           : "done"
+      // النص الحي: كل نصوص الـ assistant في الـ turn ده لحد دلوقتي، بما فيها
+      // الرسالة المفتوحة اللي لسه بتتكتب. ده اللي بيخلي المستخدم يشوف رد
+      // opencode وهو شغال بدل ما يستنى finalResult بعد الاكتمال.
+      const liveText = running ? turn.texts.join("\n\n").trim() : ""
 
       return {
         id: turn.id || `turn-${index + 1}`,
@@ -887,6 +1000,7 @@ export class OpenCodeService {
         state,
         activity,
         finalResult: completedAssistant ? textFromParts(completedAssistant.parts) : "",
+        liveText,
         stepsCompleted: turn.steps,
         activeTool: activeTool?.tool ?? null,
         // خطة الـ todos بتاعة الشغل الشغّال دلوقتي بس
@@ -909,6 +1023,7 @@ export class OpenCodeService {
         state: "queued",
         activity: serverMessage("queuedWaiting", lang),
         finalResult: "",
+        liveText: "",
         stepsCompleted: 0,
         activeTool: null,
         todos: [],
@@ -1333,12 +1448,15 @@ export class OpenCodeService {
 
     const items: ActiveSession[] = []
     for (const session of relevant) {
-      const status = statuses[session.id]
+      const raw = statuses[session.id]
+      // نفس حكم /session/status: آخر ردّ خلص فعلًا = جاهزة، حتى لو OpenCode
+      // واقف على busy والـ idle ضاع
+      const status = raw ? this.effectiveStatus(session.id, raw) : undefined
       // الـ event stream كمصدر احتياطي: لو حالة الجلسة مش متاحة لسبب ما
       // لكن شفناها شغالة من الأحداث المباشرة
-      const busy = status?.type === "busy"
-        || status?.type === "retry"
-        || this.busySessions.has(session.id)
+      const busy = raw
+        ? status?.type === "busy" || status?.type === "retry"
+        : this.busySessions.has(session.id)
       if (!busy) {
         continue
       }
@@ -1371,7 +1489,7 @@ export class OpenCodeService {
     return unwrap(await this.clientFor().session.todo({ path: { id }, query: this.directoryQuery() }))
   }
 
-  // خريطة variants لكل موديل — بتجيبها من كتالوج v2 لأنها مش موجودة في /config/providers
+  // خريطة variants لكل موديل — بتجيبها من كتالوج v2 كـ fallback بس
   private async modelVariants(): Promise<Map<string, string[]>> {
     const directory = this.selectedProjectDirectory
     const cached = this.variantsCache
@@ -1384,12 +1502,9 @@ export class OpenCodeService {
       const list = Array.isArray(response) ? response : response?.data
       if (Array.isArray(list)) {
         for (const model of list) {
-          const variants: Array<{ id?: unknown }> = Array.isArray(model.variants) ? model.variants : []
-          const ids = variants
-            .map((variant) => (typeof variant?.id === "string" ? variant.id.trim() : ""))
-            .filter((id) => id.length > 0)
-          if (ids.length > 0) {
-            map.set(`${model.providerID}/${model.id}`, [...new Set(ids)])
+          const ids = variantIds(model.variants)
+          if (ids) {
+            map.set(`${model.providerID}/${model.id}`, ids)
           }
         }
       }
@@ -1402,9 +1517,13 @@ export class OpenCodeService {
 
   async models(): Promise<ModelInfo[]> {
     const variantMap = await this.modelVariants()
+    // OpenCode بيرجّع الـ variants بشكلين: object map في /config/providers
+    // ({ low: {...}, high: {...} }) و array في الكتالوج v2 ([{ id, ... }]).
+    // هنقبل الاتنين ونرتّبهم بترتيب معروف (من الأقل للأعلى) عشان العرض يبقى ثابت.
     const withVariants = (infos: ModelInfo[]): ModelInfo[] => infos.map((info) => {
-      const variants = variantMap.get(`${info.providerID}/${info.id}`)
-      return variants && variants.length > 0 ? { ...info, variants } : info
+      const fromProvider = info.variants && info.variants.length > 0 ? info.variants : variantMap.get(`${info.providerID}/${info.id}`)
+      const variants = fromProvider && fromProvider.length > 0 ? sortVariants(fromProvider) : undefined
+      return variants ? { ...info, variants } : info
     })
 
     // المصدر الأساسي: settings opencode (/config/providers) — الموديلات المسموحة فعلًا
@@ -1424,6 +1543,8 @@ export class OpenCodeService {
             free,
             enabled: true,
             status: model?.status,
+            // هنا الـ variants موجودة فعلًا كـ object map: { low: { reasoningEffort }, ... }
+            variants: variantIds(model?.variants),
           })
         }
       }
@@ -1526,7 +1647,10 @@ export class OpenCodeService {
       throw new Error("Model not found")
     }
     const cleanVariant = (variant || "").trim()
-    if (cleanVariant && !(match.variants || []).includes(cleanVariant)) {
+    // لو الموديل معروف بـ variants بنتحقق، ولو مش معروفين (مفيش بيانات) بنسمح بيه
+    // عشان ما نقفلش feature على موديل OpenCode لسه مش مbrickش بيانات عنه.
+    const known = match.variants
+    if (cleanVariant && known && known.length > 0 && !known.includes(cleanVariant)) {
       throw new Error("Variant not found")
     }
     const result = await this.globalClient.v2.session.switchModel({

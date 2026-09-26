@@ -1,13 +1,13 @@
 @echo off
 setlocal EnableExtensions
-REM OpenCode Mobile PWA - production launcher
-REM Single-port prod server (default 7171) serving API + built frontend.
-REM Usage: run.bat         = build + start prod
-REM        run.bat dev     = start dev mode (backend + Vite on 5173)
+REM OpenCode Mobile PWA - launcher (default: dev on 5173)
+REM Usage: run.bat         = start dev mode (backend + Vite on 5173)
+REM        run.bat prod    = build + start prod (single port APP_PORT, default 7171)
 
 cd /d "%~dp0"
 
-if "%1"=="dev" goto :dev
+if /i "%1"=="prod" goto :prod
+goto :dev
 
 :prod
 set "PORT=7171"
@@ -75,6 +75,8 @@ if errorlevel 1 (
 
 echo.
 echo Production server will listen on port %PORT%.
+echo NOTE: prod mode serves everything on %PORT% only - port 5173 is dev-only
+echo and stays closed here. This is normal. Open %PORT%, not 5173.
 echo From your phone (same Wi-Fi), open one of:
 for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
   for /f "tokens=* delims= " %%b in ("%%a") do echo   - http://%%b:%PORT%
@@ -84,6 +86,8 @@ echo Requirements: same Wi-Fi, no VPN, firewall rule open.
 echo The backend prints the exact addresses after start.
 echo.
 echo Starting prod server (Ctrl+C to stop)...
+echo Opening http://localhost:%PORT% in your browser...
+start "" "http://localhost:%PORT%"
 call npm start
 pause
 exit /b %ERRORLEVEL%
@@ -115,6 +119,7 @@ for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
   for /f "tokens=* delims= " %%b in ("%%a") do echo   - http://%%b:%DEV_PORT%
 )
 echo Backend on port %BACKEND_PORT%.
+echo Prod mode (single port, no 5173): run.bat prod
 echo.
 
 if not exist "node_modules" (
@@ -126,6 +131,8 @@ if not exist "node_modules" (
     exit /b 1
   )
 )
+echo Opening http://localhost:%DEV_PORT% in your browser...
+start "" "http://localhost:%DEV_PORT%"
 call npm run dev
 pause
 exit /b %ERRORLEVEL%

@@ -62,14 +62,27 @@ function clientEvent(event: Event): Record<string, unknown> | null {
   }
   // مزامنة فورية بين الأجهزة: أي رسالة تُكتب في اللاب (PWA أو TUI على نفس السيرفر)
   // تتبث فورًا لكل عملاء الموبايل الفاتحين نفس المحادثة.
+  // نطبّع sessionID في المستوى الأعلى عشان الواجهة تقدر تطابق الجلسة النشطة
+  // من غير ما تفكّ شكل كل حدث (info.sessionID أو part.sessionID).
   if (event.type === "message.updated") {
-    return { type: event.type, properties: { info: event.properties.info } }
+    const sessionID = (event.properties.info as { sessionID?: unknown } | undefined)?.sessionID
+    return {
+      type: event.type,
+      properties: typeof sessionID === "string"
+        ? { sessionID, info: event.properties.info }
+        : { info: event.properties.info },
+    }
   }
   if (event.type === "message.removed") {
     return { type: event.type, properties: event.properties }
   }
   if (event.type === "message.part.updated") {
-    return { type: event.type, properties: event.properties }
+    const part = event.properties.part as { sessionID?: unknown } | undefined
+    const sessionID = typeof part?.sessionID === "string" ? part.sessionID : undefined
+    return {
+      type: event.type,
+      properties: sessionID ? { sessionID, ...event.properties } : event.properties,
+    }
   }
   if (event.type === "message.part.removed") {
     return { type: event.type, properties: event.properties }

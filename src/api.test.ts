@@ -82,6 +82,7 @@ describe("parallel requests", () => {
     state: "queued",
     activity: "في الانتظار",
     finalResult: "",
+    liveText: "",
     stepsCompleted: 0,
     activeTool: null,
     todos: [],

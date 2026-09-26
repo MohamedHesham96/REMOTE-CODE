@@ -73,7 +73,7 @@ const messages = {
     en: "OpenCode is working on the task",
   },
   queuedWaiting: {
-    ar: "في الانتظار — هيبدأ بعد ما الطلب اللي قبله يخلص",
+    ar: "في الانتظار — سيبدأ بعد انتهاء الطلب الذي قبله",
     en: "Waiting — it starts once the request before it finishes",
   },
   fileFallback: {

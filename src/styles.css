@@ -771,6 +771,10 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .composer-model-line { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 5px auto 0; padding: 3px 10px; border: 1px solid transparent; border-radius: 999px; color: var(--composer-model-line); background: transparent; font-size: 10px; }
 .composer-model-line:hover { color: var(--text); border-color: rgba(66, 215, 162, 0.3); background: rgba(66, 215, 162, 0.06); }
 .composer-model-line .change-link { color: var(--green); font-weight: 800; }
+.composer-variety-row { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 6px auto 0; }
+.composer-variety-label { flex: 0 0 auto; color: var(--composer-model-line); font-size: 10px; font-weight: 700; }
+.composer-variety-select { max-width: 180px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--text); background: var(--surface-card); font-size: 10px; font-weight: 700; }
+.composer-variety-select:disabled { opacity: 0.5; }
 
 .project-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 50% -20%, rgba(113, 94, 255, 0.28), transparent 42%), var(--bg); }
 .project-picker { width: min(100%, 760px); padding: clamp(24px, 5vw, 48px); border: 1px solid var(--border); border-radius: 28px; background: var(--grad-card); box-shadow: var(--shadow); }
@@ -989,6 +993,9 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .final-result-text { margin-top: 8px; max-height: 42vh; overflow-y: auto; overscroll-behavior: auto; color: var(--final-result-text); font-size: 13px; line-height: 1.95; white-space: pre-wrap; overflow-wrap: anywhere; }
 .copy-result { position: absolute; top: 10px; left: 10px; border: 0; color: var(--copy-result); background: transparent; font-size: 10px; }
 .result-pending { margin-top: 20px; padding: 13px; border-radius: 10px; color: var(--result-pending-text); background: var(--info-box-bg); font-size: 11px; }
+.live-result { border-style: dashed; }
+.live-cursor { display: inline-block; margin-inline-start: 2px; animation: live-blink 1s steps(2, start) infinite; }
+@keyframes live-blink { to { visibility: hidden; } }
 .result-files { margin-top: 18px; padding: 15px; border: 1px solid var(--result-files-border); border-radius: 13px; background: var(--result-files-bg); }
 .result-files-list { display: grid; gap: 8px; margin-top: 12px; }
 .result-file-item { display: flex; align-items: center; gap: 10px; padding: 10px 11px; border: 1px solid var(--border); border-radius: 11px; background: var(--result-file-bg); }
@@ -1048,6 +1055,7 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .git-diff { padding: 2px 6px; border-radius: 6px; font-size: 10px; font-weight: 800; line-height: 1; white-space: nowrap; }
 .git-diff-added { color: var(--green); background: var(--green-bg); }
 .git-diff-removed { color: var(--red); background: rgba(255, 127, 157, 0.12); }
+.git-commit-button { width: 100%; margin-top: 10px; }
 
 @media (max-width: 800px) {
   .sidebar { position: fixed; z-index: 30; top: 0; bottom: 0; right: 0; width: min(300px, 88vw); transform: translateX(105%); transition: transform 0.22s ease; box-shadow: var(--shadow); }

@@ -67,6 +67,7 @@ interface Internals {
   runningSessions: Set<string>
   idlePolls: Map<string, number>
   startQueueWatchdog: () => void
+  variantsCache: unknown
 }
 
 function createService() {
@@ -315,6 +316,38 @@ describe("stale busy status", () => {
     expect(result.requests.map((request) => request.state)).toEqual(["running"])
   })
 
+  it("does not treat an intermediate step as finished while the next step is open", async () => {
+    const { service, fake, raw } = createService()
+
+    // خطوة وسيطة اتقفلت (completed) واللي بعدها لسه مفتوحة — المهمة شغالة مش خالصة
+    fake.messages = [
+      userMessage("msg_u1", "الطلب", 1_000),
+      assistantMessage("msg_a1", "خطوة أولى", 1_100, 1_200),
+      assistantMessage("msg_a2", "شغال في التانية", 1_300),
+    ]
+    raw.status = { type: "busy" }
+
+    const result = await service.requests(SESSION)
+    expect(result.status).toEqual({ type: "busy" })
+    expect(result.requests.map((request) => request.state)).toEqual(["running"])
+  })
+
+  it("does not treat a just-finished message as stale while updates are still fresh", async () => {
+    const { service, fake, raw } = createService()
+
+    // الفجوة بين رسالتين قصيرة (تحديث حديث) — لسه مش دليل إن الـ busy معلق
+    const now = Date.now()
+    fake.messages = [
+      userMessage("msg_u1", "الطلب", now - 2_000),
+      assistantMessage("msg_a1", "خطوة", now - 1_000, now - 500),
+    ]
+    raw.status = { type: "busy" }
+
+    const result = await service.requests(SESSION)
+    expect(result.status).toEqual({ type: "busy" })
+    expect(result.requests.map((request) => request.state)).toEqual(["running"])
+  })
+
   it("releases the busy flag when OpenCode reports an error instead of going idle", async () => {
     const { emit, busySessions } = createService()
 
@@ -366,5 +399,95 @@ describe("stale busy status", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe("model variety levels", () => {
+  // OpenCode بيرجّع الـ variants في /config/providers كـ object map:
+  // { low: { reasoningEffort: "low" }, high: { ... } }
+  function variantService(variants: unknown, switchCalls: Array<Record<string, unknown>> = []) {
+    const service = new OpenCodeService({ projectDirectory: process.cwd(), username: "test", port: 0 })
+    const internals = service as unknown as Internals
+    internals.globalClient = {
+      config: {
+        providers: () => Promise.resolve({
+          data: {
+            providers: [{
+              id: "opencode",
+              models: {
+                "space-bunny-free": {
+                  name: "Space Bunny Free",
+                  cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+                  variants,
+                },
+              },
+            }],
+          },
+        }),
+      },
+      v2: {
+        model: { list: () => Promise.resolve({ data: [] }) },
+        session: {
+          switchModel: (options: { model: Record<string, unknown> }) => {
+            switchCalls.push(options.model)
+            return Promise.resolve({ data: {} })
+          },
+        },
+      },
+    }
+    // نمنع الكاش من leaking بين التستات
+    internals.variantsCache = null
+    return { service, switchCalls }
+  }
+
+  it("reads variants from the config providers object map", async () => {
+    const { service } = variantService({ high: { reasoningEffort: "high" }, low: { reasoningEffort: "low" } })
+
+    const models = await service.models()
+
+    expect(models[0]?.variants).toEqual(["low", "high"])
+  })
+
+  it("orders the levels from lowest to highest", async () => {
+    const { service } = variantService({ max: {}, xhigh: {}, high: {}, medium: {}, low: {} })
+
+    const models = await service.models()
+
+    expect(models[0]?.variants).toEqual(["low", "medium", "high", "xhigh", "max"])
+  })
+
+  it("switches the session model to the chosen level", async () => {
+    const { service, switchCalls } = variantService({ low: {}, high: {}, max: {} })
+
+    await expect(service.switchSessionModel(SESSION, "opencode", "space-bunny-free", "max")).resolves.toEqual({
+      providerID: "opencode",
+      modelID: "space-bunny-free",
+      variant: "max",
+    })
+    expect(switchCalls[0]).toEqual({ id: "space-bunny-free", providerID: "opencode", variant: "max" })
+  })
+
+  it("clears the level when the default chip is picked", async () => {
+    const { service, switchCalls } = variantService({ low: {}, high: {} })
+
+    await expect(service.switchSessionModel(SESSION, "opencode", "space-bunny-free", "")).resolves.toEqual({
+      providerID: "opencode",
+      modelID: "space-bunny-free",
+    })
+    expect(switchCalls[0]).toEqual({ id: "space-bunny-free", providerID: "opencode" })
+  })
+
+  it("rejects a level the model does not declare", async () => {
+    const { service } = variantService({ low: {}, high: {} })
+
+    await expect(service.switchSessionModel(SESSION, "opencode", "space-bunny-free", "ultra")).rejects.toThrow(/variant not found/i)
+  })
+
+  it("leaves models without declared levels alone", async () => {
+    const { service } = variantService(undefined)
+
+    const models = await service.models()
+
+    expect(models[0]?.variants).toBeUndefined()
   })
 })

@@ -57,6 +57,8 @@ export interface SessionRequest {
   state: RequestState
   activity: string
   finalResult: string
+  // النص الحي للرد الجاري أثناء التنفيذ (فارغ بعد الاكتمال)
+  liveText: string
   stepsCompleted: number
   activeTool: string | null
   todos: Todo[]
