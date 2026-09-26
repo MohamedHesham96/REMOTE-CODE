@@ -1332,6 +1332,9 @@ function App() {
       await abortSession(id)
       // الوقف شايفه بعينك (الكارت وقف) — من غير toast
       await refreshRequests(id).catch(() => undefined)
+      // حدّث الحالة فورًا عشان تختفي من "النشطة"
+      setSettledStatus(id, { type: "idle" })
+      void refreshActivity()
     } catch (error: unknown) {
       abortedRef.current.delete(id)
       addToast(error instanceof Error ? error.message : t.abortFailed, "error")
