@@ -1856,6 +1856,8 @@ function App() {
                 {projectPins.length > 0 ? <span className="count-badge">{projectPins.length}</span> : null}
               </button>
               <button className="icon-button activity-button git-button icon-git" onClick={openGitChanges} aria-label={t.gitChangesAria} title={`${t.gitChangesAria} ⑂`}><GitBranchIcon />{gitChangedCount > 0 ? <span className="count-badge">{gitChangedCount}</span> : null}</button>
+              <button className="icon-button icon-history" onClick={() => setShowHistory(true)} aria-label={t.historyAria} title={`${t.historyAria} 🕘`}>🕘</button>
+              <span className="topbar-rail-divider" aria-hidden />
               <button className="icon-button icon-theme" onClick={toggleTheme} aria-label={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`} title={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`}><span aria-hidden>{THEME_META[theme].icon}</span></button>
               <button className="icon-button lang-button icon-lang" onClick={toggleLanguage} aria-label={t.language} title={t.language}><span className="lang-globe" aria-hidden>🌐</span><span className={`lang-code${lang === "ar" ? "" : " lang-ar"}`}>{lang === "ar" ? "EN" : "ع"}</span></button>
               <button
@@ -1867,7 +1869,7 @@ function App() {
               >
                 {soundOn ? <SoundOnIcon /> : <SoundMuteIcon />}
               </button>
-              <button className="icon-button icon-history" onClick={() => setShowHistory(true)} aria-label={t.historyAria} title={`${t.historyAria} 🕘`}>🕘</button>
+              <span className="topbar-rail-divider" aria-hidden />
               <button className="icon-button icon-settings" onClick={() => setShowSettings(true)} aria-label={t.settingsAria} title={t.settingsAria}><SettingsIcon /></button>
               <button className="icon-button icon-logout" onClick={() => void handleLogout()} aria-label={t.logout} title={t.logout}><LogoutIcon /></button>
             </div>

@@ -602,6 +602,9 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .title-action:hover:not(:disabled) { color: var(--text); border-color: var(--accent-border); }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
 .topbar-rail { flex: 0 0 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
+/* Hairline between icon groups (and after the menu button on mobile).
+   flex: 0 0 auto keeps it from sharing the row with the buttons. */
+.topbar-rail-divider { flex: 0 0 auto; align-self: stretch; width: 1px; margin: 3px; background: var(--border); }
 /* Model name and thinking-level chip live in the top line, next to the
    new-conversation button. The bar is flexible so the name ellipsizes
    first when the line gets tight. */
@@ -1287,7 +1290,6 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   .topbar-rail { order: 0; flex: 1 1 100%; min-width: 0; display: flex; align-items: center; gap: 4px; }
   .topbar-actions { display: contents; }
   .topbar-rail .icon-button { position: relative; flex: 1 1 0; min-width: 0; width: auto; height: auto; aspect-ratio: 1; font-size: 16px; }
-  .topbar-rail-divider { flex: 0 0 auto; align-self: stretch; width: 1px; margin: 2px 3px; background: var(--border); }
   .current-session { order: 1; flex: 1 1 100%; min-width: 0; display: flex; flex-direction: column; }
   /* Conversation title takes the second row, so the project/model row drops below it */
   .current-session .session-title-row,
