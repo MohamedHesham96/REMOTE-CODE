@@ -1483,7 +1483,25 @@ function App() {
   }
 
   const copyText = (text: string) => {
-    void navigator.clipboard?.writeText(text)
+    if (!text) return
+    if (navigator.clipboard && window.isSecureContext) {
+      void navigator.clipboard.writeText(text)
+    } else {
+      // Fallback for non-secure contexts
+      const textarea = document.createElement("textarea")
+      textarea.value = text
+      textarea.style.position = "fixed"
+      textarea.style.opacity = "0"
+      document.body.appendChild(textarea)
+      textarea.focus()
+      textarea.select()
+      try {
+        document.execCommand("copy")
+      } catch {
+        // Ignore
+      }
+      document.body.removeChild(textarea)
+    }
     // النسخ فعل واضح من الزرار — من غير toast
   }
 
