@@ -472,7 +472,12 @@ function App() {
     void refreshGitChanges()
   }, [refreshGitChanges])
 
-  const gitChangedCount = gitChanges?.available ? gitChanges.files.length : 0
+  // Only count files with actual git status (added, modified, deleted)
+  // Filter out any potential stale/empty entries from backend
+  const gitChangedCount = useMemo(() => {
+    if (!gitChanges?.available) return 0
+    return gitChanges.files.filter((f) => f.status === "added" || f.status === "modified" || f.status === "deleted").length
+  }, [gitChanges])
 
   const refreshSessions = useCallback(async () => {
     const [nextSessions, nextStatuses] = await Promise.all([
