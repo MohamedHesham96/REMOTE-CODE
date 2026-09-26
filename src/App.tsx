@@ -42,15 +42,12 @@ import {
   displayTitle,
   formatDate,
   formatTime,
-  getVarietyLevels,
   GitBranchIcon,
-  modelLabel,
+  getVarietyLevels,
   projectName,
   samePath,
   shortModelName,
   statusLabel,
-  variantLabel,
-  VARIANT_ORDER,
 } from "./display"
 import { ACTIVE_GRACE_MS, COMPOSER_MAX_LINES, RECENT_PROJECTS_KEY, emptyConfig } from "./constants"
 import { PanelFallback } from "./components/PanelFallback"
@@ -705,12 +702,17 @@ function App() {
   }, [activeTitle, authState, selectedProject, t])
 
   // كل ما يتضاف طلب جديد: انزل تحت على آخر كارت عشان المستخدم يشوفه فورًا
+  // لكن فقط لو المستخدم قريب من الأسفل أصلًا (ما نزعجش لو قارئ رسائل قديمة)
   useEffect(() => {
     const element = workspaceScrollRef.current
     if (!element || requests.length === 0) {
       return
     }
-    element.scrollTo({ top: element.scrollHeight, behavior: "smooth" })
+    const { scrollTop, scrollHeight, clientHeight } = element
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
+    if (isNearBottom) {
+      element.scrollTo({ top: scrollHeight, behavior: "smooth" })
+    }
   }, [requests.length])
 
   // حدّث الكارتات طول ما فيه طلب شغّال أو طلبات مستنية في الطابور
@@ -1418,29 +1420,6 @@ function App() {
   }
 
   const displayedModel: SessionModelRef | null = activeId ? currentModel : (pendingModel || currentModel || defaultModel)
-
-  // صف سريع لمستويات التفكير تحت شريط الكتابة — بيظهر للموديل المختار الحالي بس
-  const composerVariety = useMemo(() => {
-    if (!displayedModel) {
-      return null
-    }
-    const model = models.find((item) => item.providerID === displayedModel.providerID && item.id === displayedModel.modelID)
-    if (!model) {
-      return null
-    }
-    const variants = getVarietyLevels(model).sort((a, b) => {
-      const left = VARIANT_ORDER.indexOf(a)
-      const right = VARIANT_ORDER.indexOf(b)
-      if (left !== -1 && right !== -1) return left - right
-      if (left !== -1) return -1
-      if (right !== -1) return 1
-      return a.localeCompare(b)
-    })
-    if (variants.length === 0) {
-      return null
-    }
-    return { model, variants, active: displayedModel.variant || "", busy: isBusy }
-  }, [displayedModel, models, isBusy])
 
   const handleSelectModel = async (model: ModelInfo, variant?: string) => {
     const cleanVariant = (variant || "").trim()
