@@ -1652,7 +1652,6 @@ function App() {
       >
         <button className="session-select" onClick={() => void selectSession(session.id)} aria-current={selected ? "true" : undefined}>
           <span className="session-title-row">
-            {pinned ? <span className="pin-badge" aria-hidden>📌</span> : null}
             <span className="session-title">{displayTitle(session.title, t)}</span>
             {needsPermission ? <span className="permission-badge">{t.needsPermission}</span> : null}
           </span>
