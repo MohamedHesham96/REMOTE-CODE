@@ -1170,6 +1170,8 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .git-drawer { width: min(460px, 94vw); }
 .git-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .git-toolbar .icon-button { flex: 0 0 42px; width: 42px; }
+.git-toolbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.git-toolbar-actions .icon-button { flex: 0 0 42px; width: 42px; }
 .git-summary { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; }
 .git-summary-pill { min-width: 40px; padding: 5px 10px; border: 1px solid currentColor; border-radius: 999px; font-size: 11px; font-weight: 800; line-height: 1; text-align: center; }
 .git-status-added { color: var(--green); }
@@ -1189,7 +1191,6 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .git-diff { padding: 2px 6px; border-radius: 6px; font-size: 10px; font-weight: 800; line-height: 1; white-space: nowrap; }
 .git-diff-added { color: var(--green); background: var(--green-bg); }
 .git-diff-removed { color: var(--red); background: rgba(255, 127, 157, 0.12); }
-.git-commit-button { width: 100%; margin-top: 10px; }
 
 @media (max-width: 800px) {
   .sidebar { position: fixed; z-index: 30; top: 0; bottom: 0; right: 0; width: min(300px, 88vw); transform: translateX(105%); transition: transform 0.22s ease; box-shadow: var(--shadow); }

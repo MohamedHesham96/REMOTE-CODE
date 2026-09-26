@@ -39,7 +39,7 @@ export function isValidAccessToken(candidate: string, accessToken: string): bool
 export function setSessionCookie(request: Request, response: Response, accessToken: string): void {
   response.cookie(cookieName, expectedSession(accessToken), {
     httpOnly: true,
-    sameSite: "strict",
+    sameSite: "lax",
     secure: request.secure,
     maxAge: 1000 * 60 * 60 * 24 * 30,
     path: "/",

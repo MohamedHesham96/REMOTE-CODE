@@ -44,7 +44,21 @@ export function GitChangesPanel({ changes, loading, onRefresh, onCommitPush, com
             <span className="git-summary-pill git-status-modified">✎{summary.modified}</span>
             <span className="git-summary-pill git-status-deleted">－{summary.deleted}</span>
           </div>
-          <button className="icon-button" onClick={onRefresh} aria-label={t.refreshList} title={`${t.refreshList} ↻`} disabled={loading}>↻</button>
+          <div className="git-toolbar-actions">
+            <button className="icon-button" onClick={onRefresh} aria-label={t.refreshList} title={`${t.refreshList} ↻`} disabled={loading}>↻</button>
+            {changes?.available && files.length > 0 ? (
+              <button
+                type="button"
+                className="icon-button git-commit-button"
+                disabled={!canCommit}
+                onClick={onCommitPush}
+                aria-label={t.gitCommitPush}
+                title={t.gitCommitPush}
+              >
+                {commitBusy ? "⏳" : "⑂"}
+              </button>
+            ) : null}
+          </div>
         </div>
         {changes && !changes.available ? (
           <div className="empty-state">{t.gitChangesNotRepo}</div>
@@ -73,16 +87,6 @@ export function GitChangesPanel({ changes, loading, onRefresh, onCommitPush, com
           </div>
         )}
         <div className="model-footnote">{t.gitChangesNote}</div>
-        {changes?.available && files.length > 0 ? (
-          <button
-            type="button"
-            className="button button-primary git-commit-button"
-            disabled={!canCommit}
-            onClick={onCommitPush}
-          >
-            {commitBusy ? t.gitCommitPushBusy : `⑂ ${t.gitCommitPush}`}
-          </button>
-        ) : null}
       </aside>
     </div>
   )
