@@ -5,8 +5,6 @@ import {
   base64ToUint8Array,
   createSession,
   deleteSession,
-  downloadResultFile,
-  fileDownloadUrl,
   getActivity,
   getConfig,
   getGitChanges,
@@ -23,21 +21,18 @@ import {
   removeQueuedRequest,
   renameSession,
   replyPermission,
-  replyQuestion,
-  rejectQuestion,
   runQueuedRequest,
   selectProject,
   sendMessage,
   setSessionModel,
-  shareResultFile,
   skipRunningRequest,
   subscribePush,
   unsubscribePush,
 } from "./api"
-import type { ActiveSession, AppConfig, AuthState, ClientEvent, ConversationQuestionAnswers, ConversationQuestionRequest, GitChanges, HistoryTurn, ModelInfo, Permission, Project, RequestState, ResultFile, Session, SessionModelRef, SessionRequest, SessionStatus, Toast, ToastKind, Todo } from "./types"
+import type { ActiveSession, AppConfig, AuthState, ClientEvent, ConversationQuestionRequest, GitChanges, HistoryTurn, ModelInfo, Permission, Project, Session, SessionModelRef, SessionRequest, SessionStatus, Toast, ToastKind } from "./types"
 import { isSoundEnabled, playAttentionSound, playCompletionSound, setSoundEnabled, unlockAudio, vibrate } from "./sound"
 import { applyTheme, getSavedTheme, nextTheme, saveTheme, themeDescription, themeLabel, THEMES, THEME_META, type AppTheme } from "./theme"
-import { applyLanguage, getSavedLanguage, getStrings, localeOf, saveLanguage, type Language, type Strings } from "./i18n"
+import { applyLanguage, getSavedLanguage, getStrings, saveLanguage, type Language } from "./i18n"
 import {
   displayTitle,
   formatDate,
@@ -56,10 +51,11 @@ import { ProjectDropdown, ProjectPicker } from "./components/projects/ProjectPic
 import { QuestionCard } from "./components/requests/QuestionCard"
 import { RequestCard } from "./components/requests/RequestCard"
 import { useActivityGrace } from "./hooks/useActivityGrace"
+import { usePinnedSessions } from "./hooks/usePinnedSessions"
 import { useSettledStatuses } from "./hooks/useSettledStatuses"
 import { isTouchComposer } from "./utils/device"
 import { normalizeProjectPath } from "./utils/paths"
-import { forgetLastSession, getPinnedSessionsInOrder, isRequestsEmpty, loadLastSessions, loadPinnedSessions, loadRecentProjects, saveLastSession, savePinnedSessions, sessionMatches, sortSessionsByCreated, togglePinSession } from "./utils/storage"
+import { forgetLastSession, isRequestsEmpty, loadLastSessions, loadRecentProjects, orderPinnedSessions, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
 
 // أدراج ثقيلة تُحمّل عند الطلب فقط (code-splitting): القائمة الرئيسية
 // والشات يظهران فورًا، وهذه اللوحات تنزل عند أول فتح لها
@@ -208,10 +204,13 @@ function App() {
 
   // القائمة الجانبية: "النشطة" = الشغالة دلوقتي بس. مهلة الـ ٥ دقايق
   // ("نشط أخيرًا") موجودة في لوحة "المحادثات النشطة" بس.
-  const pinnedSessionIds = useMemo(() => loadPinnedSessions(), [sessions])
-  const sidebarPinnedSessions = useMemo(() => getPinnedSessionsInOrder(sessions), [sessions, pinnedSessionIds])
-  const sidebarActiveSessions = useMemo(() => sessions.filter((session) => isSessionWorking(session.id) && !pinnedSessionIds.includes(session.id)), [sessions, isSessionWorking, pinnedSessionIds])
-  const sidebarInactiveSessions = useMemo(() => sessions.filter((session) => !isSessionWorking(session.id) && !pinnedSessionIds.includes(session.id)), [sessions, isSessionWorking, pinnedSessionIds])
+  // المحادثات المثبّتة بتفضل في مجموعتها العادية بالترتيب العادي: التثبيت
+  // ما بيحرّكش الصف ولا بيغيّر ترتيب القائمة — بيبان بس كعلامة في الصف،
+  // والقائمة الكاملة للمثبّتات في لوحة المثبّتات (زرار الدبوس في الهيدر).
+  const { ids: pinnedIds, isPinned, togglePin, forgetPinned } = usePinnedSessions()
+  const pinnedSessions = useMemo(() => orderPinnedSessions(sessions, pinnedIds), [sessions, pinnedIds])
+  const sidebarActiveSessions = useMemo(() => sessions.filter((session) => isSessionWorking(session.id)), [sessions, isSessionWorking])
+  const sidebarInactiveSessions = useMemo(() => sessions.filter((session) => !isSessionWorking(session.id)), [sessions, isSessionWorking])
 
   // في لوحة "المحادثات النشطة": اللي شغالة دلوقتي، واللي كانت نشطة في آخر ٥ دقايق
   const { track: trackActivity, recent: activityRecent, graceLeft: activityGraceLeft } = useActivityGrace(activity, ACTIVE_GRACE_MS, showActivity)
@@ -1054,6 +1053,7 @@ function App() {
         // لو الحذف فشل نكمل للمسودة عادي
       }
       setSessions((current) => current.filter((session) => session.id !== currentId))
+      forgetPinned([currentId])
       setRawStatuses((current) => {
         const next = { ...current }
         delete next[currentId]
@@ -1086,6 +1086,7 @@ function App() {
         // تجاهل خطأ الحذف
       }
       setSessions((current) => current.filter((session) => session.id !== prevId))
+      forgetPinned([prevId])
       setRawStatuses((current) => {
         const next = { ...current }
         delete next[prevId]
@@ -1191,13 +1192,8 @@ function App() {
       await deleteSession(session.id)
       const remaining = sessions.filter((item) => item.id !== session.id)
       setSessions(remaining)
-      // Also remove from pinned sessions if it was pinned
-      const pinned = loadPinnedSessions()
-      const pinnedIndex = pinned.indexOf(session.id)
-      if (pinnedIndex >= 0) {
-        pinned.splice(pinnedIndex, 1)
-        savePinnedSessions(pinned)
-      }
+      // مثبّتة كانت؟ التثبيت بيتشال معاها فورًا وإلا هيفضل id ميت في التخزين
+      forgetPinned([session.id])
       if (activeId === session.id) {
         const next = remaining[0]?.id || null
         setActiveId(next)
@@ -1215,11 +1211,14 @@ function App() {
     }
   }
 
+  // تبديل التثبيت: بيغيّر حالة واحدة بس (المحادثة دي) من غير ما يمس الباقي،
+  // والصف بيحدّث في نفس الرندر من غير أي قراءة تخزين
   const handlePinSession = (session: Session) => {
-    togglePinSession(session.id)
-    // Force re-render to update pinned section
-    setSessions((current) => [...current])
+    togglePin(session.id)
   }
+
+  // فتح/قفل لوحة المثبّتات
+  const closePinnedPanel = () => setShowPinned(false)
 
   // إرسال نص كطلب — المشترك بين زرار الإرسال وزرار commit و push
   const sendPrompt = useCallback(async (rawText: string) => {
@@ -1583,6 +1582,46 @@ function App() {
     vibrate([180, 100, 180, 100, 320])
   }
 
+  // صف المحادثة في القائمة الجانبية — نفس الشكل بالظبط في المجموعتين
+  // (نشطة / غير نشطة) عشان التثبيت والحذف يفضلوا بنفس السلوك في كل مكان
+  const renderSessionItem = (session: Session, working: boolean) => {
+    const pinned = isPinned(session.id)
+    const selected = session.id === activeId
+    const needsPermission = permissions.some((permission) => permission.sessionID === session.id)
+    const pinLabel = pinned ? t.unpinConversation : t.pinConversation
+    return (
+      <div
+        ref={selected ? activeSessionItemRef : undefined}
+        className={`session-item${working ? " is-working" : ""}${pinned ? " is-pinned" : ""}${selected ? " active" : ""}${needsPermission ? " needs-permission" : ""}`}
+        key={session.id}
+      >
+        <button className="session-select" onClick={() => void selectSession(session.id)} aria-current={selected ? "true" : undefined}>
+          <span className="session-title-row">
+            {pinned ? <span className="pin-badge" aria-hidden>📌</span> : null}
+            <span className="session-title">{displayTitle(session.title, t)}</span>
+            {needsPermission ? <span className="permission-badge">{t.needsPermission}</span> : null}
+          </span>
+          <span className="session-meta">
+            {working ? <span className="working-spinner" aria-hidden /> : <span className="status-dot" aria-hidden />}
+            <span>{statusLabel(statuses[session.id], t)}</span>
+            <span aria-hidden>·</span>
+            <span>{formatDate(session.time.created, lang)} · {formatTime(session.time.created, lang)}</span>
+          </span>
+        </button>
+        <button
+          className={`session-pin${pinned ? " is-on" : ""}`}
+          onClick={(event) => { event.stopPropagation(); handlePinSession(session) }}
+          aria-pressed={pinned}
+          aria-label={pinLabel}
+          title={pinLabel}
+        >
+          <span className={pinned ? "pin-on" : "pin-off"} aria-hidden>📌</span>
+        </button>
+        <button className="session-delete" onClick={() => void handleDeleteSession(session)} aria-label={t.deleteSession}>⌫</button>
+      </div>
+    )
+  }
+
   if (authState === "loading") {
     return <div className="center-screen"><div className="loader" /><p>{t.connectingToOpencode}</p></div>
   }
@@ -1646,88 +1685,24 @@ function App() {
             <div className="empty-state">{t.noSessionsYet}</div>
           ) : (
             <>
-              {sidebarPinnedSessions.length > 0 ? (
-                <section className="session-group" aria-label={t.pinnedConversations}>
-                  <div className="session-group-header">
-                    <span className="session-group-title"><span aria-hidden>📌</span> {t.pinnedConversations}</span>
-                    <span className="session-group-count" aria-label={`${sidebarPinnedSessions.length} ${t.conversations}`}>{sidebarPinnedSessions.length}</span>
-                  </div>
-                  {sidebarPinnedSessions.map((session) => {
-                    const needsPermission = permissions.some((permission) => permission.sessionID === session.id)
-                    return (
-                      <div ref={session.id === activeId ? activeSessionItemRef : undefined} className={`session-item ${session.id === activeId ? "active" : ""}${needsPermission ? " needs-permission" : ""} is-pinned`} key={session.id}>
-                        <button className="session-select" onClick={() => void selectSession(session.id)}>
-                          <span className="session-title-row">
-                            <span className="session-title">{displayTitle(session.title, t)}</span>
-                            {needsPermission ? <span className="permission-badge">{t.needsPermission}</span> : null}
-                          </span>
-                          <span className="session-meta">
-                            <span className={isSessionWorking(session.id) ? "working-spinner" : "status-dot"} aria-hidden />
-                            <span>{statusLabel(statuses[session.id], t)}</span>
-                            <span aria-hidden>·</span>
-                            <span>{formatDate(session.time.created, lang)} · {formatTime(session.time.created, lang)}</span>
-                          </span>
-                        </button>
-                        <button className="session-pin" onClick={(e) => { e.stopPropagation(); void handlePinSession(session) }} aria-label={t.unpinConversation} title={t.unpinConversation}><span>📌</span></button>
-                        <button className="session-delete" onClick={() => void handleDeleteSession(session)} aria-label={t.deleteSession}>⌫</button>
-                      </div>
-                    )
-                  })}
-                </section>
-              ) : null}
               {sidebarActiveSessions.length > 0 ? (
                 <section className="session-group" aria-label={t.activeConversations}>
                   <div className="session-group-header">
                     <span className="session-group-title"><span aria-hidden>⚡</span> {t.active}</span>
-                    <span className="session-group-count" aria-label={`${sidebarActiveSessions.length} ${t.conversations}`}>{sidebarActiveSessions.length}</span>
+                    <span className="session-group-count" aria-label={`${sidebarActiveSessions.length} ${sidebarActiveSessions.length === 1 ? t.conversation : t.conversations}`}>{sidebarActiveSessions.length}</span>
                   </div>
-                  {sidebarActiveSessions.map((session) => {
-                    const needsPermission = permissions.some((permission) => permission.sessionID === session.id)
-                    return (
-                      <div ref={session.id === activeId ? activeSessionItemRef : undefined} className={`session-item is-working ${session.id === activeId ? "active" : ""}${needsPermission ? " needs-permission" : ""}`} key={session.id}>
-                        <button className="session-select" onClick={() => void selectSession(session.id)}>
-                          <span className="session-title-row">
-                            <span className="session-title">{displayTitle(session.title, t)}</span>
-                            {needsPermission ? <span className="permission-badge">{t.needsPermission}</span> : null}
-                          </span>
-                          <span className="session-meta">
-                            <span className="working-spinner" aria-hidden />
-                            <span>{statusLabel(statuses[session.id], t)}</span>
-                            <span aria-hidden>·</span>
-                            <span>{formatDate(session.time.created, lang)} · {formatTime(session.time.created, lang)}</span>
-                          </span>
-                        </button>
-                        <button className="session-pin" onClick={(e) => { e.stopPropagation(); void handlePinSession(session) }} aria-label={t.pinConversation} title={t.pinConversation}><span className="pin-disabled">📌</span></button>
-                        <button className="session-delete" onClick={() => void handleDeleteSession(session)} aria-label={t.deleteSession}>⌫</button>
-                      </div>
-                    )
-                  })}
+                  {sidebarActiveSessions.map((session) => renderSessionItem(session, true))}
                 </section>
               ) : null}
               <section className="session-group" aria-label={t.inactiveConversations}>
                 <div className="session-group-header">
                   <span className="session-group-title"><span aria-hidden>💤</span> {t.inactive}</span>
-                  <span className="session-group-count" aria-label={`${sidebarInactiveSessions.length} ${t.conversations}`}>{sidebarInactiveSessions.length}</span>
+                  <span className="session-group-count" aria-label={`${sidebarInactiveSessions.length} ${sidebarInactiveSessions.length === 1 ? t.conversation : t.conversations}`}>{sidebarInactiveSessions.length}</span>
                 </div>
                 {sidebarInactiveSessions.length === 0 ? (
                   <div className="session-group-empty">{t.noInactiveConversations}</div>
                 ) : (
-                  sidebarInactiveSessions.map((session) => {
-                    const needsPermission = permissions.some((permission) => permission.sessionID === session.id)
-                    return (
-                      <div ref={session.id === activeId ? activeSessionItemRef : undefined} className={`session-item ${session.id === activeId ? "active" : ""}${needsPermission ? " needs-permission" : ""}`} key={session.id}>
-                        <button className="session-select" onClick={() => void selectSession(session.id)}>
-                          <span className="session-title-row">
-                            <span className="session-title">{displayTitle(session.title, t)}</span>
-                            {needsPermission ? <span className="permission-badge">{t.needsPermission}</span> : null}
-                          </span>
-                          <span className="session-meta"><span className="status-dot" aria-hidden /><span>{statusLabel(statuses[session.id], t)}</span><span aria-hidden>·</span><span>{formatDate(session.time.created, lang)} · {formatTime(session.time.created, lang)}</span></span>
-                        </button>
-                        <button className="session-pin" onClick={(e) => { e.stopPropagation(); void handlePinSession(session) }} aria-label={t.pinConversation} title={t.pinConversation}><span className="pin-disabled">📌</span></button>
-                        <button className="session-delete" onClick={() => void handleDeleteSession(session)} aria-label={t.deleteSession}>⌫</button>
-                      </div>
-                    )
-                  })
+                  sidebarInactiveSessions.map((session) => renderSessionItem(session, false))
                 )}
               </section>
             </>
@@ -1779,11 +1754,15 @@ function App() {
             </button>
             <button className="icon-button activity-button icon-activity" onClick={() => setShowActivity(true)} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activity.length > 0 ? <span className="count-badge">{activity.length}</span> : null}</button>
             <button className="icon-button activity-button git-button icon-git" onClick={openGitChanges} aria-label={t.gitChangesAria} title={`${t.gitChangesAria} ⑂`}><GitBranchIcon />{gitChangedCount > 0 ? <span className="count-badge">{gitChangedCount}</span> : null}</button>
-            {sidebarPinnedSessions.length > 0 && (
-              <button className="icon-button icon-pinned" onClick={() => setShowPinned(true)} aria-label={t.pinnedConversations} title={`${t.pinnedConversations} 📌`}>
-                📌<span className="count-badge">{sidebarPinnedSessions.length}</span>
-              </button>
-            )}
+            <button
+              className="icon-button icon-pinned"
+              onClick={() => setShowPinned(true)}
+              aria-label={t.pinnedConversations}
+              title={`${t.pinnedConversations} 📌`}
+            >
+              <span aria-hidden>📌</span>
+              {pinnedSessions.length > 0 ? <span className="count-badge">{pinnedSessions.length}</span> : null}
+            </button>
             <button className="icon-button icon-theme" onClick={toggleTheme} aria-label={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`} title={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`}><span aria-hidden>{THEME_META[theme].icon}</span></button>
             <button className="icon-button lang-button icon-lang" onClick={toggleLanguage} aria-label={t.language} title={t.language}><span className="lang-globe" aria-hidden>🌐</span><span className={`lang-code${lang === "ar" ? "" : " lang-ar"}`}>{lang === "ar" ? "EN" : "ع"}</span></button>
             <button className="icon-button icon-history" onClick={() => setShowHistory(true)} aria-label={t.historyAria} title={`${t.historyAria} 🕘`}>🕘</button>
@@ -1891,12 +1870,12 @@ function App() {
       {showPinned ? (
         <Suspense fallback={<PanelFallback />}>
           <PinnedSessionsPanel
-            sessions={sidebarPinnedSessions}
+            sessions={pinnedSessions}
             activeId={activeId}
             statuses={statuses}
-            onSelect={(session) => { setShowPinned(false); void selectSession(session.id) }}
+            onSelect={(session) => { closePinnedPanel(); void selectSession(session.id) }}
             onUnpin={handlePinSession}
-            onClose={() => setShowPinned(false)}
+            onClose={closePinnedPanel}
             t={t}
             lang={lang}
           />

@@ -1,8 +1,10 @@
-import { useMemo } from "react"
 import { displayTitle, formatDate, formatTime, statusLabel } from "../display"
 import type { Language, Strings } from "../i18n"
 import type { Session, SessionStatus } from "../types"
 
+// قائمة جانبية بالمحادثات المثبتة: فتح أي مثبّتة وإلغاء تثبيتها من مكان واحد.
+// بتاخد الجلسات مرتّبة بالفعل (الأحدث تثبيتًا أولًا) من App فبتعرض نفس ترتيب
+// القائمة الجانبية بالظبط. التثبيت نفسه بيتم من صف المحادثة في القائمة الجانبية.
 export function PinnedSessionsPanel({
   sessions,
   activeId,
@@ -27,7 +29,11 @@ export function PinnedSessionsPanel({
       <aside className="drawer pinned-drawer" onClick={(event) => event.stopPropagation()}>
         <div className="drawer-header">
           <div>
-            <div className="eyebrow">{t.pinnedConversations} · {sessions.length > 0 ? `${sessions.length} ${sessions.length === 1 ? t.conversation : t.conversations}` : t.noPinnedConversations}</div>
+            <div className="eyebrow">
+              {t.pinnedConversations} · {sessions.length > 0
+                ? `${sessions.length} ${sessions.length === 1 ? t.conversation : t.conversations}`
+                : t.pinnedEmpty}
+            </div>
             <h2>{t.pinnedConversations} 📌</h2>
           </div>
           <button className="icon-button" onClick={onClose} aria-label={t.close}>×</button>
@@ -39,10 +45,16 @@ export function PinnedSessionsPanel({
             {sessions.map((session) => {
               const isCurrent = session.id === activeId
               return (
-                <div className={`pinned-item ${isCurrent ? "active" : ""}`} key={session.id}>
-                  <button className="pinned-select" onClick={() => onSelect(session)}>
+                <div className={`pinned-item${isCurrent ? " active" : ""}`} key={session.id}>
+                  <button
+                    className="pinned-select"
+                    onClick={() => onSelect(session)}
+                    aria-current={isCurrent ? "true" : undefined}
+                  >
                     <span className="pinned-title-row">
-                      <span className="pinned-title" dir={lang === "ar" ? "rtl" : "ltr"}>{displayTitle(session.title, t)}</span>
+                      <span className="pin-badge" aria-hidden>📌</span>
+                      <span className="pinned-title">{displayTitle(session.title, t)}</span>
+                      {isCurrent ? <span className="current-badge">{t.currentBadge}</span> : null}
                     </span>
                     <span className="pinned-meta">
                       <span className="status-dot" aria-hidden />
@@ -50,14 +62,22 @@ export function PinnedSessionsPanel({
                       <span aria-hidden>·</span>
                       <span>{formatDate(session.time.created, lang)} · {formatTime(session.time.created, lang)}</span>
                     </span>
-                    {isCurrent && <span className="current-badge">{t.currentBadge} ✓</span>}
                   </button>
-                  <button className="pinned-unpin" onClick={(e) => { e.stopPropagation(); onUnpin(session) }} aria-label={t.unpinConversation} title={t.unpinConversation}>📌</button>
+                  <button
+                    className="pinned-unpin"
+                    onClick={(event) => { event.stopPropagation(); onUnpin(session) }}
+                    aria-pressed="true"
+                    aria-label={t.unpinConversation}
+                    title={t.unpinConversation}
+                  >
+                    <span aria-hidden>📌</span>
+                  </button>
                 </div>
               )
             })}
           </div>
         )}
+        <div className="model-footnote">{t.pinnedNote}</div>
       </aside>
     </div>
   )

@@ -550,17 +550,23 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   .session-delete { opacity: 1; }
 }
 
-/* Pinned sessions styles */
-.session-item.is-pinned { border-color: rgba(255, 184, 108, 0.35); background: rgba(255, 184, 108, 0.06); }
-.session-item.is-pinned:hover { background: rgba(255, 184, 108, 0.1); }
-.session-pin { width: 32px; border: 0; color: var(--text-faint); background: transparent; opacity: 0; font-size: 14px; display: flex; align-items: center; justify-content: center; }
-.session-item:hover .session-pin, .session-item:focus-within .session-pin, .session-item.active .session-pin { opacity: 1; }
-.session-pin:hover { color: #ffb86c; }
+/* تثبيت المحادثات: تميين بلون الـ accent (بنفسجي) عشان ما يتلخبطش مع
+   "شغّالة" اللي لونها أصفر، + زرار تثبيت بحالة واضحة مفعّلة/غير مفعّلة */
+.session-item.is-pinned { border-color: var(--accent-border); background: var(--accent-soft-bg3); }
+.session-item.is-pinned:hover { background: var(--accent-soft-bg2); }
+.session-item.is-pinned.is-working { border-color: rgba(245, 199, 108, 0.4); background: rgba(245, 199, 108, 0.08); }
+.pin-badge { flex: 0 0 auto; font-size: 12px; line-height: 1; }
+.session-pin { width: 32px; flex: 0 0 32px; border: 0; color: var(--text-faint); background: transparent; opacity: 0; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+.session-item:hover .session-pin, .session-item:focus-within .session-pin, .session-item.active .session-pin, .session-item.is-pinned .session-pin { opacity: 1; }
+.session-pin:hover { color: var(--accent-strong); }
+.session-pin .pin-off { opacity: 0.32; filter: grayscale(1); }
+/* حالة مفعّلة: الدبوس ملوّن وكامل من غير تدرّج — واضح من غير hover */
+.session-pin.is-on { color: var(--accent-strong); }
+.session-pin.is-on .pin-on { filter: drop-shadow(0 0 5px var(--accent-soft-bg)); }
+/* الموبايل مفهوش hover — اظهار زرار التثبيت دايمًا على اللمس */
 @media (hover: none), (pointer: coarse) {
   .session-pin { opacity: 1; }
 }
-.pin-badge { flex: 0 0 auto; font-size: 13px; line-height: 1; }
-.pin-disabled { opacity: 0.3; filter: grayscale(1); }
 
 .sidebar-bottom { display: grid; gap: 3px; padding: 15px 16px 20px; border-top: 1px solid var(--border); }
 .connection-state { display: flex; align-items: center; gap: 7px; padding: 8px 4px 14px; color: var(--log-muted); font-size: 10px; }
@@ -595,8 +601,8 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .icon-lang:hover:not(:disabled) { color: #8fc4ff; border-color: rgba(82, 127, 244, 0.7); background: rgba(82, 127, 244, 0.2); box-shadow: 0 4px 16px rgba(82, 127, 244, 0.28); }
 .icon-history { color: #a3e635; background: rgba(163, 230, 53, 0.12); border-color: rgba(163, 230, 53, 0.42); text-shadow: 0 0 12px rgba(163, 230, 53, 0.5); }
 .icon-history:hover:not(:disabled) { color: #bef264; border-color: rgba(163, 230, 53, 0.7); background: rgba(163, 230, 53, 0.19); box-shadow: 0 4px 16px rgba(163, 230, 53, 0.25); }
-.icon-pinned { position: relative; overflow: visible; color: #ffb86c; background: rgba(255, 184, 108, 0.12); border-color: rgba(255, 184, 108, 0.42); text-shadow: 0 0 12px rgba(255, 184, 108, 0.5); }
-.icon-pinned:hover:not(:disabled) { color: #ffe0a1; border-color: rgba(255, 184, 108, 0.7); background: rgba(255, 184, 108, 0.19); box-shadow: 0 4px 16px rgba(255, 184, 108, 0.25); }
+.icon-pinned { position: relative; overflow: visible; color: var(--accent-strong); background: var(--accent-soft-bg3); border-color: var(--accent-border); }
+.icon-pinned:hover:not(:disabled) { color: var(--accent-strong); background: var(--accent-soft-bg2); border-color: var(--accent-border); box-shadow: 0 4px 16px rgba(139, 124, 255, 0.25); }
 .icon-settings { color: #c084fc; background: rgba(192, 132, 252, 0.12); border-color: rgba(192, 132, 252, 0.42); text-shadow: 0 0 12px rgba(192, 132, 252, 0.5); }
 .icon-settings:hover:not(:disabled) { color: #d9b0ff; border-color: rgba(192, 132, 252, 0.7); background: rgba(192, 132, 252, 0.19); box-shadow: 0 4px 16px rgba(192, 132, 252, 0.25); }
 /* Theme emojis render vivid on every platform + dark moon gets a night glow */
@@ -615,8 +621,6 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 [data-theme="glass"] .icon-lang:hover:not(:disabled) { color: #1e40af; background: rgba(37, 99, 235, 0.15); border-color: rgba(37, 99, 235, 0.55); box-shadow: 0 4px 14px rgba(37, 99, 235, 0.22); }
 [data-theme="glass"] .icon-history { color: #4d7c0f; background: rgba(101, 163, 13, 0.1); border-color: rgba(101, 163, 13, 0.35); text-shadow: none; }
 [data-theme="glass"] .icon-history:hover:not(:disabled) { color: #3f6212; background: rgba(101, 163, 13, 0.16); border-color: rgba(101, 163, 13, 0.55); box-shadow: 0 4px 14px rgba(101, 163, 13, 0.22); }
-[data-theme="glass"] .icon-pinned { color: #92400e; background: rgba(217, 119, 6, 0.1); border-color: rgba(217, 119, 6, 0.35); text-shadow: none; }
-[data-theme="glass"] .icon-pinned:hover:not(:disabled) { color: #78350f; background: rgba(217, 119, 6, 0.16); border-color: rgba(217, 119, 6, 0.55); box-shadow: 0 4px 14px rgba(217, 119, 6, 0.22); }
 [data-theme="glass"] .icon-settings { color: #6d28d9; background: rgba(124, 58, 237, 0.09); border-color: rgba(124, 58, 237, 0.32); text-shadow: none; }
 [data-theme="glass"] .icon-settings:hover:not(:disabled) { color: #5b21b6; background: rgba(124, 58, 237, 0.15); border-color: rgba(124, 58, 237, 0.55); box-shadow: 0 4px 14px rgba(124, 58, 237, 0.22); }
 [data-theme="glass"] .model-pill { border-width: 1.5px; box-shadow: 0 2px 10px rgba(5, 150, 105, 0.16); }
@@ -686,12 +690,7 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 /* Rose danger states */
 [data-theme="glass"] .session-item.needs-permission { border-color: rgba(225, 29, 72, 0.35); }
 [data-theme="glass"] .tool-error { border-color: rgba(225, 29, 72, 0.4); }
-[data-theme="glass"] .session-item.is-pinned { border-color: rgba(217, 119, 6, 0.4); background: rgba(217, 119, 6, 0.07); }
-[data-theme="glass"] .session-item.is-pinned:hover { background: rgba(217, 119, 6, 0.12); }
-[data-theme="glass"] .session-pin:hover { color: #f5c76c; }
-[data-theme="glass"] .pinned-item { border-color: rgba(217, 119, 6, 0.2); background: rgba(217, 119, 6, 0.04); }
-[data-theme="glass"] .pinned-select:hover { color: var(--text); }
-[data-theme="glass"] .pinned-unpin:hover { color: #f5c76c; }
+[data-theme="glass"] .session-item.is-pinned.is-working { border-color: rgba(217, 119, 6, 0.4); background: rgba(217, 119, 6, 0.08); }
 [data-theme="glass"] .todo-cancelled .todo-mark { border-color: var(--error-border); background: var(--error-bg); }
 [data-theme="glass"] .request-action-remove:hover { background: rgba(225, 29, 72, 0.08); }
 [data-theme="glass"] .stop-button { border-color: rgba(225, 29, 72, 0.4); background: rgba(225, 29, 72, 0.07); box-shadow: 0 4px 12px rgba(225, 29, 72, 0.12); }
@@ -1189,24 +1188,18 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .history-files { display: grid; gap: 6px; margin-top: 10px; }
 .history-files .file-part { margin-top: 0; }
 
-/* قائمة المحادثات المثبتة */
+/* قائمة المحادثات المثبتة (اللوحة الجانبية) */
 .pinned-drawer { width: min(460px, 94vw); }
-.pinned-list { display: grid; gap: 8px; padding-bottom: 8px; }
+.pinned-list { display: grid; gap: 8px; }
 .pinned-item { display: flex; align-items: center; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-card); }
+.pinned-item.active { border-color: var(--accent-border); background: var(--accent-soft-bg3); }
 .pinned-select { min-width: 0; flex: 1; display: grid; gap: 6px; padding: 0; border: 0; color: var(--muted); background: transparent; text-align: right; cursor: pointer; }
 .pinned-select:hover { color: var(--text); }
 .pinned-title-row { min-width: 0; display: flex; align-items: center; gap: 6px; }
-.pinned-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 700; text-align: start; }
-.pinned-title[dir="rtl"] { text-align: right; }
-.pinned-title[dir="ltr"] { text-align: left; }
+.pinned-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 700; }
 .pinned-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; row-gap: 3px; color: var(--text-fainter); font-size: 10px; line-height: 1.6; }
-.pinned-unpin { width: 32px; border: 0; color: var(--text-faint); background: transparent; opacity: 0; font-size: 14px; display: flex; align-items: center; justify-content: center; }
-.pinned-item:hover .pinned-unpin, .pinned-item:focus-within .pinned-unpin, .pinned-item.active .pinned-unpin { opacity: 1; }
-.pinned-unpin:hover { color: #ffb86c; }
-@media (hover: none), (pointer: coarse) {
-  .pinned-unpin { opacity: 1; }
-}
-.current-badge { min-width: 60px; height: 22px; display: grid; place-items: center; flex: 0 0 auto; padding: 0 7px; border-radius: 12px; border: 1px solid var(--accent-border); background: var(--accent-soft-bg); color: var(--text); font-size: 11px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.pinned-unpin { width: 36px; flex: 0 0 36px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 10px; color: var(--accent-strong); background: transparent; font-size: 14px; }
+.pinned-unpin:hover { color: var(--text); background: var(--accent-soft-bg); }
 
 /* قائمة الملفات المتغيّرة في git */
 .git-button svg { display: block; }
@@ -1254,8 +1247,9 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   /* عناوين قائمة المحادثات على الموبايل: سطرين بدل قصّ من أول سطر */
   .session-item .session-title-row { flex-wrap: wrap; row-gap: 4px; }
   .session-item .session-title { flex: 1 1 100%; min-width: 0; white-space: normal; display: -webkit-box; line-clamp: 2; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; word-break: break-word; }
-  /* زرار الحذف ظاهر دايمًا على الموبايل + هدف لمس أكبر */
+  /* زرار الحذف والتثبيت ظاهرين دايمًا على الموبايل + هدف لمس أكبر */
   .session-delete { opacity: 1; width: 40px; font-size: 16px; }
+  .session-pin { width: 40px; flex: 0 0 40px; font-size: 16px; }
   .topbar-actions { order: 2; flex: 1 1 100%; min-width: 0; display: flex; align-items: center; gap: 6px; overflow-x: auto; overflow-y: visible; padding-top: 8px; padding-bottom: 4px; margin-top: -2px; scrollbar-width: none; }
   .topbar-actions::-webkit-scrollbar { display: none; }
   .topbar-actions .icon-button { flex: 0 0 34px; width: 34px; height: 34px; font-size: 17px; }
@@ -1300,6 +1294,7 @@ html[dir="ltr"] .drawer { margin-right: 0; margin-left: auto; border-right: 0; b
 html[dir="ltr"] .drawer-backdrop { justify-content: flex-end; }
 html[dir="ltr"] .new-session,
 html[dir="ltr"] .session-select,
+html[dir="ltr"] .pinned-select,
 html[dir="ltr"] .sidebar-action,
 html[dir="ltr"] .project-card,
 html[dir="ltr"] .project-switch,
