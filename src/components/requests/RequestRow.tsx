@@ -4,7 +4,8 @@ import type { RequestState, SessionRequest, ToastKind } from "../../types"
 import { useNowTick } from "../../hooks/useNowTick"
 import { TodoList } from "./TodoList"
 import { ResultFilesList } from "./ResultFilesList"
-import { useState } from "react"
+import { CopyButton } from "../CopyButton"
+import { useState, type ReactNode } from "react"
 
 export const REQUEST_STATE_LABEL: Record<RequestState, keyof Strings> = {
   queued: "inQueue",
@@ -35,19 +36,22 @@ const REQUEST_STATE_MARK: Record<RequestState, string> = {
   stopped: "×",
 }
 
-function ExpandableText({ text, maxLines = 6, className = "", t }: { text: string; maxLines?: number; className?: string; t: Strings }) {
+// `trailing` يتلزق آخر النص وقبل زرار "عرض كامل"، عشان مؤشّر الكتابة
+// يبان في مكانه الصح بدل ما يقف ورا الزرار.
+function ExpandableText({ text, maxLines = 6, className = "", trailing = null, t }: { text: string; maxLines?: number; className?: string; trailing?: ReactNode; t: Strings }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const lines = text.split("\n")
   const shouldTruncate = lines.length > maxLines
   const displayText = isExpanded || !shouldTruncate ? text : lines.slice(0, maxLines).join("\n") + "…"
 
   if (!shouldTruncate) {
-    return <span className={className}>{text}</span>
+    return <span className={className}>{text}{trailing}</span>
   }
 
   return (
     <span className={className}>
       {displayText}
+      {trailing}
       <button
         type="button"
         className="expand-toggle"
@@ -114,6 +118,7 @@ export function RequestRow({ request, expanded, onToggle, sessionId, onCopy, onT
           <span className="request-row-state">{t[REQUEST_STATE_LABEL[request.state]]}</span>
           <span className="request-row-caret" aria-hidden>{expanded ? "▾" : "▸"}</span>
         </button>
+        <CopyButton className="request-row-copy" text={request.prompt} onCopy={onCopy} label={t.copyQuestion} t={t} />
         {actions}
       </div>
       {expanded ? (
@@ -142,8 +147,8 @@ export function RequestRow({ request, expanded, onToggle, sessionId, onCopy, onT
             </div>
           ) : null}
           {running ? <TodoList todos={request.todos} t={t} /> : null}
-          {running && request.liveText ? <div className="final-result live-result"><div className="final-result-label">{t.liveResponse}</div><div className="final-result-text"><ExpandableText text={request.liveText} t={t} /><span className="live-cursor" aria-hidden>▍</span></div><button className="copy-result" onClick={() => onCopy(request.liveText)}>{t.copyResult}</button></div> : null}
-          {request.finalResult && !running ? <div className="final-result"><div className="final-result-label">{t.finalResult}</div><div className="final-result-text"><ExpandableText text={request.finalResult} t={t} /></div><button className="copy-result" onClick={() => onCopy(request.finalResult)}>{t.copyResult}</button></div> : running && !request.liveText ? <div className="result-pending">{t.resultWillAppear}</div> : null}
+          {running && request.liveText ? <div className="final-result live-result"><div className="final-result-label">{t.liveResponse}</div><div className="final-result-text"><ExpandableText text={request.liveText} t={t} trailing={<span className="live-cursor" aria-hidden>▍</span>} /></div><CopyButton className="copy-result" text={request.liveText} onCopy={onCopy} label={t.copyResult} t={t} /></div> : null}
+          {request.finalResult && !running ? <div className="final-result"><div className="final-result-label">{t.finalResult}</div><div className="final-result-text"><ExpandableText text={request.finalResult} t={t} /></div><CopyButton className="copy-result" text={request.finalResult} onCopy={onCopy} label={t.copyResult} t={t} /></div> : running && !request.liveText ? <div className="result-pending">{t.resultWillAppear}</div> : null}
           {sessionId && request.resultFiles.length > 0 ? <ResultFilesList files={request.resultFiles} sessionId={sessionId} onToast={onToast} t={t} /> : null}
           {sessionId && !running && request.resultFiles.length === 0 && request.finalResult ? <div className="result-files-hint">{t.noResultFileHint}</div> : null}
         </div>

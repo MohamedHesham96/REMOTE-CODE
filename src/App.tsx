@@ -35,8 +35,8 @@ import { applyTheme, getSavedTheme, nextTheme, saveTheme, themeDescription, them
 import { applyLanguage, getSavedLanguage, getStrings, saveLanguage, type Language } from "./i18n"
 import {
   displayTitle,
-  formatDate,
-  formatTime,
+  formatDateTime,
+  formatRelative,
   GitBranchIcon,
   getVarietyLevels,
   LogoutIcon,
@@ -1687,9 +1687,9 @@ function App() {
           </span>
           <span className="session-meta">
             {working ? <span className="working-spinner" aria-hidden /> : <span className="status-dot" aria-hidden />}
-            <span>{statusLabel(statuses[session.id], t)}</span>
-            <span aria-hidden>·</span>
-            <span>{formatDate(session.time.created, lang)} · {formatTime(session.time.created, lang)}</span>
+            <span className="session-status">{statusLabel(statuses[session.id], t)}</span>
+            <span className="session-meta-dot" aria-hidden />
+            <span className="session-time" title={formatDateTime(session.time.created, lang)}>{formatRelative(session.time.created, lang)}</span>
           </span>
         </button>
         <button

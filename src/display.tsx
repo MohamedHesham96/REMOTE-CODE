@@ -19,6 +19,20 @@ function formatter(lang: Language, options: Intl.DateTimeFormatOptions): Intl.Da
   return created
 }
 
+const relativeCache = new Map<string, Intl.RelativeTimeFormat>()
+
+// نفس كاش الفيشة فوق: واحدة لكل لغة، عشان كل صف في القائمة الجانبية
+// ميطلبش Intl جديد.
+function relativeFormatter(lang: Language): Intl.RelativeTimeFormat {
+  const cached = relativeCache.get(lang)
+  if (cached) {
+    return cached
+  }
+  const created = new Intl.RelativeTimeFormat(localeOf(lang), { numeric: "auto" })
+  relativeCache.set(lang, created)
+  return created
+}
+
 export function formatTime(value: number | undefined, lang: Language): string {
   if (!value) {
     return ""
@@ -35,6 +49,38 @@ export function formatDateTime(value: number | undefined, lang: Language): strin
     return ""
   }
   return formatter(lang, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(value))
+}
+
+const MINUTE_MS = 60_000
+const HOUR_MS = 60 * MINUTE_MS
+const DAY_MS = 24 * HOUR_MS
+const WEEK_MS = 7 * DAY_MS
+
+// وقت نسبي للقائمة الجانبية: "الآن" و"قبل 5 دقائق" و"أمس" بدل تاريخ كامل.
+// الأقدم من أسبوع بيرجع لتاريخ مختصر، لأن "قبل 3 أسابيع" بيبان بلا مرجع في
+// قائمة طويلة. `numeric: "auto"` بيدي "أمس"/"yesterday" بدل "قبل يوم واحد"
+// وبيتكفّل بصيغة الجمع في العربي من غير ما نكتبها بإيدنا.
+export function formatRelative(value: number, lang: Language, now: number = Date.now()): string {
+  if (!value) {
+    return ""
+  }
+  const diff = value - now
+  const span = Math.abs(diff)
+  // تحت الدقيقة بنقول "الآن"/"now". الوحدة "ثانية" هي اللي بتطيّح الصيغة
+  // لِـ "الآن" في العربي و"now" في الإنجليزي؛ "دقيقة" بتطلع "هذه الدقيقة".
+  if (span < MINUTE_MS) {
+    return relativeFormatter(lang).format(0, "second")
+  }
+  if (span >= WEEK_MS) {
+    return formatDate(value, lang)
+  }
+  if (span < HOUR_MS) {
+    return relativeFormatter(lang).format(Math.round(diff / MINUTE_MS), "minute")
+  }
+  if (span < DAY_MS) {
+    return relativeFormatter(lang).format(Math.round(diff / HOUR_MS), "hour")
+  }
+  return relativeFormatter(lang).format(Math.round(diff / DAY_MS), "day")
 }
 
 export function formatCountdown(ms: number): string {
