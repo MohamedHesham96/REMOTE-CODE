@@ -160,6 +160,8 @@ function App() {
   const messageRefreshAt = useRef(0)
   const messageRefreshTimer = useRef<number | null>(null)
   const showHistoryRef = useRef(false)
+  // لتتبع متى نحتاج ننزل لآخر المحادثة عند فتح جلسة جديدة
+  const shouldScrollToBottomRef = useRef(false)
   showHistoryRef.current = showHistory
   // تنسيق الـ polling مع الـ SSE: طول ما الستريم حي والأحداث واصلة، الـ polls
   // الدورية fallback فقط — لا طلبات مكررة لنفس البيانات اللي الـ SSE جابها.
@@ -703,6 +705,7 @@ function App() {
 
   // كل ما يتضاف طلب جديد: انزل تحت على آخر كارت عشان المستخدم يشوفه فورًا
   // لكن فقط لو المستخدم قريب من الأسفل أصلًا (ما نزعجش لو قارئ رسائل قديمة)
+  // أو لو فتح محادثة جديدة — في الحالة دي ننزل لآخرها فورًا
   useEffect(() => {
     const element = workspaceScrollRef.current
     if (!element || requests.length === 0) {
@@ -710,7 +713,10 @@ function App() {
     }
     const { scrollTop, scrollHeight, clientHeight } = element
     const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
-    if (isNearBottom) {
+    if (shouldScrollToBottomRef.current) {
+      shouldScrollToBottomRef.current = false
+      element.scrollTo({ top: scrollHeight, behavior: "smooth" })
+    } else if (isNearBottom) {
       element.scrollTo({ top: scrollHeight, behavior: "smooth" })
     }
   }, [requests.length])
@@ -1083,6 +1089,7 @@ function App() {
     // re-fetches for the new task right after.
     setRequests([])
     setRequestQuestions([])
+    shouldScrollToBottomRef.current = true
     setShowSessions(false)
   }
 
