@@ -1,3 +1,5 @@
+import type { Strings } from "./i18n"
+
 export type AppTheme = "glass" | "dark" | "hacker"
 
 export const THEMES: AppTheme[] = ["glass", "dark", "hacker"]
@@ -13,7 +15,6 @@ export const THEME_META: Record<AppTheme, { label: string; icon: string; descrip
 export function getSavedTheme(): AppTheme {
   try {
     const raw = localStorage.getItem(THEME_KEY)
-    // ترحيل الثيمات المحذوفة: الفواتح → النهاري، والغوامق → الداكن
     if (raw === "light" || raw === "purity" || raw === "transparent") {
       return "glass"
     }
@@ -24,7 +25,6 @@ export function getSavedTheme(): AppTheme {
       return raw as AppTheme
     }
   } catch {
-    // التخزين غير متاح — نرجع للافتراضي
   }
   try {
     return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "glass" : "dark"
@@ -37,7 +37,6 @@ export function saveTheme(theme: AppTheme): void {
   try {
     localStorage.setItem(THEME_KEY, theme)
   } catch {
-    // تجاهل — التخزين غير متاح
   }
 }
 
@@ -48,4 +47,24 @@ export function applyTheme(theme: AppTheme): void {
 export function nextTheme(theme: AppTheme): AppTheme {
   const index = THEMES.indexOf(theme)
   return THEMES[(index + 1) % THEMES.length]
+}
+
+export function themeLabel(value: AppTheme, t: Strings): string {
+  if (value === "glass") {
+    return t.themeLight
+  }
+  if (value === "hacker") {
+    return t.themeHacker
+  }
+  return t.themeDark
+}
+
+export function themeDescription(value: AppTheme, t: Strings): string {
+  if (value === "glass") {
+    return t.themeLightDesc
+  }
+  if (value === "hacker") {
+    return t.themeHackerDesc
+  }
+  return t.themeDarkDesc
 }

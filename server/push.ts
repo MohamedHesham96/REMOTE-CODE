@@ -15,11 +15,6 @@ interface StoredSubscriptions {
   languages?: Record<string, ServerLang>
 }
 
-interface StoredSubscriptions {
-  version: 1
-  subscriptions: PushSubscription[]
-}
-
 interface PushPayload {
   title: string
   body: string

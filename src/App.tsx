@@ -34,9 +34,9 @@ import {
   subscribePush,
   unsubscribePush,
 } from "./api"
-import type { ActiveSession, AppConfig, ClientEvent, ConversationQuestionAnswers, ConversationQuestionRequest, GitChanges, HistoryTurn, ModelInfo, Permission, Project, RequestState, ResultFile, Session, SessionModelRef, SessionRequest, SessionStatus, Todo } from "./types"
+import type { ActiveSession, AppConfig, AuthState, ClientEvent, ConversationQuestionAnswers, ConversationQuestionRequest, GitChanges, HistoryTurn, ModelInfo, Permission, Project, RequestState, ResultFile, Session, SessionModelRef, SessionRequest, SessionStatus, Toast, ToastKind, Todo } from "./types"
 import { isSoundEnabled, playAttentionSound, playCompletionSound, setSoundEnabled, unlockAudio, vibrate } from "./sound"
-import { applyTheme, getSavedTheme, nextTheme, saveTheme, THEMES, THEME_META, type AppTheme } from "./theme"
+import { applyTheme, getSavedTheme, nextTheme, saveTheme, themeDescription, themeLabel, THEMES, THEME_META, type AppTheme } from "./theme"
 import { applyLanguage, getSavedLanguage, getStrings, localeOf, saveLanguage, type Language, type Strings } from "./i18n"
 import {
   displayTitle,
@@ -51,6 +51,17 @@ import {
   variantLabel,
   VARIANT_ORDER,
 } from "./display"
+import { ACTIVE_GRACE_MS, COMPOSER_MAX_LINES, RECENT_PROJECTS_KEY, emptyConfig } from "./constants"
+import { PanelFallback } from "./components/PanelFallback"
+import { PermissionCard } from "./components/PermissionCard"
+import { ProjectDropdown, ProjectPicker } from "./components/projects/ProjectPicker"
+import { QuestionCard } from "./components/requests/QuestionCard"
+import { RequestCard } from "./components/requests/RequestCard"
+import { useActivityGrace } from "./hooks/useActivityGrace"
+import { useSettledStatuses } from "./hooks/useSettledStatuses"
+import { isTouchComposer } from "./utils/device"
+import { normalizeProjectPath } from "./utils/paths"
+import { forgetLastSession, isRequestsEmpty, loadLastSessions, loadRecentProjects, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
 
 // أدراج ثقيلة تُحمّل عند الطلب فقط (code-splitting): القائمة الرئيسية
 // والشات يظهران فورًا، وهذه اللوحات تنزل عند أول فتح لها
@@ -59,1051 +70,11 @@ const ActiveSessionsPanel = lazy(() => import("./panels").then((module) => ({ de
 const GitChangesPanel = lazy(() => import("./panels").then((module) => ({ default: module.GitChangesPanel })))
 const HistoryPanel = lazy(() => import("./panels").then((module) => ({ default: module.HistoryPanel })))
 
-function PanelFallback() {
-  return <div className="picker-loading"><span className="loader" /></div>
-}
-
-type AuthState = "loading" | "signedOut" | "signedIn"
-type ToastKind = "info" | "success" | "error"
-
-interface Toast {
-  id: number
-  kind: ToastKind
-  message: string
-}
-
 interface InstallPrompt {
   preventDefault: () => void
   prompt: () => Promise<void>
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>
 }
-
-const emptyConfig: AppConfig = {
-  openCode: { healthy: false, version: "" },
-  push: { enabled: false, publicKey: null },
-  secureContext: false,
-}
-
-function themeLabel(value: AppTheme, t: Strings): string {
-  if (value === "glass") {
-    return t.themeLight
-  }
-  if (value === "hacker") {
-    return t.themeHacker
-  }
-  return t.themeDark
-}
-
-function themeDescription(value: AppTheme, t: Strings): string {
-  if (value === "glass") {
-    return t.themeLightDesc
-  }
-  if (value === "hacker") {
-    return t.themeHackerDesc
-  }
-  return t.themeDarkDesc
-}
-
-// الحالة الخام مش موثوقة لحظيًا: الـ SSE والـ poll بيقولوا حاجات مختلفة
-// لأجزاء من الثانية، وكمان OpenCode نفسه بيعدّي بلحظات idle وسيطة بين
-// خطوات المهمة الواحدة (بين أداة والتانية). من غير مهلة، عنوان
-// "شغّال ⇄ جاهز" (وكمان صوت الإتمام) كان بيتكرّر كل بضع ثواني.
-// القاعدة: الدخول في "شغّال" فوري (عشان المستخدم يشوفها لحظيًا)،
-// أما الخروج لـ "جاهز" فلازم يفضل ثابت المدة دي قبل ما يتطبّق —
-// الفجوات الوسيطة بين الخطوات أقصر منها فمش هتخطف الشاشة.
-// أما التحديثات المحلية (إرسال جديد) فدي مش عيّنة، وبتتطبّق فورًا.
-const STATUS_TO_IDLE_MS = 8000
-const STATUS_TO_BUSY_MS = 0
-
-function statusKind(status: SessionStatus | undefined): string {
-  return status?.type ?? "idle"
-}
-
-function isBusyKind(kind: string): boolean {
-  return kind === "busy" || kind === "retry"
-}
-
-function useSettledStatuses(
-  raw: Record<string, SessionStatus>,
-  toIdleMs: number = STATUS_TO_IDLE_MS,
-  toBusyMs: number = STATUS_TO_BUSY_MS,
-): [Record<string, SessionStatus>, (id: string, status: SessionStatus) => void] {
-  const [settled, setSettled] = useState<Record<string, SessionStatus>>(raw)
-  const settledRef = useRef(settled)
-  const rawRef = useRef(raw)
-  // مؤقتات عند الطلب فقط: لا توجد حلقة tick دائمة. المؤقت يُزرع فقط عندما
-  // يكون هناك انتقال "لجاهز" معلّق، ويُلغى لو تغيّرت العيّنة قبل انتهائه.
-  const timersRef = useRef(new Map<string, number>())
-
-  const clearTimer = useCallback((id: string) => {
-    const timer = timersRef.current.get(id)
-    if (timer !== undefined) {
-      window.clearTimeout(timer)
-      timersRef.current.delete(id)
-    }
-  }, [])
-
-  useEffect(() => {
-    // أحدث عيّنة معروفة للمؤقتات المعلّقة — تُقرأ عند انتهاء المؤقت لا عند زرعه
-    rawRef.current = raw
-    const current = settledRef.current
-    const next: Record<string, SessionStatus> = { ...current }
-    let changed = false
-    for (const id of new Set([...Object.keys(current), ...Object.keys(raw)])) {
-      const incoming = raw[id]
-      const kind = statusKind(incoming)
-      // جلسة جديدة: اعرضها زي ما هي من غير مهلة
-      if (incoming && current[id] === undefined) {
-        next[id] = incoming
-        clearTimer(id)
-        changed = true
-        continue
-      }
-      if (current[id]?.type === kind) {
-        clearTimer(id)
-        continue
-      }
-      // اتجاه التحوّل هو اللي يحدد المهلة: لشغّال فوري، لجاهز بعد ثبات
-      const settleMs = isBusyKind(kind) ? toBusyMs : toIdleMs
-      if (settleMs <= 0) {
-        clearTimer(id)
-        if (incoming) {
-          next[id] = incoming
-        } else {
-          delete next[id]
-        }
-        changed = true
-        continue
-      }
-      // انتقال مؤجّل: ازرع مؤقتًا واحدًا فقط، وعند انتهائه طبّق آخر عيّنة
-      // معروفة (rawRef) بدل العيّنة القديمة — فلا يطبّق حالة منتهية الصلاحية
-      if (!timersRef.current.has(id)) {
-        timersRef.current.set(id, window.setTimeout(() => {
-          timersRef.current.delete(id)
-          const latest = rawRef.current[id]
-          const latestKind = statusKind(latest)
-          const settledNow = settledRef.current
-          if (settledNow[id]?.type === latestKind) {
-            return
-          }
-          const applied = { ...settledNow }
-          if (latest) {
-            applied[id] = latest
-          } else {
-            delete applied[id]
-          }
-          settledRef.current = applied
-          setSettled(applied)
-        }, settleMs))
-      }
-    }
-    if (changed) {
-      settledRef.current = next
-      setSettled(next)
-    }
-  }, [raw, toIdleMs, toBusyMs, clearTimer])
-
-  // إلغاء كل المؤقتات عند الفك — منع تسريب واستیقاظ بعد unmount
-  useEffect(() => () => {
-    for (const timer of timersRef.current.values()) {
-      window.clearTimeout(timer)
-    }
-    timersRef.current.clear()
-  }, [])
-
-  // تحديث محلي مؤكد (Optimistic) — مش عيّنة، يتطبّق على طول
-  const setStatus = useCallback((id: string, status: SessionStatus) => {
-    clearTimer(id)
-    const next = { ...settledRef.current, [id]: status }
-    settledRef.current = next
-    setSettled(next)
-  }, [clearTimer])
-
-  return [settled, setStatus]
-}
-
-function sessionMatches(sessions: Session[], id: string | null): Session | undefined {
-  return id ? sessions.find((session) => session.id === id) : undefined
-}
-
-function isRequestsEmpty(candidate: SessionRequest[] | null): boolean {
-  return !candidate || candidate.length === 0
-}
-
-function PermissionCard({ permission, onReply, t }: { permission: Permission; onReply: (value: "once" | "always" | "reject") => void; t: Strings }) {
-  const [working, setWorking] = useState(false)
-  const reply = async (value: "once" | "always" | "reject") => {
-    setWorking(true)
-    try {
-      await onReply(value)
-    } finally {
-      setWorking(false)
-    }
-  }
-  return (
-    <div className="permission-card">
-      <div className="permission-icon">!</div>
-      <div className="permission-content">
-        <strong>{t.permissionRequest}</strong>
-        <p>{permission.title}</p>
-        {permission.pattern ? <code>{Array.isArray(permission.pattern) ? permission.pattern.join("، ") : permission.pattern}</code> : null}
-        <div className="permission-actions">
-          <button className="button button-primary" disabled={working} onClick={() => void reply("once")}>{t.allowOnce}</button>
-          <button className="button button-secondary" disabled={working} onClick={() => void reply("always")}>{t.allowAlways}</button>
-          <button className="button button-ghost" disabled={working} onClick={() => void reply("reject")}>{t.reject}</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-const RECENT_PROJECTS_KEY = "opencode.recentProjects"
-// آخر محادثة فتحناها لكل مشروع — بنرجعلها بعد الـ refresh بدل أول محادثة في القائمة
-const LAST_SESSION_KEY = "opencode.lastSessionByProject"
-
-// ترتيب المحادثات: الأحدث إنشاءً فوق. بنقارن وقت الإنشاء مش وقت آخر تعديل،
-// عشان مجرد فتح محادثة قديمة ما يرفعهاش فوق المحادثات اللي اتعملت بعده.
-function sortSessionsByCreated(list: Session[]): Session[] {
-  return [...list].sort((a, b) => (b.time.created - a.time.created) || (b.time.updated - a.time.updated))
-}
-
-function loadLastSessions(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem(LAST_SESSION_KEY)
-    if (!raw) {
-      return {}
-    }
-    const parsed = JSON.parse(raw) as unknown
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {}
-    }
-    const result: Record<string, string> = {}
-    for (const [worktree, sessionId] of Object.entries(parsed)) {
-      if (typeof sessionId === "string" && sessionId) {
-        result[normalizeProjectPath(worktree)] = sessionId
-      }
-    }
-    return result
-  } catch {
-    return {}
-  }
-}
-
-function saveLastSession(worktree: string, sessionId: string): void {
-  const key = normalizeProjectPath(worktree)
-  try {
-    const all = loadLastSessions()
-    if (all[key] === sessionId) {
-      return
-    }
-    all[key] = sessionId
-    localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(all))
-  } catch {
-    // تجاهل — التخزين اختياري
-  }
-}
-
-function forgetLastSession(worktree: string): void {
-  const key = normalizeProjectPath(worktree)
-  try {
-    const all = loadLastSessions()
-    if (all[key] === undefined) {
-      return
-    }
-    delete all[key]
-    localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(all))
-  } catch {
-    // تجاهل — التخزين اختياري
-  }
-}
-
-// مهلة النشاط: بعد ما المحادثة تخلص شغل بتفضل في "المحادثات النشطة" ٥ دقايق
-// وبعدين لوحدها بتنتقل لـ "غير النشطة" (من غير ما تحتاج تعمل refresh).
-const ACTIVE_GRACE_MS = 5 * 60 * 1000
-
-// أقصى عدد سطور لصندوق كتابة الرسالة — بيقف عنده ولا يكبر تاني (بيعمل scroll جوه)
-const COMPOSER_MAX_LINES = 6
-
-// نفس استعلام الـ media المستخدَم في styles.css للّمس، عشان سلوك Enter
-// يطابق نفس تعريف "جهاز لمس" اللي الأزرار بتبني عليه
-const TOUCH_QUERY = "(hover: none), (pointer: coarse)"
-
-// Enter يبعت بس على الأجهزة اللي فيها لوحة مفاتيح فعلية؛ على الموبايل
-// (والكيبورد على الشاشة) Enter ياخد سطر جديد والإرسال بزر الإرسال
-function isTouchComposer(): boolean {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return false
-  }
-  return window.matchMedia(TOUCH_QUERY).matches
-}
-
-function loadRecentProjects(): string[] {
-  try {
-    const raw = localStorage.getItem(RECENT_PROJECTS_KEY)
-    if (!raw) {
-      return []
-    }
-    const parsed = JSON.parse(raw) as unknown
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []
-  } catch {
-    return []
-  }
-}
-
-function normalizeProjectPath(path: string): string {
-  return path.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase()
-}
-
-function useSortedProjects(projects: Project[], query: string, selectedId: string | undefined, recentPaths: string[], lang: Language): Project[] {
-  const recentOrder = useMemo(() => {
-    const order = new Map<string, number>()
-    recentPaths.forEach((path, index) => order.set(normalizeProjectPath(path), index))
-    return order
-  }, [recentPaths])
-
-  const sorted = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    const filtered = q
-      ? projects.filter((project) => `${projectName(project)} ${project.worktree}`.toLowerCase().includes(q))
-      : [...projects]
-    return filtered.sort((a, b) => {
-      const aCurrent = samePath(a.worktree, selectedId) ? 0 : 1
-      const bCurrent = samePath(b.worktree, selectedId) ? 0 : 1
-      if (aCurrent !== bCurrent) {
-        return aCurrent - bCurrent
-      }
-      const aRecent = recentOrder.get(normalizeProjectPath(a.worktree)) ?? 999
-      const bRecent = recentOrder.get(normalizeProjectPath(b.worktree)) ?? 999
-      if (aRecent !== bRecent) {
-        return aRecent - bRecent
-      }
-      return projectName(a).localeCompare(projectName(b), localeOf(lang))
-    })
-  }, [projects, query, selectedId, recentOrder, lang])
-
-  return sorted
-}
-
-function ProjectOptionRows({ items, selectedId, switchingKey, onSelect, t }: {
-  items: Project[]
-  selectedId?: string
-  switchingKey: string | null
-  onSelect: (project: Project) => void
-  t: Strings
-}) {
-  return (
-    <div className="project-listbox" role="listbox" aria-label={t.projects}>
-      {items.map((project) => {
-        const key = `${project.id}:${project.worktree}`
-        const isCurrent = samePath(project.worktree, selectedId)
-        const isSwitching = switchingKey === project.worktree
-        return (
-          <button
-            role="option"
-            aria-selected={isCurrent}
-            className={`project-option${isCurrent ? " selected" : ""}`}
-            key={key}
-            disabled={switchingKey !== null}
-            onClick={() => onSelect(project)}
-          >
-            <span className="project-option-icon" aria-hidden>{isCurrent ? "✓" : "📁"}</span>
-            <span className="project-option-body">
-              <strong>{projectName(project)}</strong>
-              <small dir="ltr">{project.worktree}</small>
-            </span>
-            <span className="project-option-badges">
-              {isCurrent ? <span className="current-badge">{t.current}</span> : null}
-              {isSwitching ? <span className="loader small" /> : null}
-            </span>
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-// Dropdown سريع لتبديل المشاريع: زر يعرض الحالي + قائمة منسدلة ببحث فوري
-function ProjectDropdown({ projects, selectedId, switchingKey, recentPaths, onSelect, variant, t, lang }: {
-  projects: Project[]
-  selectedId?: string
-  switchingKey: string | null
-  recentPaths: string[]
-  onSelect: (project: Project) => void
-  variant: "sidebar" | "compact"
-  t: Strings
-  lang: Language
-}) {
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState("")
-  const boxRef = useRef<HTMLDivElement | null>(null)
-  const searchRef = useRef<HTMLInputElement | null>(null)
-  const sorted = useSortedProjects(projects, query, selectedId, recentPaths, lang)
-  const selected = projects.find((project) => samePath(project.worktree, selectedId)) ?? null
-
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-    const onPointerDown = (event: PointerEvent) => {
-      if (boxRef.current && !boxRef.current.contains(event.target as Node)) {
-        setOpen(false)
-      }
-    }
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false)
-      }
-    }
-    window.addEventListener("pointerdown", onPointerDown)
-    window.addEventListener("keydown", onKeyDown)
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown)
-      window.removeEventListener("keydown", onKeyDown)
-    }
-  }, [open])
-
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-    const timer = window.setTimeout(() => searchRef.current?.focus(), 30)
-    return () => window.clearTimeout(timer)
-  }, [open])
-
-  const toggle = () => {
-    if (switchingKey) {
-      return
-    }
-    if (!open) {
-      setQuery("")
-    }
-    setOpen(!open)
-  }
-
-  const pick = (project: Project) => {
-    setOpen(false)
-    setQuery("")
-    onSelect(project)
-  }
-
-  const label = switchingKey ? t.opening : selected ? projectName(selected) : t.chooseProject
-
-  if (variant === "compact") {
-    return (
-      <div className="project-dropdown project-dropdown-compact" ref={boxRef}>
-        <button
-          className="project-dropdown-trigger compact-trigger"
-          onClick={toggle}
-          aria-haspopup="listbox"
-          aria-expanded={open}
-          title={t.switchProjectsTitle}
-          disabled={switchingKey !== null}
-        >
-          <span aria-hidden>📁</span>
-          <span className="compact-trigger-name">{label}</span>
-          <span aria-hidden>{open ? "⌃" : "⌄"}</span>
-        </button>
-        {open ? (
-          <div className="project-dropdown-menu compact-menu">
-            <input
-              ref={searchRef}
-              className="project-search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t.searchProjectPlaceholder}
-              aria-label={t.searchProjectAria}
-            />
-            {projects.length === 0 ? (
-              <div className="empty-state">{t.noProjectsFound}</div>
-            ) : sorted.length === 0 ? (
-              <div className="empty-state">{t.noResultsFor} «{query}».</div>
-            ) : (
-              <ProjectOptionRows items={sorted} selectedId={selectedId} switchingKey={switchingKey} onSelect={pick} t={t} />
-            )}
-          </div>
-        ) : null}
-      </div>
-    )
-  }
-
-  return (
-    <div className="project-dropdown project-dropdown-sidebar" ref={boxRef}>
-      <button
-        className="project-dropdown-trigger project-switch"
-        onClick={toggle}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        title={t.switchProjectsTitle}
-        disabled={switchingKey !== null}
-      >
-        <span className="project-switch-icon">📁</span>
-        <span><small>{t.currentProject} · {t.switch}</small><strong>{label}</strong></span>
-        <span aria-hidden>{open ? "⌃" : "⌄"}</span>
-      </button>
-      {open ? (
-        <div className="project-dropdown-menu">
-          {projects.length > 4 ? (
-            <input
-              ref={searchRef}
-              className="project-search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t.searchProjectPlaceholder}
-              aria-label={t.searchProjectAria}
-            />
-          ) : null}
-          {projects.length === 0 ? (
-            <div className="empty-state">{t.openProjectFirst}</div>
-          ) : sorted.length === 0 ? (
-            <div className="empty-state">{t.noResultsFor} «{query}».</div>
-          ) : (
-            <ProjectOptionRows items={sorted} selectedId={selectedId} switchingKey={switchingKey} onSelect={pick} t={t} />
-          )}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function ProjectPicker({ projects, selectedId, switchingKey, recentPaths, onSelect, onCancel, t, lang }: {
-  projects: Project[]
-  selectedId?: string
-  switchingKey: string | null
-  recentPaths: string[]
-  onSelect: (project: Project) => void
-  onCancel?: () => void
-  t: Strings
-  lang: Language
-}) {
-  const [query, setQuery] = useState("")
-  const sorted = useSortedProjects(projects, query, selectedId, recentPaths, lang)
-  return (
-    <main className="project-screen">
-      <div className="project-picker">
-        <div className="project-picker-header">
-          <div className="brand-mark"><img src="/icon.svg" alt="OpenCode" /></div>
-          <div className="eyebrow">OpenCode Mobile</div>
-          <h1>{t.chooseProject}</h1>
-          <p>{t.chooseFromList}</p>
-        </div>
-        <div className="project-dropdown-standalone">
-          <input
-            className="project-search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t.searchProjectPlaceholder}
-            aria-label={t.searchProjectAria}
-          />
-          {projects.length === 0 ? (
-            <div className="empty-state">{t.openProjectFirst}</div>
-          ) : sorted.length === 0 ? (
-            <div className="empty-state">{t.noResultsFor} «{query}».</div>
-          ) : (
-            <ProjectOptionRows items={sorted} selectedId={selectedId} switchingKey={switchingKey} onSelect={onSelect} t={t} />
-          )}
-        </div>
-        {switchingKey ? <div className="picker-loading"><span className="loader" /> {t.openingProject}</div> : null}
-        {onCancel ? <button className="button button-ghost" onClick={onCancel}>{t.back}</button> : null}
-      </div>
-    </main>
-  )
-}
-
-function ResultFilesList({ files, sessionId, onToast, t }: { files: ResultFile[]; sessionId: string; onToast: (message: string, kind?: ToastKind) => void; t: Strings }) {
-  const [busyId, setBusyId] = useState<string | null>(null)
-  const canShare = typeof navigator.share === "function"
-
-  if (files.length === 0) {
-    return null
-  }
-
-  const handleDownload = async (file: ResultFile) => {
-    setBusyId(file.id)
-    try {
-      await downloadResultFile(sessionId, file)
-      // المتصفح بيبيّن التحميل بعينك — من غير toast نجاح
-    } catch (error: unknown) {
-      onToast(error instanceof Error ? error.message : t.downloadFailed, "error")
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const handleShare = async (file: ResultFile) => {
-    setBusyId(file.id)
-    try {
-      const shared = await shareResultFile(sessionId, file)
-      if (!shared) {
-        await handleDownload(file)
-      }
-      // اتشارك/اتحمّل وشايفه بعينك — من غير toast نجاح
-    } catch (error: unknown) {
-      if (error instanceof Error && /abort|cancel/i.test(error.message)) {
-        return
-      }
-      onToast(error instanceof Error ? error.message : t.shareFailed, "error")
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  return (
-    <div className="result-files">
-      <div className="final-result-label">{t.resultFilesTitle} ({files.length})</div>
-      <div className="result-files-list">
-        {files.map((file) => (
-          <div className="result-file-item" key={file.id}>
-            <span className="result-file-icon" aria-hidden>📄</span>
-            <span className="result-file-body">
-              <strong title={file.path || file.name}>{file.name}</strong>
-              <small>{file.mime}{file.path ? ` · ${file.path}` : ""}</small>
-            </span>
-            <span className="result-file-actions">
-              <a
-                className="button button-secondary"
-                href={fileDownloadUrl(sessionId, file)}
-                download={file.name}
-                rel="noopener"
-              >
-                {t.open}
-              </a>
-              <button
-                className="button button-primary"
-                disabled={busyId === file.id}
-                onClick={() => void handleDownload(file)}
-              >
-                {busyId === file.id ? "…" : t.download}
-              </button>
-              {canShare ? (
-                <button
-                  className="button button-ghost"
-                  disabled={busyId === file.id}
-                  onClick={() => void handleShare(file)}
-                  aria-label={`${t.share} ${file.name}`}
-                >
-                  {t.share}
-                </button>
-              ) : null}
-            </span>
-          </div>
-        ))}
-      </div>
-      <div className="result-files-hint">{t.resultFilesHint}</div>
-    </div>
-  )
-}
-
-function QuestionCard({ request, sessionId, onAnswered, t }: { request: ConversationQuestionRequest; sessionId: string; onAnswered: () => void; t: Strings }) {
-  const [answers, setAnswers] = useState<ConversationQuestionAnswers>(() => request.questions.map(() => []))
-  const [customDrafts, setCustomDrafts] = useState<string[]>(() => request.questions.map(() => ""))
-  const [working, setWorking] = useState<"reply" | "reject" | null>(null)
-  const [error, setError] = useState("")
-
-  const toggleOption = (questionIndex: number, label: string) => {
-    const multiple = request.questions[questionIndex]?.multiple
-    setAnswers((current) => current.map((selected, index) => {
-      if (index !== questionIndex) {
-        return selected
-      }
-      if (!multiple) {
-        return [label]
-      }
-      return selected.includes(label) ? selected.filter((value) => value !== label) : [...selected, label]
-    }))
-    if (!multiple) {
-      setCustomDrafts((current) => current.map((draft, index) => index === questionIndex ? "" : draft))
-    }
-  }
-
-  const updateCustomDraft = (questionIndex: number, value: string) => {
-    setCustomDrafts((current) => current.map((draft, index) => index === questionIndex ? value : draft))
-    if (!request.questions[questionIndex]?.multiple) {
-      setAnswers((current) => current.map((selected, index) => index === questionIndex ? [] : selected))
-    }
-  }
-
-  const payload = request.questions.map((question, index) => {
-    const draft = customDrafts[index]?.trim() || ""
-    if (question.multiple) {
-      return [...new Set(draft && question.custom ? [...answers[index], draft] : answers[index])]
-    }
-    if (draft && question.custom) {
-      return [draft]
-    }
-    return answers[index].slice(0, 1)
-  })
-
-  const canReply = request.questions.every((question, index) => {
-    const draft = customDrafts[index]?.trim() || ""
-    if (question.custom && draft) {
-      return true
-    }
-    if (question.multiple) {
-      return payload[index]?.length > 0
-    }
-    return payload[index]?.length === 1
-  })
-
-  const submitReply = async () => {
-    if (!canReply || working) {
-      return
-    }
-    setWorking("reply")
-    setError("")
-    try {
-      const result = await replyQuestion(sessionId, request.id, payload)
-      if (!result.accepted) {
-        throw new Error(t.replyFailed)
-      }
-      // الكارت اختفى وشايفه بعينك — من غير toast
-      onAnswered()
-    } catch (replyError: unknown) {
-      setError(replyError instanceof Error ? replyError.message : t.replyFailed)
-    } finally {
-      setWorking(null)
-    }
-  }
-
-  const submitReject = async () => {
-    if (working) {
-      return
-    }
-    setWorking("reject")
-    setError("")
-    try {
-      const result = await rejectQuestion(sessionId, request.id)
-      if (!result.accepted) {
-        throw new Error(t.rejectFailed)
-      }
-      // الكارت اختفى وشايفه بعينك — من غير toast
-      onAnswered()
-    } catch (rejectError: unknown) {
-      setError(rejectError instanceof Error ? rejectError.message : t.rejectFailed)
-    } finally {
-      setWorking(null)
-    }
-  }
-
-  return (
-    <div className="question-card">
-      <div className="question-card-top">
-        <div><div className="eyebrow">{t.questionFromOpencode}</div><h3>{t.chooseBeforeContinue}</h3></div>
-        <span className="question-count">{request.questions.length > 1 ? `${request.questions.length} ${t.questionsCount}` : t.oneQuestion}</span>
-      </div>
-      {request.questions.map((question, questionIndex) => (
-        <div className="question-block" key={`${request.id}:${questionIndex}`}>
-          <div className="question-header">{question.header}</div>
-          <p className="question-text">{question.question}</p>
-          {question.multiple ? <div className="question-hint">{t.multiChoiceHint}</div> : null}
-          <div className="question-options">
-            {question.options.map((option) => {
-              const selected = answers[questionIndex]?.includes(option.label) || false
-              return (
-                <button
-                  type="button"
-                  className={`question-option${selected ? " selected" : ""}`}
-                  disabled={Boolean(working)}
-                  onClick={() => toggleOption(questionIndex, option.label)}
-                  aria-pressed={selected}
-                  key={`${request.id}:${questionIndex}:${option.label}`}
-                >
-                  <span className="question-option-check" aria-hidden>{question.multiple ? (selected ? "☑" : "☐") : selected ? "●" : "○"}</span>
-                  <span className="question-option-body"><strong>{option.label}</strong>{option.description ? <small>{option.description}</small> : null}</span>
-                </button>
-              )
-            })}
-          </div>
-          {question.custom ? (
-            <label className="question-custom"><span>{t.customAnswer}</span><input value={customDrafts[questionIndex] || ""} onChange={(event) => updateCustomDraft(questionIndex, event.target.value)} placeholder={t.customAnswerPlaceholder} disabled={Boolean(working)} /></label>
-          ) : null}
-          {question.options.length === 0 && !question.custom ? <div className="empty-state">{t.noOptions}</div> : null}
-        </div>
-      ))}
-      {error ? <div className="form-error">{error}</div> : null}
-      <div className="question-actions">
-        <button className="button button-primary" disabled={!canReply || Boolean(working)} onClick={() => void submitReply()}>{working === "reply" ? t.sending : t.sendChoice}</button>
-        <button className="button button-ghost" disabled={Boolean(working)} onClick={() => void submitReject()}>{working === "reject" ? t.rejecting : t.rejectQuestion}</button>
-      </div>
-    </div>
-  )
-}
-
-function todoPresentation(status: string, t: Strings): { className: string; label: string; mark: string } {
-  const normalized = status.toLowerCase().replace(/-/g, "_")
-  if (normalized === "completed") {
-    return { className: "todo-completed", label: t.todoCompleted, mark: "✓" }
-  }
-  if (normalized === "in_progress") {
-    return { className: "todo-in_progress", label: t.todoInProgress, mark: "◐" }
-  }
-  if (normalized === "cancelled") {
-    return { className: "todo-cancelled", label: t.todoCancelled, mark: "×" }
-  }
-  return { className: "todo-pending", label: t.todoPending, mark: "○" }
-}
-
-function TodoList({ todos, t }: { todos: Todo[]; t: Strings }) {
-  if (todos.length === 0) {
-    return null
-  }
-  return (
-    <div className="todo-panel">
-      <div className="todo-panel-header">
-        <div className="section-title">{t.planTitle} <span>({todos.length})</span></div>
-        <span className="todo-updated-label">{t.planAutoUpdate}</span>
-      </div>
-      <div className="todo-list">
-        {todos.map((todo) => {
-          const presentation = todoPresentation(todo.status, t)
-          return (
-            <div className={`todo-item ${presentation.className}`} key={todo.id}>
-              <span className="todo-mark" aria-hidden>{presentation.mark}</span>
-              <span className="todo-content">{todo.content}</span>
-              <span className="todo-status">{presentation.label}</span>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function formatElapsed(since: number | undefined, t: Strings, now: number = Date.now()): string {
-  if (!since) {
-    return ""
-  }
-  const seconds = Math.max(0, Math.floor((now - since) / 1000))
-  if (seconds < 60) {
-    return `${seconds} ${t.secondsShort}`
-  }
-  const minutes = Math.floor(seconds / 60)
-  const rest = seconds % 60
-  return rest > 0 ? `${minutes} ${t.minutesShort} ${rest} ${t.secondsShort}` : `${minutes} ${t.minutesShort}`
-}
-
-// عدّاد محلي كل ثانية عشان وقت المهمة يمشي حتى لو الـ poll اتأخر
-// أو التبويب اتخنق (throttle) — قبل كده الوقت كان بيتحدث فقط مع كل refreshRequests.
-function useNowTick(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!active) {
-      return
-    }
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [active])
-  return now
-}
-
-interface ActivitySeenEntry {
-  at: number
-  item: ActiveSession
-}
-
-// ذاكرة نشاط قائمة "المحادثات النشطة": آخر لحظة ظهرت فيها كل محادثة وآخر بيانات معروفة عنها.
-// لازم تكون في App مش في اللوحة نفسها، عشان لما تفتح اللوحة تلاقي اللي اشتغل من شوية لسه معروض.
-function useActivityGrace(items: ActiveSession[], graceMs: number, ticking: boolean) {
-  const [seen, setSeen] = useState<Record<string, ActivitySeenEntry>>({})
-  const live = useMemo(() => new Set(items.map((item) => item.id)), [items])
-
-  // بيتنادى مع كل poll للنشاط: نعرف آخر بيانات كل محادثة، ونسيب اللي خرج من القائمة
-  // لسه في مهلة الـ ٥ دقايق، ونضف اللي عدّت مهلته.
-  const track = useCallback((next: ActiveSession[], stamp: number) => {
-    setSeen((current) => {
-      const result: Record<string, ActivitySeenEntry> = {}
-      const nextIds = new Set<string>()
-      for (const item of next) {
-        nextIds.add(item.id)
-        result[item.id] = { at: stamp, item }
-      }
-      for (const [id, entry] of Object.entries(current)) {
-        if (nextIds.has(id) || stamp - entry.at >= graceMs) {
-          continue
-        }
-        result[id] = entry
-      }
-      return result
-    })
-  }, [graceMs])
-
-  const pending = useMemo(() => Object.keys(seen).some((id) => !live.has(id)), [seen, live])
-  // العدّاد بيوقف لو اللوحة مقفولة — نضف القديم مع كل poll وحنا كده
-  const nowTick = useNowTick(pending && ticking)
-
-  // المحادثات اللي خرجت من "نشط دلوقتي" بس لسه في مهلة الـ ٥ دقايق
-  const recent = useMemo(() => Object.values(seen)
-    .filter((entry) => !live.has(entry.item.id) && nowTick - entry.at < graceMs)
-    .map((entry) => entry.item)
-    .sort((left, right) => right.updatedAt - left.updatedAt), [seen, live, nowTick, graceMs])
-
-  const graceLeft = useCallback((id: string) => {
-    const entry = seen[id]
-    if (entry === undefined || live.has(id)) {
-      return 0
-    }
-    return graceMs - (nowTick - entry.at)
-  }, [seen, live, nowTick, graceMs])
-
-  return { track, recent, graceLeft }
-}
-
-const REQUEST_STATE_LABEL: Record<RequestState, keyof Strings> = {
-  queued: "inQueue",
-  running: "running",
-  done: "done",
-  stopped: "stopped",
-}
-
-const REQUEST_STATE_TITLE: Record<RequestState, keyof Strings> = {
-  queued: "taskQueued",
-  running: "taskRunning",
-  done: "taskFinished",
-  stopped: "taskStopped",
-}
-
-// كل طلب في المحادثة بيتعرض كسطر واحد جوه كارت واحد، زي قائمة المهام.
-const REQUEST_STATE_ROW: Record<RequestState, string> = {
-  queued: "request-row-queued",
-  running: "request-row-running",
-  done: "request-row-done",
-  stopped: "request-row-stopped",
-}
-
-const REQUEST_STATE_MARK: Record<RequestState, string> = {
-  queued: "⋯",
-  running: "◐",
-  done: "✓",
-  stopped: "×",
-}
-
-function RequestRow({ request, expanded, onToggle, sessionId, onCopy, onToast, onSkip, onRunNow, onRemove, busyAction, t, lang }: { request: SessionRequest; expanded: boolean; onToggle: () => void; sessionId: string | null; onCopy: (text: string) => void; onToast: (message: string, kind?: ToastKind) => void; onSkip: () => void; onRunNow: () => void; onRemove: () => void; busyAction: string | null; t: Strings; lang: Language }) {
-  const running = request.state === "running"
-  const queued = request.state === "queued"
-  // الكارت المتفائل لسه ما وصلش السيرفر، فمعندناش id نبعته له
-  const notSentYet = request.id.startsWith("local-")
-  const now = useNowTick(running && expanded)
-  const hasTodos = request.totalTodos > 0
-  const progress = hasTodos ? Math.round((request.completedTodos / request.totalTodos) * 100) : 0
-  const steps = request.stepsCompleted ?? 0
-  const elapsed = running ? formatElapsed(request.startedAt, t, now) : ""
-  // تخطّي للطلب الشغّال، وتنفيذ حالًا وحذف من الطابور لكل طلب مستني بس
-  const actions = running || queued ? (
-    <span className="request-row-actions">
-      {running ? (
-        <button type="button" className="request-action request-action-skip" onClick={onSkip} disabled={busyAction === request.id} title={t.skipCurrent}>
-          <svg className="request-action-icon" viewBox="0 0 24 24" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M6 4.5v15l10.5-7.5L6 4.5z" fill="currentColor" stroke="none" />
-            <path d="M19 5v14" />
-          </svg>
-          <span className="request-action-label">{t.skipCurrent}</span>
-        </button>
-      ) : null}
-      {queued ? (
-        <>
-          <button type="button" className="request-action request-action-run" onClick={onRunNow} disabled={busyAction === request.id || notSentYet} title={t.runNow}>
-            <svg className="request-action-icon" viewBox="0 0 24 24" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M8 4.5v15l12-7.5-12-7.5z" fill="currentColor" stroke="none" />
-            </svg>
-            <span className="request-action-label">{t.runNow}</span>
-          </button>
-          <button type="button" className="request-action request-action-remove" onClick={onRemove} disabled={busyAction === request.id} title={t.removeFromQueue}>
-            <svg className="request-action-icon" viewBox="0 0 24 24" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-            <span className="request-action-label">{t.removeFromQueue}</span>
-          </button>
-        </>
-      ) : null}
-    </span>
-  ) : null
-  return (
-    <li className={`request-row ${REQUEST_STATE_ROW[request.state]}${expanded ? " is-open" : ""}`}>
-      <div className="request-row-head">
-        <button type="button" className="request-row-toggle" onClick={onToggle} aria-expanded={expanded}>
-          <span className="request-row-mark" aria-hidden>{REQUEST_STATE_MARK[request.state]}</span>
-          <span className="request-row-index">{t.requestNumber} {request.index}</span>
-          <span className="request-row-prompt">{request.prompt || t.yourRequest}</span>
-          <span className="request-row-state">{t[REQUEST_STATE_LABEL[request.state]]}</span>
-          <span className="request-row-caret" aria-hidden>{expanded ? "▾" : "▸"}</span>
-        </button>
-        {actions}
-      </div>
-      {expanded ? (
-        <div className="request-row-body">
-          <div className="task-activity">
-            <span className="activity-pulse" />
-            {request.activity || (running ? t.workingOnTask : t.noNewActivity)}
-          </div>
-          {hasTodos ? (
-            <>
-              <div className="progress-track"><span style={{ width: `${Math.min(progress, 100)}%` }} /></div>
-              <div className="task-stats"><span>{request.completedTodos}/{request.totalTodos} {t.completedStepsOf}</span><span>{request.updatedAt ? formatTime(request.updatedAt, lang) : ""}</span></div>
-            </>
-          ) : running ? (
-            <>
-              <div className="progress-track indeterminate" aria-label={t.running} />
-              <div className="live-stats">
-                <span className="live-stat">⚙️ {request.activeTool || t.preparingTools}</span>
-                {steps > 0 ? <span className="live-stat">✅ {steps} {steps === 1 ? t.executedStep : t.executedSteps}</span> : null}
-                {elapsed ? <span className="live-stat live-time">⏱️ {elapsed}</span> : null}
-              </div>
-            </>
-          ) : steps > 0 ? (
-            <div className="live-stats finished">
-              <span className="live-stat">✅ {steps} {steps === 1 ? t.executedStep : t.executedSteps}</span>
-            </div>
-          ) : null}
-          <TodoList todos={request.todos} t={t} />
-          {running && request.liveText ? <div className="final-result live-result"><div className="final-result-label">{t.liveResponse}</div><div className="final-result-text">{request.liveText}<span className="live-cursor" aria-hidden>▍</span></div><button className="copy-result" onClick={() => onCopy(request.liveText)}>{t.copyResult}</button></div> : null}
-          {request.finalResult && !running ? <div className="final-result"><div className="final-result-label">{t.finalResult}</div><div className="final-result-text">{request.finalResult}</div><button className="copy-result" onClick={() => onCopy(request.finalResult)}>{t.copyResult}</button></div> : running && !request.liveText ? <div className="result-pending">{t.resultWillAppear}</div> : null}
-          {sessionId && request.resultFiles.length > 0 ? <ResultFilesList files={request.resultFiles} sessionId={sessionId} onToast={onToast} t={t} /> : null}
-          {sessionId && !running && request.resultFiles.length === 0 && request.finalResult ? <div className="result-files-hint">{t.noResultFileHint}</div> : null}
-        </div>
-      ) : null}
-    </li>
-  )
-}
-
-// كارت واحد للمحادثة كلها: كل الطلبات قائمة جواه، والطلب الأخير هو المفتوح.
-function RequestCard({ requests, sessionId, onCopy, onToast, onSkip, onRunNow, onRemove, busyAction, t, lang }: { requests: SessionRequest[]; sessionId: string | null; onCopy: (text: string) => void; onToast: (message: string, kind?: ToastKind) => void; onSkip: (request: SessionRequest) => void; onRunNow: (request: SessionRequest) => void; onRemove: (request: SessionRequest) => void; busyAction: string | null; t: Strings; lang: Language }) {
-  const [openId, setOpenId] = useState<string | null>(null)
-  const latest = requests[requests.length - 1]
-  // الطلب الشغّال هو المفتوح افتراضيًا؛ بعد ما يخلص آخر طلب هو اللي يفضل مفتوح.
-  const activeId = requests.find((request) => request.state === "running") || latest
-  const expandedId = openId && requests.some((request) => request.id === openId) ? openId : activeId ? activeId.id : null
-  return (
-    <section className={`task-summary task-${latest ? latest.state : "done"}`}>
-      <div className="task-summary-top">
-        <div>
-          <div className="eyebrow">{t.taskStatus} · {t.requestsInSession} {requests.length}</div>
-          <h2>{latest ? t[REQUEST_STATE_TITLE[latest.state]] : t.taskFinished}</h2>
-        </div>
-        <span className="task-summary-state">{latest ? t[REQUEST_STATE_LABEL[latest.state]] : t.done}</span>
-      </div>
-      <ul className="request-list">
-        {requests.map((request) => (
-          <RequestRow
-            key={request.id}
-            request={request}
-            expanded={request.id === expandedId}
-            onToggle={() => setOpenId(request.id === expandedId ? null : request.id)}
-            sessionId={sessionId}
-            onCopy={onCopy}
-            onToast={onToast}
-            onSkip={() => onSkip(request)}
-            onRunNow={() => onRunNow(request)}
-            onRemove={() => onRemove(request)}
-            busyAction={busyAction}
-            t={t}
-            lang={lang}
-          />
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-
 
 function App() {
   const [authState, setAuthState] = useState<AuthState>("loading")
@@ -1173,6 +144,9 @@ function App() {
   // الجلسات اللي اتنبّه عليها بحالة "شغّال → خلص" وهي في الخلفية. لما تفتح
   // الجلسة دي بعدها، نفس الإتمام ده ملاقيش تنبيه تاني (مفتاحين مختلفين لنفس المهمة).
   const notifiedViaStatusRef = useRef<Set<string>>(new Set())
+  // الجلسات اللي شفناها شغالة فعلًا في عمر الصفحة دي (busy/retry أو running/queued).
+  // فتح محادثة قديمة خلصانة من السيرفر من غير ما نشوفها شغالة لا يستحق صوت إتمام.
+  const witnessedBusyRef = useRef<Set<string>>(new Set())
   // عدّاد "شغلانة" لكل جلسة: كل مرة تبدأ تشغلانة جديدة الرقم بيزيد، وبيدي
   const busyPeriodsRef = useRef<Map<string, number>>(new Map())
   // عدّاد تسلسلي بيرفض ردود قديمة لو رجعت بترتيب غلط
@@ -1322,6 +296,23 @@ function App() {
   // لكن الكارت لسه running والجلسة لسه busy، فالشرط القديم (completedAt > 0 بس)
   // كان بيطلّع صوت الإتمام مع كل أداة/خطوة. لازم ٣ شروط مع بعض:
   // آخر طلب done/stopped + مفيش أي طلب running/queued + الحالة المستقرة idle.
+  // + شرط رابع: لازم نكون شفنا الجلسة شغالة في عمر الصفحة دي — فتح محادثة
+  // قديمة خلصانة (من السايدبار أو بعد refresh) لا يطلّع صوت إتمام.
+  useEffect(() => {
+    if (!activeId) {
+      return
+    }
+    const activeStatus = statuses[activeId]
+    if (activeStatus?.type === "busy" || activeStatus?.type === "retry") {
+      witnessedBusyRef.current.add(activeId)
+      return
+    }
+    if (requests.some((request) => request.state === "running" || request.state === "queued")) {
+      witnessedBusyRef.current.add(activeId)
+      return
+    }
+  }, [activeId, requests, statuses])
+
   useEffect(() => {
     const last = requests[requests.length - 1]
     if (!activeId || !last || !last.completedAt) {
@@ -1338,12 +329,21 @@ function App() {
       return
     }
     if (abortedRef.current.delete(activeId)) {
+      witnessedBusyRef.current.delete(activeId)
       return
     }
     // الإتمام ده اتنبّه عليه قبل كده وانت في شاشة تانية — متكرّرش
     if (notifiedViaStatusRef.current.delete(activeId)) {
+      witnessedBusyRef.current.delete(activeId)
       return
     }
+    // محادثة قديمة اتفتحت وهي خلصانة أصلًا — سجّلها بصمت من غير صوت،
+    // عشان اختيار أي محادثة done من القائمة لا يشغّل صوت إتمام مهمة.
+    if (!witnessedBusyRef.current.has(activeId)) {
+      notifiedRef.current.set(activeId, `req:${last.id}:${last.completedAt}`)
+      return
+    }
+    witnessedBusyRef.current.delete(activeId)
     notifyOnce(activeId, `req:${last.id}:${last.completedAt}`)
   }, [activeId, requests, statuses, notifyOnce])
 
@@ -1525,6 +525,10 @@ function App() {
       setComposer("")
       setShowSessions(false)
       setGitChanges(null)
+      // Reset the previous task's Execution Plan right away on project/task
+      // switch; refreshRequests below loads the new task's plan.
+      setRequests([])
+      setRequestQuestions([])
       void refreshGitChanges()
       await refreshRequests(nextActive)
     } catch (error: unknown) {
@@ -1566,6 +570,10 @@ function App() {
 
   useEffect(() => {
     activeIdRef.current = activeId
+    // Switching tasks resets the visible Execution Plan immediately so the
+    // previous task's plan never lingers while the new task loads.
+    setRequests([])
+    setRequestQuestions([])
     if (authState === "signedIn" && activeId) {
       void refreshRequests(activeId).catch((error: unknown) => addToast(error instanceof Error ? error.message : t.summaryLoadFailed, "error"))
     }
@@ -2068,6 +1076,10 @@ function App() {
     }
     setActiveId(nextId)
     activeIdRef.current = nextId
+    // Drop the previous task's requests/plan instantly; the activeId effect
+    // re-fetches for the new task right after.
+    setRequests([])
+    setRequestQuestions([])
     setShowSessions(false)
   }
 

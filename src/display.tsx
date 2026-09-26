@@ -43,6 +43,19 @@ export function formatCountdown(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`
 }
 
+export function formatElapsed(since: number | undefined, t: Strings, now: number = Date.now()): string {
+  if (!since) {
+    return ""
+  }
+  const seconds = Math.max(0, Math.floor((now - since) / 1000))
+  if (seconds < 60) {
+    return `${seconds} ${t.secondsShort}`
+  }
+  const minutes = Math.floor(seconds / 60)
+  const rest = seconds % 60
+  return rest > 0 ? `${minutes} ${t.minutesShort} ${rest} ${t.secondsShort}` : `${minutes} ${t.minutesShort}`
+}
+
 export function projectName(project: Project): string {
   const normalized = project.worktree.replace(/[\\/]+$/, "")
   return normalized.split(/[\\/]/).filter(Boolean).pop() || project.worktree

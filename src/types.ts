@@ -2,6 +2,16 @@ import type { Event, FileDiff, Message, Part, Permission, Project, Session, Sess
 
 export type { Event, FileDiff, Message, Part, Permission, Project, Session, SessionStatus, Todo }
 
+export type AuthState = "loading" | "signedOut" | "signedIn"
+
+export type ToastKind = "info" | "success" | "error"
+
+export interface Toast {
+  id: number
+  kind: ToastKind
+  message: string
+}
+
 export interface ProjectResponse {
   projects: Project[]
   selected: Project | null
