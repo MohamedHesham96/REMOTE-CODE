@@ -1,14 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { PINNED_SESSIONS_KEY, PINNED_SESSIONS_LIMIT } from "../constants"
-import type { Session } from "../types"
-import { forgetSessionIds, loadPinnedSessions, orderPinnedSessions, pinSessionId, savePinnedSessions, unpinSessionId } from "./storage"
+import type { PinnedConversation } from "../types"
+import {
+  forgetPinnedConversations,
+  hasLegacyPinnedFormat,
+  loadPinnedConversations,
+  pinConversation,
+  savePinnedConversations,
+  unpinConversation,
+} from "./storage"
 
-function session(id: string): Session {
-  return { id, title: id, time: { created: 1, updated: 1 } } as Session
+function pin(id: string, overrides: Partial<PinnedConversation> = {}): PinnedConversation {
+  return {
+    id,
+    title: `title ${id}`,
+    created: 1000,
+    directory: `/srv/${id}`,
+    worktree: `/srv`,
+    projectName: "srv",
+    ...overrides,
+  }
 }
 
-function stored(): string | null {
-  return (globalThis as unknown as { localStorage: Storage }).localStorage.getItem(PINNED_SESSIONS_KEY)
+function write(value: string): void {
+  ;(globalThis as unknown as { localStorage: Storage }).localStorage.setItem(PINNED_SESSIONS_KEY, value)
 }
 
 beforeEach(() => {
@@ -25,49 +40,76 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe("pinned sessions storage", () => {
+describe("pinned conversations cache", () => {
   it("returns an empty list when nothing is stored", () => {
-    expect(loadPinnedSessions()).toEqual([])
+    expect(loadPinnedConversations()).toEqual([])
   })
 
-  it("round-trips ids through localStorage", () => {
-    savePinnedSessions(["ses_b", "ses_a"])
-    expect(stored()).toBe('["ses_b","ses_a"]')
-    expect(loadPinnedSessions()).toEqual(["ses_b", "ses_a"])
+  it("round-trips the full entries through localStorage", () => {
+    savePinnedConversations([pin("ses_b"), pin("ses_a")])
+    expect(loadPinnedConversations().map((item) => item.id)).toEqual(["ses_b", "ses_a"])
+    expect(loadPinnedConversations()[0]?.title).toBe("title ses_b")
   })
 
-  it("survives a full reload because ids come back from localStorage", () => {
-    savePinnedSessions(["ses_a", "ses_b"])
-    // "إعادة تحميل الصفحة": حالة جديدة بتقرا من التخزين بس
-    expect(loadPinnedSessions()).toEqual(["ses_a", "ses_b"])
+  it("survives a full reload because the entries come back from localStorage", () => {
+    savePinnedConversations([pin("ses_a"), pin("ses_b")])
+    expect(loadPinnedConversations().map((item) => item.id)).toEqual(["ses_a", "ses_b"])
   })
 
-  it("drops duplicates, blanks and non-strings", () => {
-    const data = JSON.stringify(["ses_a", "ses_a", "", 42, null, "ses_b"])
-    ;(globalThis as unknown as { localStorage: Storage }).localStorage.setItem(PINNED_SESSIONS_KEY, data)
-    expect(loadPinnedSessions()).toEqual(["ses_a", "ses_b"])
+  it("keeps pins from every project — the cache is not scoped to one", () => {
+    savePinnedConversations([
+      pin("ses_a", { worktree: "/srv/one", directory: "/srv/one", projectName: "one" }),
+      pin("ses_b", { worktree: "/srv/two", directory: "/srv/two", projectName: "two" }),
+    ])
+    const loaded = loadPinnedConversations()
+    expect(loaded.map((item) => item.projectName)).toEqual(["one", "two"])
+  })
+
+  it("migrates the legacy id-only format without losing the ids", () => {
+    write(JSON.stringify(["ses_a", "ses_b"]))
+    expect(loadPinnedConversations().map((item) => item.id)).toEqual(["ses_a", "ses_b"])
+    expect(loadPinnedConversations()[0]).toEqual({
+      id: "ses_a",
+      title: "",
+      created: 0,
+      directory: "",
+      worktree: "",
+      projectName: "",
+    })
+  })
+
+  it("flags the legacy format only while it is still there", () => {
+    expect(hasLegacyPinnedFormat()).toBe(false)
+    write(JSON.stringify(["ses_a"]))
+    expect(hasLegacyPinnedFormat()).toBe(true)
+    savePinnedConversations([pin("ses_a")])
+    expect(hasLegacyPinnedFormat()).toBe(false)
+  })
+
+  it("drops duplicates, blanks and entries without an id", () => {
+    write(JSON.stringify([{ id: "ses_a" }, { id: "ses_a" }, { id: "" }, { id: 42 }, null, pin("ses_b")]))
+    expect(loadPinnedConversations().map((item) => item.id)).toEqual(["ses_a", "ses_b"])
   })
 
   it("caps the stored list so it cannot grow forever", () => {
-    const many = Array.from({ length: PINNED_SESSIONS_LIMIT + 25 }, (_, index) => `ses_${index}`)
-    savePinnedSessions(many)
-    expect(loadPinnedSessions()).toHaveLength(PINNED_SESSIONS_LIMIT)
+    const many = Array.from({ length: PINNED_SESSIONS_LIMIT + 25 }, (_, index) => pin(`ses_${index}`))
+    savePinnedConversations(many)
+    expect(loadPinnedConversations()).toHaveLength(PINNED_SESSIONS_LIMIT)
     // الأحدث تثبيتًا (أول القائمة) هو اللي يفضل محفوظ
-    expect(loadPinnedSessions()[0]).toBe("ses_0")
+    expect(loadPinnedConversations()[0]?.id).toBe("ses_0")
   })
 
   it("ignores corrupt or non-array payloads", () => {
-    const storage = (globalThis as unknown as { localStorage: Storage }).localStorage
-    storage.setItem(PINNED_SESSIONS_KEY, "{not json")
-    expect(loadPinnedSessions()).toEqual([])
-    storage.setItem(PINNED_SESSIONS_KEY, '{"ses_a":true}')
-    expect(loadPinnedSessions()).toEqual([])
+    write("{not json")
+    expect(loadPinnedConversations()).toEqual([])
+    write('{"ses_a":true}')
+    expect(loadPinnedConversations()).toEqual([])
   })
 
   it("does not rewrite the same value", () => {
-    savePinnedSessions(["ses_a"])
+    savePinnedConversations([pin("ses_a")])
     const setItem = vi.spyOn(globalThis.localStorage, "setItem")
-    savePinnedSessions(["ses_a"])
+    savePinnedConversations([pin("ses_a")])
     expect(setItem).not.toHaveBeenCalled()
   })
 
@@ -78,89 +120,67 @@ describe("pinned sessions storage", () => {
       removeItem: () => { throw new Error("denied") },
       clear: () => { throw new Error("denied") },
     })
-    expect(loadPinnedSessions()).toEqual([])
-    expect(() => savePinnedSessions(["ses_a"])).not.toThrow()
-  })
-})
-
-describe("orderPinnedSessions", () => {
-  const sessions = [session("ses_a"), session("ses_b"), session("ses_c")]
-
-  it("keeps the stored pin order instead of the session list order", () => {
-    expect(orderPinnedSessions(sessions, ["ses_c", "ses_a"]).map((item) => item.id)).toEqual(["ses_c", "ses_a"])
-  })
-
-  it("is stable regardless of how the session list is sorted", () => {
-    const ids = ["ses_b", "ses_a", "ses_c"]
-    const forwards = orderPinnedSessions(sessions, ids).map((item) => item.id)
-    const backwards = orderPinnedSessions([...sessions].reverse(), ids).map((item) => item.id)
-    expect(forwards).toEqual(["ses_b", "ses_a", "ses_c"])
-    expect(backwards).toEqual(forwards)
-  })
-
-  it("skips ids that are not in the current project", () => {
-    expect(orderPinnedSessions(sessions, ["missing", "ses_b", "gone"]).map((item) => item.id)).toEqual(["ses_b"])
-  })
-
-  it("returns nothing when there are no pins", () => {
-    expect(orderPinnedSessions(sessions, [])).toEqual([])
+    expect(loadPinnedConversations()).toEqual([])
+    expect(() => savePinnedConversations([pin("ses_a")])).not.toThrow()
   })
 })
 
 describe("pin list transitions", () => {
   it("puts the newest pin first", () => {
-    expect(pinSessionId(["ses_a"], "ses_b")).toEqual(["ses_b", "ses_a"])
+    expect(pinConversation([pin("ses_a")], pin("ses_b")).map((item) => item.id)).toEqual(["ses_b", "ses_a"])
   })
 
   it("never touches other conversations when pinning", () => {
-    expect(pinSessionId(["ses_a", "ses_c"], "ses_b")).toEqual(["ses_b", "ses_a", "ses_c"])
+    const next = pinConversation([pin("ses_a"), pin("ses_c")], pin("ses_b"))
+    expect(next.map((item) => item.id)).toEqual(["ses_b", "ses_a", "ses_c"])
   })
 
-  it("keeps the same reference when the conversation is already pinned", () => {
-    const current = ["ses_a", "ses_b"]
-    expect(pinSessionId(current, "ses_a")).toBe(current)
+  it("moves an already pinned conversation back to the top and refreshes its data", () => {
+    const current = [pin("ses_a", { title: "old" }), pin("ses_b")]
+    const next = pinConversation(current, pin("ses_a", { title: "new" }))
+    expect(next.map((item) => item.id)).toEqual(["ses_a", "ses_b"])
+    expect(next[0]?.title).toBe("new")
   })
 
   it("ignores an empty id", () => {
-    const current = ["ses_a"]
-    expect(pinSessionId(current, "")).toBe(current)
+    const current = [pin("ses_a")]
+    expect(pinConversation(current, pin(""))).toBe(current)
   })
 
   it("caps the list at the limit, dropping the oldest pin", () => {
-    const full = Array.from({ length: PINNED_SESSIONS_LIMIT }, (_, index) => `ses_${index}`)
-    const next = pinSessionId(full, "ses_new")
+    const full = Array.from({ length: PINNED_SESSIONS_LIMIT }, (_, index) => pin(`ses_${index}`))
+    const next = pinConversation(full, pin("ses_new"))
     expect(next).toHaveLength(PINNED_SESSIONS_LIMIT)
-    expect(next[0]).toBe("ses_new")
+    expect(next[0]?.id).toBe("ses_new")
     // آخر القائمة هو الأقدم في التثبيت — ده اللي بيقع
-    expect(next).not.toContain(`ses_${PINNED_SESSIONS_LIMIT - 1}`)
+    expect(next.map((item) => item.id)).not.toContain(`ses_${PINNED_SESSIONS_LIMIT - 1}`)
   })
 
   it("removes only the unpinned conversation", () => {
-    expect(unpinSessionId(["ses_a", "ses_b", "ses_c"], "ses_b")).toEqual(["ses_a", "ses_c"])
+    const current = [pin("ses_a"), pin("ses_b"), pin("ses_c")]
+    expect(unpinConversation(current, "ses_b").map((item) => item.id)).toEqual(["ses_a", "ses_c"])
   })
 
   it("keeps the same reference when the conversation was not pinned", () => {
-    const current = ["ses_a"]
-    expect(unpinSessionId(current, "ses_b")).toBe(current)
+    const current = [pin("ses_a")]
+    expect(unpinConversation(current, "ses_b")).toBe(current)
   })
 
   it("drops deleted conversations from the pins", () => {
-    expect(forgetSessionIds(["ses_a", "ses_b", "ses_c"], ["ses_b"])).toEqual(["ses_a", "ses_c"])
-    expect(forgetSessionIds(["ses_a"], ["ses_a"])).toEqual([])
+    const current = [pin("ses_a"), pin("ses_b"), pin("ses_c")]
+    expect(forgetPinnedConversations(current, ["ses_b"]).map((item) => item.id)).toEqual(["ses_a", "ses_c"])
+    expect(forgetPinnedConversations(current, ["ses_a", "ses_b", "ses_c"])).toEqual([])
   })
 
   it("keeps the same reference when nothing was pinned", () => {
-    const current = ["ses_a"]
-    expect(forgetSessionIds(current, ["ses_z"])).toBe(current)
-    expect(forgetSessionIds(current, [])).toBe(current)
+    const current = [pin("ses_a")]
+    expect(forgetPinnedConversations(current, ["ses_z"])).toBe(current)
+    expect(forgetPinnedConversations(current, [])).toBe(current)
   })
 
   it("keeps the order stable across a pin/unpin round trip", () => {
-    const start = ["ses_a", "ses_b", "ses_c"]
-    expect(unpinSessionId(pinSessionId(start, "ses_d"), "ses_d")).toEqual(start)
-  })
-
-  it("does not reorder the other conversations when re-pinning", () => {
-    expect(pinSessionId(["ses_a", "ses_b"], "ses_a")).toEqual(["ses_a", "ses_b"])
+    const start = [pin("ses_a"), pin("ses_b"), pin("ses_c")]
+    const round = unpinConversation(pinConversation(start, pin("ses_d")), "ses_d")
+    expect(round.map((item) => item.id)).toEqual(["ses_a", "ses_b", "ses_c"])
   })
 })

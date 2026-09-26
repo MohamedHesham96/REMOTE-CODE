@@ -36,7 +36,11 @@ export function registerSessionRoutes(app: Express, ctx: RouteContext): void {
 
   app.delete("/api/session/:id", async (request, response) => {
     try {
-      response.json({ deleted: await ctx.openCode.deleteSession(request.params.id) })
+      const deleted = await ctx.openCode.deleteSession(request.params.id)
+      // التثبيت مصدره السيرفر، فالمحادثة اللي اتمسحت لازم تنضّف منه —
+      // وإلا الـ id الميت فضل في كل الأجهزة لحد ما يعمل pin تاني.
+      await ctx.pins.forget([request.params.id])
+      response.json({ deleted })
     } catch (error) {
       ctx.connection.handleError(error, response, request)
     }

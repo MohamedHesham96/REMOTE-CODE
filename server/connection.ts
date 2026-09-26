@@ -51,6 +51,8 @@ export class OpenCodeConnection {
         || path === "/config"
         || path === "/permission"
         || path === "/events"
+        // المثبّتات بيانات ملف محلي — مالها صلة بـ OpenCode، فبتشتغل وهو واقع
+        || path === "/pin"
         || path.startsWith("/push/")
       ) {
         next()

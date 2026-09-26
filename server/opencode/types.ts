@@ -119,6 +119,19 @@ export interface ActiveSession {
   updatedAt: number
 }
 
+// محادثة مثبّتة — مخزّنة على السيرفر عشان تظهر في كل الأجهزة، ومعاه كل
+// بياناتها اللي اللوحة بتحتاجها لعرضها وفتحها من غير ما يكون مشروعها هو الحالي.
+export interface PinnedConversation {
+  id: string
+  title: string
+  created: number
+  // مكان الجلسة الحقيقي — projectID/المشروع بيتغيّروا مع الوقت
+  directory: string
+  // worktree المشروع وقت التثبيت: بنلاقي بيه المشروع لما نفتح المحادثة
+  worktree: string
+  projectName: string
+}
+
 export interface SessionModelRef {
   providerID: string
   modelID: string

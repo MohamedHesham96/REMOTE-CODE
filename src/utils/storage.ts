@@ -1,5 +1,5 @@
 import { LAST_SESSION_KEY, PINNED_SESSIONS_KEY, PINNED_SESSIONS_LIMIT, RECENT_PROJECTS_KEY } from "../constants"
-import type { Session, SessionRequest } from "../types"
+import type { PinnedConversation, Session, SessionRequest } from "../types"
 import { normalizeProjectPath } from "./paths"
 
 export function sortSessionsByCreated(list: Session[]): Session[] {
@@ -77,25 +77,27 @@ export function loadRecentProjects(): string[] {
   }
 }
 
-// ids مثبّتة بترتيب "الأحدث تثبيتًا الأول" — الترتيب ده هو مصدر الحقيقة الوحيد
-// للعرض، وبيتخزّن كـ array عشان يفضل ثابت عبر التحديث والتبديل بين المشاريع.
-export function loadPinnedSessions(): string[] {
+// ── المثبّتات ──
+// المصدر الحقيقي على السيرفر (يتشارك بين كل الأجهزة)؛ الـ localStorage هنا كاش
+// للعرض الأول بس. النسخة القديمة كانت array من ids مجرّدة، والبعدي entries
+// كاملة — التطبيع بيزرع الـ format القديم تلقائيًا.
+
+export function loadPinnedConversations(): PinnedConversation[] {
   try {
     const raw = localStorage.getItem(PINNED_SESSIONS_KEY)
     if (!raw) {
       return []
     }
-    const parsed = JSON.parse(raw) as unknown
-    return Array.isArray(parsed) ? normalizePinnedIds(parsed) : []
+    return normalizePinnedConversations(JSON.parse(raw) as unknown)
   } catch {
     return []
   }
 }
 
-export function savePinnedSessions(sessionIds: string[]): void {
-  const next = normalizePinnedIds(sessionIds)
+export function savePinnedConversations(pins: PinnedConversation[]): void {
+  const next = normalizePinnedConversations(pins)
   try {
-    // ما نكتبش لوحدنا نفس القيمة: التقاط غير ضروري في كل render/commit
+    // ما نكتبش نفس القيمة: التقاط غير ضروري في كل render
     const current = localStorage.getItem(PINNED_SESSIONS_KEY)
     if (current === JSON.stringify(next)) {
       return
@@ -106,16 +108,53 @@ export function savePinnedSessions(sessionIds: string[]): void {
   }
 }
 
-// بتتحمل بيانات قديمة/تالفة أو تعديل يدوي من الـ devtools
-function normalizePinnedIds(values: unknown[]): string[] {
+// هل النسخة المحفوظة بالشكل القديم (array من ids مجرّدة)؟ بنستخدمها مرة واحدة
+// عشان نعرف إننا لازم نرفعها للسيرفر — بعد أول مزامنة بتتخزّن بالشكل الجديد.
+export function hasLegacyPinnedFormat(): boolean {
+  try {
+    const raw = localStorage.getItem(PINNED_SESSIONS_KEY)
+    if (!raw) {
+      return false
+    }
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) && parsed.some((item) => typeof item === "string")
+  } catch {
+    return false
+  }
+}
+
+function pinnedText(value: unknown, max: number): string {
+  return typeof value === "string" ? value.trim().slice(0, max) : ""
+}
+
+// بتتحمل بيانات قديمة/تالفة أو تعديل يدوي من الـ devtools، وبتعيد ترتيب
+// "الأحدث تثبيتًا الأول" مع شيل المكرر والسفلي الفاضي.
+export function normalizePinnedConversations(values: unknown): PinnedConversation[] {
+  if (!Array.isArray(values)) {
+    return []
+  }
   const seen = new Set<string>()
-  const result: string[] = []
+  const result: PinnedConversation[] = []
   for (const value of values) {
-    if (typeof value !== "string" || !value || seen.has(value)) {
+    // الشكل القديم: string مجرد — من غير بيانات العرض، بنحتفظ بالـ id بس
+    const legacyId = typeof value === "string" ? value : ""
+    const candidate = (typeof value === "object" && value !== null ? value : {}) as Partial<PinnedConversation>
+    const id = pinnedText(candidate.id, 200) || legacyId.trim()
+    if (!id || seen.has(id)) {
       continue
     }
-    seen.add(value)
-    result.push(value)
+    seen.add(id)
+    const created = typeof candidate.created === "number" && Number.isFinite(candidate.created)
+      ? Math.trunc(candidate.created)
+      : 0
+    result.push({
+      id,
+      title: pinnedText(candidate.title, 200),
+      created,
+      directory: pinnedText(candidate.directory, 1024),
+      worktree: pinnedText(candidate.worktree, 1024),
+      projectName: pinnedText(candidate.projectName, 200),
+    })
     if (result.length >= PINNED_SESSIONS_LIMIT) {
       break
     }
@@ -123,45 +162,28 @@ function normalizePinnedIds(values: unknown[]): string[] {
   return result
 }
 
-// تطبيع ترتيب المثبّت حسب ترتيب الـ ids المحفوظ، وتجاهل أي id مش موجود
-// في قائمة الجلسات الحالية (محادثة من مشروع تاني، أو اتمسحت)
-export function orderPinnedSessions(sessions: Session[], pinnedIds: string[]): Session[] {
-  if (pinnedIds.length === 0) {
-    return []
-  }
-  const byId = new Map(sessions.map((session) => [session.id, session]))
-  const result: Session[] = []
-  for (const id of pinnedIds) {
-    const session = byId.get(id)
-    if (session) {
-      result.push(session)
-    }
-  }
-  return result
-}
-
 // كل انتقال بيرجّع نفس المرجع لو مفيش تغيير — عشان React ما يعيدش الرندر
-// لما تكون المحادثة مثبّتة بالفعل أو مش مثبّتة أصلًا
-export function pinSessionId(pinnedIds: string[], sessionId: string): string[] {
-  if (!sessionId || pinnedIds.includes(sessionId)) {
-    return pinnedIds
+// لما المحادثة مثبّتة بالفعل أو مش مثبّتة أصلًا
+export function pinConversation(pins: PinnedConversation[], pin: PinnedConversation): PinnedConversation[] {
+  if (!pin.id) {
+    return pins
   }
-  return [sessionId, ...pinnedIds].slice(0, PINNED_SESSIONS_LIMIT)
+  return normalizePinnedConversations([pin, ...pins.filter((item) => item.id !== pin.id)])
 }
 
-export function unpinSessionId(pinnedIds: string[], sessionId: string): string[] {
-  if (!pinnedIds.includes(sessionId)) {
-    return pinnedIds
+export function unpinConversation(pins: PinnedConversation[], sessionId: string): PinnedConversation[] {
+  if (!pins.some((pin) => pin.id === sessionId)) {
+    return pins
   }
-  return pinnedIds.filter((id) => id !== sessionId)
+  return pins.filter((pin) => pin.id !== sessionId)
 }
 
 // ينضّف المحادثات اللي اتمسحت من التثبيت (مسح يدوي أو مسودة فاضية اتشالت)
-export function forgetSessionIds(pinnedIds: string[], removedIds: string[]): string[] {
+export function forgetPinnedConversations(pins: PinnedConversation[], removedIds: string[]): PinnedConversation[] {
   if (removedIds.length === 0) {
-    return pinnedIds
+    return pins
   }
   const removed = new Set(removedIds)
-  const next = pinnedIds.filter((id) => !removed.has(id))
-  return next.length === pinnedIds.length ? pinnedIds : next
+  const next = pins.filter((pin) => !removed.has(pin.id))
+  return next.length === pins.length ? pins : next
 }

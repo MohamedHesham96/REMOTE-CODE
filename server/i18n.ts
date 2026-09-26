@@ -52,6 +52,14 @@ const messages = {
     ar: "رد الإذن غير صالح",
     en: "Invalid permission response",
   },
+  invalidPinIds: {
+    ar: "قائمة المعرّفات مطلوبة",
+    en: "A list of ids is required",
+  },
+  invalidPin: {
+    ar: "بيانات التثبيت غير صالحة",
+    en: "Invalid pin data",
+  },
   newConversation: {
     ar: "محادثة جديدة",
     en: "New conversation",

@@ -29,7 +29,7 @@ import {
   subscribePush,
   unsubscribePush,
 } from "./api"
-import type { ActiveSession, AppConfig, AuthState, ClientEvent, ConversationQuestionRequest, GitChanges, HistoryTurn, ModelInfo, Permission, Project, Session, SessionModelRef, SessionRequest, SessionStatus, Toast, ToastKind } from "./types"
+import type { ActiveSession, AppConfig, AuthState, ClientEvent, ConversationQuestionRequest, GitChanges, HistoryTurn, ModelInfo, Permission, PinnedConversation, Project, Session, SessionModelRef, SessionRequest, SessionStatus, Toast, ToastKind } from "./types"
 import { isSoundEnabled, playAttentionSound, playCompletionSound, setSoundEnabled, unlockAudio, vibrate } from "./sound"
 import { applyTheme, getSavedTheme, nextTheme, saveTheme, themeDescription, themeLabel, THEMES, THEME_META, type AppTheme } from "./theme"
 import { applyLanguage, getSavedLanguage, getStrings, saveLanguage, type Language } from "./i18n"
@@ -40,6 +40,7 @@ import {
   GitBranchIcon,
   getVarietyLevels,
   projectName,
+  projectNameFromPath,
   samePath,
   shortModelName,
   statusLabel,
@@ -51,11 +52,11 @@ import { ProjectDropdown, ProjectPicker } from "./components/projects/ProjectPic
 import { QuestionCard } from "./components/requests/QuestionCard"
 import { RequestCard } from "./components/requests/RequestCard"
 import { useActivityGrace } from "./hooks/useActivityGrace"
-import { usePinnedSessions } from "./hooks/usePinnedSessions"
+import { usePinnedConversations } from "./hooks/usePinnedConversations"
 import { useSettledStatuses } from "./hooks/useSettledStatuses"
 import { isTouchComposer } from "./utils/device"
 import { normalizeProjectPath } from "./utils/paths"
-import { forgetLastSession, isRequestsEmpty, loadLastSessions, loadRecentProjects, orderPinnedSessions, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
+import { forgetLastSession, isRequestsEmpty, loadLastSessions, loadRecentProjects, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
 
 // أدراج ثقيلة تُحمّل عند الطلب فقط (code-splitting): القائمة الرئيسية
 // والشات يظهران فورًا، وهذه اللوحات تنزل عند أول فتح لها
@@ -63,7 +64,7 @@ const ModelPicker = lazy(() => import("./panels").then((module) => ({ default: m
 const ActiveSessionsPanel = lazy(() => import("./panels").then((module) => ({ default: module.ActiveSessionsPanel })))
 const GitChangesPanel = lazy(() => import("./panels").then((module) => ({ default: module.GitChangesPanel })))
 const HistoryPanel = lazy(() => import("./panels").then((module) => ({ default: module.HistoryPanel })))
-const PinnedSessionsPanel = lazy(() => import("./panels").then((module) => ({ default: module.PinnedSessionsPanel })))
+const PinnedConversationsPanel = lazy(() => import("./panels").then((module) => ({ default: module.PinnedConversationsPanel })))
 
 interface InstallPrompt {
   preventDefault: () => void
@@ -205,10 +206,10 @@ function App() {
   // القائمة الجانبية: "النشطة" = الشغالة دلوقتي بس. مهلة الـ ٥ دقايق
   // ("نشط أخيرًا") موجودة في لوحة "المحادثات النشطة" بس.
   // المحادثات المثبّتة بتفضل في مجموعتها العادية بالترتيب العادي: التثبيت
-  // ما بيحرّكش الصف ولا بيغيّر ترتيب القائمة — بيبان بس كعلامة في الصف،
-  // والقائمة الكاملة للمثبّتات في لوحة المثبّتات (زرار الدبوس في الهيدر).
-  const { ids: pinnedIds, isPinned, togglePin, forgetPinned } = usePinnedSessions()
-  const pinnedSessions = useMemo(() => orderPinnedSessions(sessions, pinnedIds), [sessions, pinnedIds])
+  // ما بيحرّكش الصف ولا بيغيّر ترتيب القائمة — بيبان بس كعلامة في الصف.
+  // قائمة المثبّتات نفسها (لوحة الدبوس في الهيدر) شايفة كل المشاريع والمخزّنة
+  // على السيرفر، فتبقى على كل الأجهزة مش على هذا الجهاز بس.
+  const { pins: pinnedConversations, isPinned, togglePin, forgetPinned } = usePinnedConversations()
   const sidebarActiveSessions = useMemo(() => sessions.filter((session) => isSessionWorking(session.id)), [sessions, isSessionWorking])
   const sidebarInactiveSessions = useMemo(() => sessions.filter((session) => !isSessionWorking(session.id)), [sessions, isSessionWorking])
 
@@ -1211,10 +1212,50 @@ function App() {
     }
   }
 
-  // تبديل التثبيت: بيغيّر حالة واحدة بس (المحادثة دي) من غير ما يمس الباقي،
-  // والصف بيحدّث في نفس الرندر من غير أي قراءة تخزين
+  // تبديل التثبيت: بيغيّر حالة واحدة بس (المحادثة دي) من غير ما يمس الباقي.
+  // المدخلات فيها كل بيانات العرض والفتح، عشان اللوحة تقدر تعرض المحادثة
+  // وتفتحها من غير ما يكون مشروعها هو المشروع الحالي.
   const handlePinSession = (session: Session) => {
-    togglePin(session.id)
+    const worktree = selectedProject?.worktree || session.directory || ""
+    togglePin({
+      id: session.id,
+      title: session.title || "",
+      created: session.time.created,
+      directory: session.directory || worktree,
+      worktree,
+      projectName: selectedProject ? projectName(selectedProject) : projectNameFromPath(worktree),
+    })
+  }
+
+  // فتح محادثة مثبّتة: لو في المشروع الحالي بنختارها مباشرة، ولو في مشروع
+  // تاني بنبدّل المشروع الأول وبعدين نفتحها — زي القفز من "شغال الآن" بالظبط.
+  const openPinnedConversation = async (pin: PinnedConversation) => {
+    if (pin.id === activeIdRef.current) {
+      closePinnedPanel()
+      return
+    }
+    const inSelected = selectedProject
+      && (samePath(pin.worktree, selectedProject.worktree) || samePath(pin.directory, selectedProject.worktree))
+    if (inSelected) {
+      closePinnedPanel()
+      if (!sessionsRef.current.some((session) => session.id === pin.id)) {
+        await refreshSessions()
+      }
+      await selectSession(pin.id)
+      return
+    }
+    const project = projects.find((candidate) => samePath(candidate.worktree, pin.directory))
+      || projects.find((candidate) => samePath(candidate.worktree, pin.worktree))
+    if (!project) {
+      addToast(t.projectNotInList, "error")
+      return
+    }
+    closePinnedPanel()
+    try {
+      await openProject(project, pin.id)
+    } catch (error: unknown) {
+      addToast(error instanceof Error ? error.message : t.openConversationFailed, "error")
+    }
   }
 
   // فتح/قفل لوحة المثبّتات
@@ -1760,7 +1801,7 @@ function App() {
               title={`${t.pinnedConversations} 📌`}
             >
               <span aria-hidden>📌</span>
-              {pinnedSessions.length > 0 ? <span className="count-badge">{pinnedSessions.length}</span> : null}
+              {pinnedConversations.length > 0 ? <span className="count-badge">{pinnedConversations.length}</span> : null}
             </button>
             <button className="icon-button activity-button git-button icon-git" onClick={openGitChanges} aria-label={t.gitChangesAria} title={`${t.gitChangesAria} ⑂`}><GitBranchIcon />{gitChangedCount > 0 ? <span className="count-badge">{gitChangedCount}</span> : null}</button>
             <button className="icon-button icon-theme" onClick={toggleTheme} aria-label={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`} title={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`}><span aria-hidden>{THEME_META[theme].icon}</span></button>
@@ -1869,12 +1910,13 @@ function App() {
       ) : null}
       {showPinned ? (
         <Suspense fallback={<PanelFallback />}>
-          <PinnedSessionsPanel
-            sessions={pinnedSessions}
+          <PinnedConversationsPanel
+            pins={pinnedConversations}
             activeId={activeId}
+            activeWorktree={selectedProject?.worktree ?? null}
             statuses={statuses}
-            onSelect={(session) => { closePinnedPanel(); void selectSession(session.id) }}
-            onUnpin={handlePinSession}
+            onSelect={(pin) => { void openPinnedConversation(pin) }}
+            onUnpin={(pin) => togglePin(pin)}
             onClose={closePinnedPanel}
             t={t}
             lang={lang}

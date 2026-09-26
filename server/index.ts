@@ -7,6 +7,7 @@ import { networkInterfaces } from "node:os"
 import { config } from "./config.js"
 import { requireAuthentication } from "./auth.js"
 import { OpenCodeService } from "./opencode.js"
+import { PinService } from "./pins.js"
 import { PushService } from "./push.js"
 import { createRateLimiter } from "./utils/rate-limit.js"
 import { OpenCodeConnection } from "./connection.js"
@@ -19,6 +20,7 @@ import { registerAuthRoutes } from "./routes/auth.js"
 import { registerConfigRoutes } from "./routes/config.js"
 import { registerProjectRoutes } from "./routes/projects.js"
 import { registerSessionRoutes } from "./routes/sessions.js"
+import { registerPinRoutes } from "./routes/pins.js"
 import { registerConversationRoutes } from "./routes/conversation.js"
 import { registerModelRoutes } from "./routes/models.js"
 import { registerInteractionRoutes } from "./routes/interaction.js"
@@ -34,6 +36,7 @@ import type { Event } from "@opencode-ai/sdk"
 
 const app = express()
 const openCode = new OpenCodeService(config.openCode)
+const pins = new PinService()
 const push = new PushService(config.push)
 const connection = new OpenCodeConnection(openCode)
 const hub = new EventHub()
@@ -42,7 +45,7 @@ const hub = new EventHub()
 // بعيد عن السقف، لكن حلقات الخلل والعواصف بتتوقف بـ 429 + Retry-After
 const pollLimiter = createRateLimiter({ windowMs: 60_000, max: 300 })
 
-const routeContext: RouteContext = { openCode, push, connection, hub, pollLimiter }
+const routeContext: RouteContext = { openCode, pins, push, connection, hub, pollLimiter }
 
 app.disable("x-powered-by")
 // ضغط gzip/deflate للأصول والـ JSON — يفرق على شبكات Wi-Fi الضعيفة.
@@ -65,6 +68,7 @@ app.use("/api", connection.readinessGate())
 registerConfigRoutes(app, routeContext)
 registerProjectRoutes(app, routeContext)
 registerSessionRoutes(app, routeContext)
+registerPinRoutes(app, routeContext)
 registerConversationRoutes(app, routeContext)
 registerModelRoutes(app, routeContext)
 registerInteractionRoutes(app, routeContext)
@@ -178,4 +182,4 @@ void start().catch((error) => {
   process.exitCode = 1
 })
 
-export { app, openCode, push }
+export { app, openCode, pins, push }

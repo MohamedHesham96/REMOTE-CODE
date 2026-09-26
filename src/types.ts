@@ -157,6 +157,17 @@ export interface ActiveSession {
   updatedAt: number
 }
 
+// محادثة مثبّتة — مصدرها السيرفر (مش localStorage) عشان تظهر في كل الأجهزة.
+// ومعاه كل بياناته عشان اللوحة تعرضها وتفتحها من غير ما يكون مشروعها هو الحالي.
+export interface PinnedConversation {
+  id: string
+  title: string
+  created: number
+  directory: string
+  worktree: string
+  projectName: string
+}
+
 export interface HistoryTurn {
   id: string
   index: number

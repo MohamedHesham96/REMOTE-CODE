@@ -56,9 +56,15 @@ export function formatElapsed(since: number | undefined, t: Strings, now: number
   return rest > 0 ? `${minutes} ${t.minutesShort} ${rest} ${t.secondsShort}` : `${minutes} ${t.minutesShort}`
 }
 
+// اسم المشروع من مساره: آخر جزء بعد الشرطة — نفس اللي بتعمله الفيشة
+// في server/opencode.ts للمشاريع اللي مالهاش اسم من OpenCode
+export function projectNameFromPath(worktree: string): string {
+  const normalized = worktree.replace(/[\\/]+$/, "")
+  return normalized.split(/[\\/]/).filter(Boolean).pop() || worktree
+}
+
 export function projectName(project: Project): string {
-  const normalized = project.worktree.replace(/[\\/]+$/, "")
-  return normalized.split(/[\\/]/).filter(Boolean).pop() || project.worktree
+  return projectNameFromPath(project.worktree)
 }
 
 export function samePath(left: string | undefined | null, right: string | undefined | null): boolean {
