@@ -1778,34 +1778,6 @@ function App() {
                 </button>
               </div>
             </form>
-            <div className="composer-model-row">
-              <button className="composer-model-line" onClick={() => setShowModels(true)} title={t.changeModelTitle}>
-                <span aria-hidden>🤖</span>
-                <span dir="ltr">{modelLabel(displayedModel, t)}</span>
-                <span className="free-badge">FREE 🆓</span>
-                <span className="change-link">{t.change}</span>
-              </button>
-              {composerVariety ? (
-                <div className="composer-variety-row">
-                  <label className="composer-variety-label" htmlFor="composer-variety-select">{t.modelVariety}</label>
-                  <select
-                    id="composer-variety-select"
-                    className="composer-variety-select"
-                    value={composerVariety.active}
-                    disabled={composerVariety.busy}
-                    onChange={(event) => void handleSelectModel(composerVariety.model, event.target.value)}
-                    aria-label={t.modelVariety}
-                  >
-                    <option value="">{t.varietyDefault}</option>
-                    {composerVariety.variants.map((variant) => (
-                      <option value={variant} key={variant}>
-                        {variantLabel(variant, t)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : null}
-            </div>
           </div>
         </div>
       </main>
