@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { PINNED_SESSIONS_KEY, PINNED_SESSIONS_LIMIT } from "../constants"
+import { DEFAULT_MODEL_KEY, PINNED_SESSIONS_KEY, PINNED_SESSIONS_LIMIT } from "../constants"
 import type { PinnedConversation } from "../types"
 import {
   forgetPinnedConversations,
   hasLegacyPinnedFormat,
+  loadDefaultModel,
+  loadDefaultModels,
   loadPinnedConversations,
   pinBelongsToProject,
   pinConversation,
   pinProjectKey,
   pinsForProject,
+  saveDefaultModel,
   savePinnedConversations,
   stampPinnedProject,
   unpinConversation,
@@ -254,5 +257,73 @@ describe("pin list transitions", () => {
     const start = [pin("ses_a"), pin("ses_b"), pin("ses_c")]
     const round = unpinConversation(pinConversation(start, pin("ses_d")), "ses_d")
     expect(round.map((item) => item.id)).toEqual(["ses_a", "ses_b", "ses_c"])
+  })
+})
+
+describe("per-project default model", () => {
+  function writeDefaults(value: string): void {
+    ;(globalThis as unknown as { localStorage: Storage }).localStorage.setItem(DEFAULT_MODEL_KEY, value)
+  }
+
+  it("returns nothing when no model was ever chosen", () => {
+    expect(loadDefaultModel("/srv/one")).toBeNull()
+  })
+
+  it("round-trips the model and its thinking level", () => {
+    saveDefaultModel("/srv/one", { providerID: "openrouter", modelID: "big-pickle", variant: "high" })
+    expect(loadDefaultModel("/srv/one")).toEqual({ providerID: "openrouter", modelID: "big-pickle", variant: "high" })
+  })
+
+  it("keeps the model without a thinking level when auto was picked", () => {
+    saveDefaultModel("/srv/one", { providerID: "openrouter", modelID: "big-pickle" })
+    expect(loadDefaultModel("/srv/one")).toEqual({ providerID: "openrouter", modelID: "big-pickle" })
+  })
+
+  it("scopes each project to its own model and thinking level", () => {
+    saveDefaultModel("/srv/one", { providerID: "a", modelID: "one", variant: "low" })
+    saveDefaultModel("/srv/two", { providerID: "b", modelID: "two", variant: "max" })
+    expect(loadDefaultModel("/srv/one")).toEqual({ providerID: "a", modelID: "one", variant: "low" })
+    expect(loadDefaultModel("/srv/two")).toEqual({ providerID: "b", modelID: "two", variant: "max" })
+  })
+
+  it("matches the project path the same way last-session does", () => {
+    saveDefaultModel("/srv/one", { providerID: "a", modelID: "one", variant: "high" })
+    // نفس تطبيع lastSession: حروف صغيرة ونزع السلايش الأخير
+    expect(loadDefaultModel("/SRV/one/")).toEqual({ providerID: "a", modelID: "one", variant: "high" })
+  })
+
+  it("survives a reload because the choice is read back from localStorage", () => {
+    saveDefaultModel("/srv/one", { providerID: "a", modelID: "one", variant: "medium" })
+    writeDefaults(JSON.stringify({ "/srv/one": { providerID: "a", modelID: "one", variant: "medium" } }))
+    expect(loadDefaultModel("/srv/one")?.variant).toBe("medium")
+  })
+
+  it("overwrites the previous choice instead of stacking models", () => {
+    saveDefaultModel("/srv/one", { providerID: "a", modelID: "one", variant: "low" })
+    saveDefaultModel("/srv/one", { providerID: "a", modelID: "one", variant: "high" })
+    expect(loadDefaultModels()["/srv/one"]).toEqual({ providerID: "a", modelID: "one", variant: "high" })
+  })
+
+  it("drops a tampered entry that is missing the provider or the model", () => {
+    writeDefaults(JSON.stringify({
+      "/srv/one": { modelID: "one" },
+      "/srv/two": { providerID: "b" },
+      "/srv/three": { providerID: "c", modelID: "three" },
+    }))
+    expect(loadDefaultModel("/srv/one")).toBeNull()
+    expect(loadDefaultModel("/srv/two")).toBeNull()
+    expect(loadDefaultModel("/srv/three")).toEqual({ providerID: "c", modelID: "three" })
+  })
+
+  it("ignores a blank thinking level instead of storing an empty variant", () => {
+    writeDefaults(JSON.stringify({ "/srv/one": { providerID: "a", modelID: "one", variant: "   " } }))
+    expect(loadDefaultModel("/srv/one")).toEqual({ providerID: "a", modelID: "one" })
+  })
+
+  it("ignores corrupt or non-object storage content", () => {
+    writeDefaults("not json")
+    expect(loadDefaultModels()).toEqual({})
+    writeDefaults(JSON.stringify([{ providerID: "a", modelID: "one" }]))
+    expect(loadDefaultModels()).toEqual({})
   })
 })

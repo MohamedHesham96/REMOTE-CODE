@@ -55,7 +55,7 @@ import { usePinnedConversations } from "./hooks/usePinnedConversations"
 import { useSettledStatuses } from "./hooks/useSettledStatuses"
 import { isTouchComposer } from "./utils/device"
 import { normalizeProjectPath } from "./utils/paths"
-import { forgetLastSession, isRequestsEmpty, loadLastSessions, loadRecentProjects, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
+import { forgetLastSession, isRequestsEmpty, loadDefaultModel, loadLastSessions, loadRecentProjects, saveDefaultModel, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
 
 // أدراج ثقيلة تُحمّل عند الطلب فقط (code-splitting): القائمة الرئيسية
 // والشات يظهران فورًا، وهذه اللوحات تنزل عند أول فتح لها
@@ -116,6 +116,9 @@ function App() {
   const [modelsLoading, setModelsLoading] = useState(false)
   const [currentModel, setCurrentModel] = useState<SessionModelRef | null>(null)
   const [defaultModel, setDefaultModel] = useState<SessionModelRef | null>(null)
+  // الموديل + مستوى التفكير اللي المستخدم اختارهم للمشروع الحالي (محفوظ محليًا).
+  // ده اللي بيبدأ بيه أي محادثة جديدة — أولوية فوق الـ default العام بتاع opencode.
+  const [projectDefaultModel, setProjectDefaultModel] = useState<SessionModelRef | null>(null)
   const [pendingModel, setPendingModel] = useState<SessionModelRef | null>(null)
   const [showModels, setShowModels] = useState(false)
   const [switchingKey, setSwitchingKey] = useState<string | null>(null)
@@ -536,6 +539,9 @@ function App() {
       setComposer("")
       setShowSessions(false)
       setGitChanges(null)
+      // الافتراضي المحفوظ بيتقري للمشروع الجديد من effect بتاع selectedProject،
+      // فلازم نمسح الاختيار المؤقت القديم عشان ما يتسرّبش لمشروع تاني
+      setPendingModel(null)
       // Reset the previous task's Execution Plan right away on project/task
       // switch; refreshRequests below loads the new task's plan.
       setRequests([])
@@ -644,6 +650,12 @@ function App() {
       void loadModels()
     }
   }, [showModels, authState, selectedProject, loadModels])
+
+  // الموديل الافتراضي المحفوظ للمشروع الحالي: يتقري من الكاش مع كل تبديل مشروع
+  // (المشاريع المتعددة ليها كل واحدة اختيارها) ويتصفّر من غير مشروع مختار
+  useEffect(() => {
+    setProjectDefaultModel(selectedProject ? loadDefaultModel(selectedProject.worktree) : null)
+  }, [selectedProject])
 
   const loadHistory = useCallback(async () => {
     const id = activeIdRef.current
@@ -1289,7 +1301,9 @@ function App() {
       // لو مسودة جديدة: أنشئ الجلسة مع أول رسالة فقط
       let sessionId = activeIdRef.current
       const isNewSession = !sessionId
-      const modelForNewSession = isNewSession ? (pendingModel || currentModel || defaultModel || undefined) : undefined
+      // ترتيب الأسبقية: اختيار المستخدم للمحادثة دي > الافتراضي المحفوظ للمشروع
+      // > موديل آخر جلسة > الـ default العام بتاع opencode
+      const modelForNewSession = isNewSession ? (pendingModel || projectDefaultModel || currentModel || defaultModel || undefined) : undefined
       if (!sessionId) {
         const created = await createSession(undefined, true)
         sessionId = created.id
@@ -1356,7 +1370,7 @@ function App() {
     } finally {
       setSending(false)
     }
-  }, [sending, pendingModel, currentModel, defaultModel, refreshRequests, refreshSessions, setSettledStatus, addToast])
+  }, [sending, pendingModel, projectDefaultModel, currentModel, defaultModel, refreshRequests, refreshSessions, setSettledStatus, addToast])
 
   const handleSend = async (event?: FormEvent) => {
     event?.preventDefault()
@@ -1503,7 +1517,17 @@ function App() {
     }
   }
 
-  const displayedModel: SessionModelRef | null = activeId ? currentModel : (pendingModel || currentModel || defaultModel)
+  const displayedModel: SessionModelRef | null = activeId ? currentModel : (pendingModel || projectDefaultModel || currentModel || defaultModel)
+
+  // أي اختيار موديل/مستوى تفكير بيتحفظ كافتراضي للمشروع — عشان المحادثات
+  // الجاية تبدأ بيه من غير ما تعيد اختياره كل مرة
+  const rememberModelAsProjectDefault = useCallback((ref: SessionModelRef) => {
+    if (!selectedProject) {
+      return
+    }
+    saveDefaultModel(selectedProject.worktree, ref)
+    setProjectDefaultModel(ref)
+  }, [selectedProject])
 
   const handleSelectModel = async (model: ModelInfo, variant?: string) => {
     const cleanVariant = (variant || "").trim()
@@ -1515,6 +1539,7 @@ function App() {
     if (!sessionId) {
       setPendingModel(ref)
       setCurrentModel(ref)
+      rememberModelAsProjectDefault(ref)
       if (!keepOpen) {
         setShowModels(false)
       }
@@ -1530,6 +1555,7 @@ function App() {
     try {
       const result = await setSessionModel(sessionId, ref)
       setCurrentModel(result.model)
+      rememberModelAsProjectDefault(result.model)
       if (!keepOpen) {
         setShowModels(false)
       }

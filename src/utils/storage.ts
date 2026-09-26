@@ -1,5 +1,5 @@
-import { LAST_SESSION_KEY, PINNED_SESSIONS_KEY, PINNED_SESSIONS_LIMIT, RECENT_PROJECTS_KEY } from "../constants"
-import type { PinnedConversation, Session, SessionRequest } from "../types"
+import { DEFAULT_MODEL_KEY, LAST_SESSION_KEY, PINNED_SESSIONS_KEY, PINNED_SESSIONS_LIMIT, RECENT_PROJECTS_KEY } from "../constants"
+import type { PinnedConversation, Session, SessionModelRef, SessionRequest } from "../types"
 import { normalizeProjectPath } from "./paths"
 
 export function sortSessionsByCreated(list: Session[]): Session[] {
@@ -59,6 +59,79 @@ export function forgetLastSession(worktree: string): void {
     }
     delete all[key]
     localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(all))
+  } catch {
+    // ignore
+  }
+}
+
+// ── الموديل الافتراضي لكل مشروع ──
+// أول ما المستخدم يغيّر الموديل أو مستوى التفكير، الاختيار ده بيتخفظ هنا ويبقى
+// الافتراضي لكل محادثة جديدة في نفس المشروع (مفتاح المشروع هو المسار المطبّع،
+// زي lastSession بالظبط). المحادثات القديمة بتفضل على موديل opencode بتاعها.
+//
+// القيم جاية من localStorage فممكن تكون تالفة أو متعدّلة من الـ devtools، فبننضّفها
+// قبل الاستخدام: provider/model لازم يتكتبوا، والـ variant الفاضي بيتشال.
+
+const MODEL_PROVIDER_MAX = 100
+const MODEL_ID_MAX = 200
+const MODEL_VARIANT_MAX = 100
+
+export function normalizeModelRef(value: unknown): SessionModelRef | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null
+  }
+  const candidate = value as Partial<SessionModelRef>
+  const text = (input: unknown, max: number) => (typeof input === "string" ? input.trim().slice(0, max) : "")
+  const providerID = text(candidate.providerID, MODEL_PROVIDER_MAX)
+  const modelID = text(candidate.modelID, MODEL_ID_MAX)
+  if (!providerID || !modelID) {
+    return null
+  }
+  const variant = text(candidate.variant, MODEL_VARIANT_MAX)
+  return { providerID, modelID, ...(variant ? { variant } : {}) }
+}
+
+export function loadDefaultModels(): Record<string, SessionModelRef> {
+  try {
+    const raw = localStorage.getItem(DEFAULT_MODEL_KEY)
+    if (!raw) {
+      return {}
+    }
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {}
+    }
+    const result: Record<string, SessionModelRef> = {}
+    for (const [worktree, value] of Object.entries(parsed)) {
+      const ref = normalizeModelRef(value)
+      if (ref) {
+        result[normalizeProjectPath(worktree)] = ref
+      }
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
+
+export function loadDefaultModel(worktree: string): SessionModelRef | null {
+  return loadDefaultModels()[normalizeProjectPath(worktree)] ?? null
+}
+
+export function saveDefaultModel(worktree: string, model: SessionModelRef): void {
+  const key = normalizeProjectPath(worktree)
+  const ref = normalizeModelRef(model)
+  if (!key || !ref) {
+    return
+  }
+  try {
+    const all = loadDefaultModels()
+    const current = all[key]
+    if (current && current.providerID === ref.providerID && current.modelID === ref.modelID && (current.variant || "") === (ref.variant || "")) {
+      return
+    }
+    all[key] = ref
+    localStorage.setItem(DEFAULT_MODEL_KEY, JSON.stringify(all))
   } catch {
     // ignore
   }

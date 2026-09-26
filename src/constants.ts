@@ -4,6 +4,9 @@ export const STATUS_TO_IDLE_MS = 8000
 export const STATUS_TO_BUSY_MS = 0
 export const RECENT_PROJECTS_KEY = "opencode.recentProjects"
 export const LAST_SESSION_KEY = "opencode.lastSessionByProject"
+// الموديل + مستوى التفكير اللي المستخدم اختارهم — بيتحفظوا لكل مشروع على حدة
+// عشان كل محادثة جديدة في نفس المشروع تبدأ بيه
+export const DEFAULT_MODEL_KEY = "opencode.defaultModelByProject"
 export const PINNED_SESSIONS_KEY = "opencode.pinnedSessions"
 // سقف للمحادثات المثبّتة المحفوظة — يمنع التخزين من النمو بلا حد
 export const PINNED_SESSIONS_LIMIT = 200
