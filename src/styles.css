@@ -565,24 +565,47 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   .session-pin { opacity: 1; }
 }
 
-.sidebar-bottom { display: grid; gap: 3px; padding: 15px 16px 20px; border-top: 1px solid var(--border); }
-.connection-state { display: flex; align-items: center; gap: 7px; padding: 8px 4px 14px; color: var(--log-muted); font-size: 10px; }
-.sidebar-action { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border: 0; color: var(--text-faint); background: transparent; font-size: 12px; text-align: right; }
-.sidebar-action:hover { color: var(--text); }
+/* حالة الاتصال: شارة تحت الهيدر في القائمة الجانبية */
+.connection-state { display: flex; align-items: center; gap: 7px; margin: 0 16px 12px; padding: 7px 11px; border: 1px solid var(--border); border-radius: 20px; color: var(--text-dimmer); background: var(--surface-card); font-size: 10px; }
+.connection-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .main-panel { min-width: 0; min-height: 0; height: 100%; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .topbar { min-height: 84px; flex: 0 0 auto; display: flex; align-items: center; gap: 15px; padding: calc(18px + env(safe-area-inset-top)) clamp(18px, 4vw, 48px) 18px; border-bottom: 1px solid var(--border); background: var(--topbar-bg); }
 .current-session { min-width: 0; flex: 1; }
-.session-title-row { min-width: 0; display: flex; align-items: center; gap: 6px; }
-.current-session h1 { min-width: 0; overflow: hidden; margin: 3px 0 0; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; }
-.title-edit { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 28px; border: 0; border-radius: 8px; color: var(--text-faint); background: transparent; font-size: 15px; }
+/* One panel wrapping the project row and the conversation title, so the two
+   read as a single merged block instead of two loose strips. It is a flex
+   column, which is what lets the mobile order rules flip title-above-project
+   without moving anything in the DOM. No inner divider: the two rows swap
+   places between breakpoints, so a fixed hairline would land on the wrong
+   side. */
+.session-head { min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 9px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-card); }
+/* The conversation title is a chip so it speaks the same visual
+   language as the project badge and the model pill above it. The h1
+   itself carries the pill (not a wrapper) because it needs
+   overflow:hidden for the ellipsis, and a wrapper would not clip.
+   Scoped to .current-session: sidebar rows reuse .session-title-row. */
+.current-session .session-title-row { min-width: 0; display: flex; align-items: center; gap: 6px; }
+.current-session h1 { flex: 1 1 0; min-width: 0; overflow: hidden; margin: 0; padding: 6px 14px; border: 1px solid var(--accent-border); border-radius: 999px; color: var(--text); background: var(--accent-soft-bg2); text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.3; transition: border-color 0.15s ease, background 0.15s ease; }
+.current-session .session-title-row:hover h1 { border-color: var(--accent); }
+.title-edit { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 28px; border: 0; border-radius: 8px; color: var(--text-faint); background: transparent; font-size: 15px; opacity: 0; transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease; }
+.current-session .session-title-row:hover .title-edit,
+.current-session .session-title-row:focus-within .title-edit { opacity: 1; }
 .title-edit:hover { color: var(--accent-strong); background: rgba(139,124,255,0.1); }
-.session-title-form { min-width: 0; display: flex; align-items: center; gap: 5px; margin-top: 5px; }
-.session-title-form input { min-width: 0; width: min(100%, 520px); padding: 7px 10px; border: 1px solid var(--accent-border); border-radius: 9px; outline: none; color: var(--text); background: var(--surface-input); font-size: 14px; }
+/* No hover on touch, so the pencil has to stay visible there */
+@media (hover: none), (pointer: coarse) {
+  .title-edit { opacity: 1; }
+}
+.current-session .session-title-form { min-width: 0; display: flex; align-items: center; gap: 5px; }
+.current-session .session-title-form input { flex: 1 1 0; min-width: 0; width: auto; max-width: none; padding: 6px 14px; border: 1px solid var(--accent); border-radius: 999px; outline: none; color: var(--text); background: var(--accent-soft-bg2); font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
 .session-title-form input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139,124,255,0.14); }
 .title-action { width: 29px; height: 29px; display: grid; place-items: center; flex: 0 0 29px; border: 1px solid var(--border); border-radius: 8px; color: var(--text-dimmer); background: var(--surface-card); font-size: 15px; }
 .title-action:hover:not(:disabled) { color: var(--text); border-color: var(--accent-border); }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
+.topbar-rail { flex: 0 0 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
+/* Model name and thinking-level chip live in the top line, next to the
+   new-conversation button. The bar is flexible so the name ellipsizes
+   first when the line gets tight. */
+.model-bar { flex: 0 1 auto; min-width: 0; max-width: 100%; display: flex; }
 .icon-button { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 11px; color: var(--text-dimmer); background: var(--surface-card); font-size: 19px; }
 .icon-button:hover { color: var(--text); border-color: var(--accent-border); }
 /* Header option icons — each with its own vivid tint like the ⚡ active icon */
@@ -602,6 +625,15 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .icon-pinned:hover:not(:disabled) { color: var(--accent-strong); background: var(--accent-soft-bg2); border-color: var(--accent-border); box-shadow: 0 4px 16px rgba(139, 124, 255, 0.25); }
 .icon-settings { color: #c084fc; background: rgba(192, 132, 252, 0.12); border-color: rgba(192, 132, 252, 0.42); text-shadow: 0 0 12px rgba(192, 132, 252, 0.5); }
 .icon-settings:hover:not(:disabled) { color: #d9b0ff; border-color: rgba(192, 132, 252, 0.7); background: rgba(192, 132, 252, 0.19); box-shadow: 0 4px 16px rgba(192, 132, 252, 0.25); }
+/* تسجيل الخروج — آخر زرار في الهيدر، أحمر لأنه إجراء حساس */
+.icon-logout { color: #f87171; background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.42); text-shadow: 0 0 12px rgba(248, 113, 113, 0.5); }
+.icon-logout:hover:not(:disabled) { color: #fca5a5; border-color: rgba(248, 113, 113, 0.7); background: rgba(248, 113, 113, 0.19); box-shadow: 0 4px 16px rgba(248, 113, 113, 0.25); }
+/* كتم الصوت: Celadon مضاء طول ما الصوت شغّال، ورمادي مطفي وهو مكتوم —
+   والحالة مقروءة من الشكل (✕ بدل الموج) ومن اللون مع بعض */
+.icon-sound { color: #5eead4; background: rgba(45, 212, 191, 0.12); border-color: rgba(45, 212, 191, 0.42); text-shadow: 0 0 12px rgba(45, 212, 191, 0.5); }
+.icon-sound:hover:not(:disabled) { color: #99f6e4; border-color: rgba(45, 212, 191, 0.7); background: rgba(45, 212, 191, 0.19); box-shadow: 0 4px 16px rgba(45, 212, 191, 0.25); }
+.icon-muted { color: #94a3b8; background: rgba(148, 163, 184, 0.1); border-color: rgba(148, 163, 184, 0.3); }
+.icon-muted:hover:not(:disabled) { color: #cbd5e1; border-color: rgba(148, 163, 184, 0.5); background: rgba(148, 163, 184, 0.16); box-shadow: 0 4px 16px rgba(148, 163, 184, 0.2); }
 /* Theme emojis render vivid on every platform + dark moon gets a night glow */
 .icon-theme span, .theme-option-icon { filter: saturate(1.6); }
 .icon-theme span { font-size: 20px; line-height: 1; filter: saturate(1.7) drop-shadow(0 0 6px rgba(251, 113, 133, 0.65)); }
@@ -620,6 +652,12 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 [data-theme="glass"] .icon-history:hover:not(:disabled) { color: #3f6212; background: rgba(101, 163, 13, 0.16); border-color: rgba(101, 163, 13, 0.55); box-shadow: 0 4px 14px rgba(101, 163, 13, 0.22); }
 [data-theme="glass"] .icon-settings { color: #6d28d9; background: rgba(124, 58, 237, 0.09); border-color: rgba(124, 58, 237, 0.32); text-shadow: none; }
 [data-theme="glass"] .icon-settings:hover:not(:disabled) { color: #5b21b6; background: rgba(124, 58, 237, 0.15); border-color: rgba(124, 58, 237, 0.55); box-shadow: 0 4px 14px rgba(124, 58, 237, 0.22); }
+[data-theme="glass"] .icon-logout { color: #b91c1c; background: rgba(220, 38, 38, 0.09); border-color: rgba(220, 38, 38, 0.32); text-shadow: none; }
+[data-theme="glass"] .icon-logout:hover:not(:disabled) { color: #991b1b; background: rgba(220, 38, 38, 0.15); border-color: rgba(220, 38, 38, 0.55); box-shadow: 0 4px 14px rgba(220, 38, 38, 0.22); }
+[data-theme="glass"] .icon-sound { color: #0f766e; background: rgba(13, 148, 136, 0.09); border-color: rgba(13, 148, 136, 0.32); text-shadow: none; }
+[data-theme="glass"] .icon-sound:hover:not(:disabled) { color: #115e59; background: rgba(13, 148, 136, 0.15); border-color: rgba(13, 148, 136, 0.55); box-shadow: 0 4px 14px rgba(13, 148, 136, 0.22); }
+[data-theme="glass"] .icon-muted { color: #64748b; background: rgba(100, 116, 139, 0.09); border-color: rgba(100, 116, 139, 0.28); }
+[data-theme="glass"] .icon-muted:hover:not(:disabled) { color: #475569; background: rgba(100, 116, 139, 0.15); border-color: rgba(100, 116, 139, 0.5); box-shadow: 0 4px 14px rgba(100, 116, 139, 0.2); }
 [data-theme="glass"] .model-pill { border-width: 1.5px; box-shadow: 0 2px 10px rgba(5, 150, 105, 0.16); }
 [data-theme="glass"] .count-badge { background: #d97706; color: #fff; box-shadow: 0 2px 8px rgba(217, 119, 6, 0.4); }
 
@@ -883,10 +921,14 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .mobile-only { display: none; }
 
 /* موديلات مجانية */
-.model-pill { display: flex; align-items: center; gap: 7px; max-width: 240px; padding: 8px 11px; border: 1px solid rgba(66, 215, 162, 0.28); border-radius: 20px; color: var(--model-green-text); background: var(--green-bg); font-size: 11px; font-weight: 700; }
+/* One row that fills the line: model name and thinking-level chip side by side.
+   The name is the flexible one, so it ellipsizes first and the chip never shifts. */
+.model-pill { display: flex; flex: 1 1 auto; align-items: center; gap: 9px; width: 100%; max-width: 260px; padding: 7px 11px; border: 1px solid rgba(66, 215, 162, 0.28); border-radius: 999px; color: var(--model-green-text); background: var(--green-bg); font-size: 11px; font-weight: 700; }
 .model-pill:hover { border-color: rgba(66, 215, 162, 0.55); background: var(--green-bg); }
-.model-pill-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.model-pill-variant { padding: 1px 7px; border-radius: 999px; color: var(--model-green-text); background: var(--green-bg); font-size: 9px; font-weight: 700; white-space: nowrap; border: 1px solid rgba(66, 215, 162, 0.3); }
+.model-pill-id { min-width: 0; flex: 1 1 auto; display: flex; align-items: center; gap: 7px; }
+.model-pill-name { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-pill-variant { flex: 0 1 auto; min-width: 0; max-width: 55%; display: flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 999px; color: var(--model-green-text); background: var(--green-bg); font-size: 9px; font-weight: 700; white-space: nowrap; overflow: hidden; border: 1px solid rgba(66, 215, 162, 0.3); }
+.model-pill-variant-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 800; }
 .free-badge { padding: 2px 7px; border-radius: 20px; color: #06281c; background: var(--green); font-size: 9px; font-weight: 800; white-space: nowrap; }
 .current-badge { padding: 2px 7px; border-radius: 20px; color: var(--current-badge-text); background: var(--current-badge-bg); font-size: 9px; font-weight: 800; white-space: nowrap; }
 .variant-picker { margin-bottom: 12px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-card); }
@@ -1033,6 +1075,8 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .compact-trigger:hover:not(:disabled) { background: var(--accent-soft-bg3); }
 .project-name-badge {
   display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
   align-items: center;
   gap: 6px;
   max-width: 100%;
@@ -1048,7 +1092,8 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .compact-trigger-name { min-width: 0; max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar-project-row { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .new-chat-top {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -1236,28 +1281,35 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   .sidebar.sidebar-open { transform: translateX(0); }
   .mobile-only { display: grid; }
   .topbar { min-height: 0; padding: calc(12px + env(safe-area-inset-top)) 12px 10px; flex-wrap: wrap; gap: 10px; row-gap: 8px; align-items: flex-start; }
-.topbar > .mobile-only { order: 0; flex: 0 0 38px; align-self: stretch; }
-  .topbar > .mobile-only .icon-button { height: 100%; min-height: 68px; width: 44px; font-size: 22px; border-radius: 11px; }
-  .current-session { order: 1; flex: 1 1 0; min-width: 0; }
-  .topbar-project-row { gap: 6px; }
+  /* The rail sits on the top line: menu button, divider, then the icon row.
+     display: contents dissolves .topbar-actions so all ten buttons become
+     siblings in one flex row, which is what makes them exactly equal size. */
+  .topbar-rail { order: 0; flex: 1 1 100%; min-width: 0; display: flex; align-items: center; gap: 4px; }
+  .topbar-actions { display: contents; }
+  .topbar-rail .icon-button { position: relative; flex: 1 1 0; min-width: 0; width: auto; height: auto; aspect-ratio: 1; font-size: 16px; }
+  .topbar-rail-divider { flex: 0 0 auto; align-self: stretch; width: 1px; margin: 2px 3px; background: var(--border); }
+  .current-session { order: 1; flex: 1 1 100%; min-width: 0; display: flex; flex-direction: column; }
+  /* Conversation title takes the second row, so the project/model row drops below it */
+  .current-session .session-title-row,
+  .current-session .session-title-form { order: -1; }
+  .topbar-project-row { gap: 6px; flex-wrap: nowrap; }
+  .model-bar { flex: 1 1 auto; }
   .new-chat-top { padding: 4px 10px; font-size: 11px; }
-  .new-chat-top-label { max-width: 34vw; overflow: hidden; text-overflow: ellipsis; }
+  .compact-trigger-name { max-width: 26vw; }
+  .new-chat-top-label { max-width: 24vw; overflow: hidden; text-overflow: ellipsis; }
   .current-session .eyebrow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 700; }
-  .current-session h1 { font-size: 15px; line-height: 1.6; white-space: normal; display: -webkit-box; line-clamp: 2; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; word-break: break-word; }
-  .session-title-row { align-items: flex-start; }
-  .session-title-row h1 { flex: 1 1 auto; min-width: 0; }
-  .title-edit { flex: 0 0 26px; margin-top: 2px; }
+  .current-session h1 { padding: 5px 11px; font-size: 14px; line-height: 1.35; }
+  .current-session .session-title-form input { padding: 5px 11px; font-size: 14px; }
+  .current-session .session-title-row { align-items: center; }
+  .title-edit { flex: 0 0 26px; }
   /* عناوين قائمة المحادثات على الموبايل: سطرين بدل قصّ من أول سطر */
   .session-item .session-title-row { flex-wrap: wrap; row-gap: 4px; }
   .session-item .session-title { flex: 1 1 100%; min-width: 0; white-space: normal; display: -webkit-box; line-clamp: 2; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; word-break: break-word; }
   /* زرار الحذف والتثبيت ظاهرين دايمًا على الموبايل + هدف لمس أكبر */
   .session-delete { opacity: 1; width: 40px; font-size: 16px; }
   .session-pin { width: 40px; flex: 0 0 40px; font-size: 16px; }
-  .topbar-actions { order: 2; flex: 1 1 100%; min-width: 0; display: flex; align-items: center; gap: 6px; overflow-x: auto; overflow-y: visible; padding-top: 8px; padding-bottom: 4px; margin-top: -2px; scrollbar-width: none; }
-  .topbar-actions::-webkit-scrollbar { display: none; }
-  .topbar-actions .icon-button { flex: 0 0 34px; width: 34px; height: 34px; font-size: 17px; }
-  .model-pill { flex: 0 0 auto; max-width: 45vw; padding: 7px 9px; font-size: 10px; }
-  .model-pill-name { max-width: 28vw; }
+  .model-pill { flex: 1 1 auto; max-width: 100%; padding: 6px 9px; font-size: 10px; }
+  .model-pill-name { max-width: none; }
   .session-title-form { flex-wrap: nowrap; }
   .session-title-form input { font-size: 13px; }
   .title-edit, .title-action { width: 26px; height: 26px; flex-basis: 26px; }
@@ -1298,7 +1350,6 @@ html[dir="ltr"] .drawer-backdrop { justify-content: flex-end; }
 html[dir="ltr"] .new-session,
 html[dir="ltr"] .session-select,
 html[dir="ltr"] .pinned-select,
-html[dir="ltr"] .sidebar-action,
 html[dir="ltr"] .project-card,
 html[dir="ltr"] .project-switch,
 html[dir="ltr"] .project-option,

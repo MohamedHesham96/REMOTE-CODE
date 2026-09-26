@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- ملف helpers مشترك عمدًا
-   بين App واللوحات الكسولة، مع مكوّن SVG صغير واحد (GitBranchIcon) */
+   بين App واللوحات الكسولة، مع الأيقونات SVG (GitBranchIcon, LogoutIcon,
+   SoundOnIcon, SoundMuteIcon, SettingsIcon) */
 import { localeOf, type Language, type Strings } from "./i18n"
 import type { GitChangeFile, GitChangeStatus, ModelInfo, Project, SessionModelRef, SessionStatus } from "./types"
 
@@ -158,6 +159,51 @@ export function GitBranchIcon() {
       <circle cx="18" cy="9" r="2.2" />
       <path d="M6 7.2v9.6" />
       <path d="M18 11.2c0 3.4-2.3 4.6-5.2 5.2" />
+    </svg>
+  )
+}
+
+// أيقونة الطاقة بدل "↪" كحرف: الرسم ثابت في الاتجاهين، يعني بتقرأ صح
+// في العربي (RTL) والإنجليزي (LTR) من غير قلب ولا CSS إضافي.
+export function LogoutIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2v10" />
+      <path d="M18.4 6.6a9 9 0 1 1-12.8 0" />
+    </svg>
+  )
+}
+
+// سماعة + موجتين: حالة "الصوت شغّال".
+export function SoundOnIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 9h3l5-4v14l-5-4H3z" />
+      <path d="M15 9.5a4 4 0 0 1 0 5" />
+      <path d="M18.5 7a8 8 0 0 1 0 10" />
+    </svg>
+  )
+}
+
+// نفس السماعة لكن علامة ✕ بدل الموجتين: حالة "مكتوم" — الفرق بين الشكلين
+// واضح من غير لون، فحتى الأعمى للوضع يميّزهم من الشكل.
+export function SoundMuteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 9h3l5-4v14l-5-4H3z" />
+      <path d="m16 9.5 5 5" />
+      <path d="m21 9.5-5 5" />
+    </svg>
+  )
+}
+
+// الترس كـ SVG بدل حرف "⚙": الحرف كان بيتلوّن إيموجي على بعض الأنظمة
+// فبيتجاهل لون .icon-settings البنفسجي، وكان أخف من باقي أيقونات الهيدر.
+export function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   )
 }

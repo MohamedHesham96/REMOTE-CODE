@@ -39,9 +39,13 @@ import {
   formatTime,
   GitBranchIcon,
   getVarietyLevels,
+  LogoutIcon,
   projectName,
   samePath,
+  SettingsIcon,
   shortModelName,
+  SoundMuteIcon,
+  SoundOnIcon,
   statusLabel,
 } from "./display"
 import { ACTIVE_GRACE_MS, COMPOSER_MAX_LINES, PINS_SYNC_EVENT, RECENT_PROJECTS_KEY, emptyConfig } from "./constants"
@@ -1749,6 +1753,10 @@ function App() {
           <div className="brand"><span className="brand-mark small"><img src="/icon.svg" alt="RemoteCode" /></span><span>RemoteCode</span></div>
           <button className="icon-button mobile-only" onClick={() => setShowSessions(false)} aria-label={t.closeMenu}>×</button>
         </div>
+        <div className="connection-state" role="status">
+          <span className={`status-dot ${eventConnected ? "online" : "offline"}`} />
+          <span className="connection-label">{eventConnected ? t.connectedLive : t.reconnecting}</span>
+        </div>
         <ProjectDropdown
           variant="sidebar"
           projects={projects}
@@ -1788,65 +1796,81 @@ function App() {
             </>
           )}
         </div>
-        <div className="sidebar-bottom">
-          <div className="connection-state"><span className={`status-dot ${eventConnected ? "online" : "offline"}`} />{eventConnected ? t.connectedLive : t.reconnecting}</div>
-          <button className="sidebar-action" onClick={() => setShowSettings(true)}><span>⚙</span> {t.settings}</button>
-          <button className="sidebar-action" onClick={() => void handleLogout()}><span>↪</span> {t.logout}</button>
-        </div>
       </aside>
 
       <main className="main-panel">
         <header className="topbar">
-          <button className="icon-button mobile-only" onClick={() => setShowSessions(true)} aria-label={t.openSessions}>☰</button>
           <div className="current-session">
-            <div className="topbar-project-row">
-              <div className="project-name-badge" title={selectedProject ? projectName(selectedProject) : undefined}>
-                <span aria-hidden>📁</span>
-                <span className="compact-trigger-name">{switchingProject ? t.opening : selectedProject ? projectName(selectedProject) : "—"}</span>
+            <div className="session-head">
+              <div className="topbar-project-row">
+                <div className="project-name-badge" title={selectedProject ? projectName(selectedProject) : undefined}>
+                  <span aria-hidden>📁</span>
+                  <span className="compact-trigger-name">{switchingProject ? t.opening : selectedProject ? projectName(selectedProject) : "—"}</span>
+                </div>
+                <button className="new-chat-top" type="button" onClick={() => void handleNewSession()} disabled={!selectedProject} title={t.newConversation} aria-label={t.newConversation}>
+                  <span aria-hidden>＋</span>
+                  <span className="new-chat-top-label">{t.newConversation}</span>
+                </button>
+                <div className="model-bar">
+                  <button className="model-pill" onClick={() => setShowModels(true)} title={t.modelInUse}>
+                    <span className="model-pill-id">
+                      <span aria-hidden>🤖</span>
+                      <span className="model-pill-name" dir="ltr">
+                        {displayedModel ? (() => {
+                          const model = models.find((m) => m.providerID === displayedModel.providerID && m.id === displayedModel.modelID);
+                          return model ? shortModelName(model) : displayedModel.modelID;
+                        })() : t.defaultModel}
+                      </span>
+                    </span>
+                    {displayedModel?.variant && (
+                      <span className="model-pill-variant">
+                        <span className="model-pill-variant-value" dir="ltr">{displayedModel.variant}</span>
+                      </span>
+                    )}
+                  </button>
+                </div>
               </div>
-              <button className="new-chat-top" type="button" onClick={() => void handleNewSession()} disabled={!selectedProject} title={t.newConversation} aria-label={t.newConversation}>
-                <span aria-hidden>＋</span>
-                <span className="new-chat-top-label">{t.newConversation}</span>
-              </button>
-            </div>
-            {editingSessionId !== null && editingSessionId === activeId ? (
-              <form className="session-title-form" onSubmit={handleRenameSession}>
-                <input aria-label={t.conversationName} value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} onKeyDown={handleSessionTitleKeyDown} maxLength={120} required autoFocus disabled={renamingTitle} />
-                <button className="title-action" type="submit" disabled={!titleDraft.trim() || renamingTitle} aria-label={t.save}>{renamingTitle ? "…" : "✓"}</button>
-                <button className="title-action" type="button" onClick={cancelRenamingSession} disabled={renamingTitle} aria-label={t.cancel}>×</button>
-              </form>
-            ) : (
-              <div className="session-title-row"><h1 title={activeTitle}>{activeTitle}</h1>{activeSession ? <button className="title-edit" onClick={startRenamingSession} aria-label={t.renameConversation}>✎</button> : null}</div>
-            )}
-          </div>
-          <div className="topbar-actions">
-            <button className="model-pill" onClick={() => setShowModels(true)} title={t.modelInUse}>
-              <span aria-hidden>🤖</span>
-              <span className="model-pill-name" dir="ltr">
-                {displayedModel ? (() => {
-                  const model = models.find((m) => m.providerID === displayedModel.providerID && m.id === displayedModel.modelID);
-                  return model ? shortModelName(model) : displayedModel.modelID;
-                })() : t.defaultModel}
-              </span>
-              {displayedModel?.variant && (
-                <span className="model-pill-variant" dir="ltr">{displayedModel.variant}</span>
+              {editingSessionId !== null && editingSessionId === activeId ? (
+                <form className="session-title-form" onSubmit={handleRenameSession}>
+                  <input aria-label={t.conversationName} value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} onKeyDown={handleSessionTitleKeyDown} maxLength={120} required autoFocus disabled={renamingTitle} />
+                  <button className="title-action" type="submit" disabled={!titleDraft.trim() || renamingTitle} aria-label={t.save}>{renamingTitle ? "…" : "✓"}</button>
+                  <button className="title-action" type="button" onClick={cancelRenamingSession} disabled={renamingTitle} aria-label={t.cancel}>×</button>
+                </form>
+              ) : (
+                <div className="session-title-row"><h1 title={activeTitle}>{activeTitle}</h1>{activeSession ? <button className="title-edit" onClick={startRenamingSession} aria-label={t.renameConversation}>✎</button> : null}</div>
               )}
-            </button>
-            <button className="icon-button activity-button icon-activity" onClick={() => setShowActivity(true)} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activity.length > 0 ? <span className="count-badge">{activity.length}</span> : null}</button>
-            <button
-              className="icon-button icon-pinned"
-              onClick={() => setShowPinned(true)}
-              aria-label={t.pinnedConversations}
-              title={`${t.pinnedConversations} — ${selectedProject ? projectName(selectedProject) : t.unknownProject} 📌`}
-            >
-              <span aria-hidden>📌</span>
-              {projectPins.length > 0 ? <span className="count-badge">{projectPins.length}</span> : null}
-            </button>
-            <button className="icon-button activity-button git-button icon-git" onClick={openGitChanges} aria-label={t.gitChangesAria} title={`${t.gitChangesAria} ⑂`}><GitBranchIcon />{gitChangedCount > 0 ? <span className="count-badge">{gitChangedCount}</span> : null}</button>
-            <button className="icon-button icon-theme" onClick={toggleTheme} aria-label={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`} title={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`}><span aria-hidden>{THEME_META[theme].icon}</span></button>
-            <button className="icon-button lang-button icon-lang" onClick={toggleLanguage} aria-label={t.language} title={t.language}><span className="lang-globe" aria-hidden>🌐</span><span className={`lang-code${lang === "ar" ? "" : " lang-ar"}`}>{lang === "ar" ? "EN" : "ع"}</span></button>
-            <button className="icon-button icon-history" onClick={() => setShowHistory(true)} aria-label={t.historyAria} title={`${t.historyAria} 🕘`}>🕘</button>
-            <button className="icon-button icon-settings" onClick={() => setShowSettings(true)} aria-label={t.settingsAria}>⚙</button>
+            </div>
+          </div>
+          <div className="topbar-rail">
+            <button className="icon-button mobile-only" onClick={() => setShowSessions(true)} aria-label={t.openSessions}>☰</button>
+            <span className="topbar-rail-divider mobile-only" aria-hidden />
+            <div className="topbar-actions">
+              <button className="icon-button activity-button icon-activity" onClick={() => setShowActivity(true)} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activity.length > 0 ? <span className="count-badge">{activity.length}</span> : null}</button>
+              <button
+                className="icon-button icon-pinned"
+                onClick={() => setShowPinned(true)}
+                aria-label={t.pinnedConversations}
+                title={`${t.pinnedConversations} — ${selectedProject ? projectName(selectedProject) : t.unknownProject} 📌`}
+              >
+                <span aria-hidden>📌</span>
+                {projectPins.length > 0 ? <span className="count-badge">{projectPins.length}</span> : null}
+              </button>
+              <button className="icon-button activity-button git-button icon-git" onClick={openGitChanges} aria-label={t.gitChangesAria} title={`${t.gitChangesAria} ⑂`}><GitBranchIcon />{gitChangedCount > 0 ? <span className="count-badge">{gitChangedCount}</span> : null}</button>
+              <button className="icon-button icon-theme" onClick={toggleTheme} aria-label={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`} title={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`}><span aria-hidden>{THEME_META[theme].icon}</span></button>
+              <button className="icon-button lang-button icon-lang" onClick={toggleLanguage} aria-label={t.language} title={t.language}><span className="lang-globe" aria-hidden>🌐</span><span className={`lang-code${lang === "ar" ? "" : " lang-ar"}`}>{lang === "ar" ? "EN" : "ع"}</span></button>
+              <button
+                className={`icon-button ${soundOn ? "icon-sound" : "icon-muted"}`}
+                onClick={toggleSound}
+                aria-pressed={soundOn}
+                aria-label={soundOn ? t.mute : t.unmute}
+                title={soundOn ? t.mute : t.unmute}
+              >
+                {soundOn ? <SoundOnIcon /> : <SoundMuteIcon />}
+              </button>
+              <button className="icon-button icon-history" onClick={() => setShowHistory(true)} aria-label={t.historyAria} title={`${t.historyAria} 🕘`}>🕘</button>
+              <button className="icon-button icon-settings" onClick={() => setShowSettings(true)} aria-label={t.settingsAria} title={t.settingsAria}><SettingsIcon /></button>
+              <button className="icon-button icon-logout" onClick={() => void handleLogout()} aria-label={t.logout} title={t.logout}><LogoutIcon /></button>
+            </div>
           </div>
         </header>
 
