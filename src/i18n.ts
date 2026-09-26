@@ -3,8 +3,6 @@ export type Language = "ar" | "en";
 
 const LANG_KEY = "opencode-language";
 
-export const LANGUAGES: Language[] = ["ar", "en"];
-
 export const LANGUAGE_META: Record<Language, { label: string; short: string; dir: "rtl" | "ltr" }> = {
   ar: { label: "العربية", short: "ع", dir: "rtl" },
   en: { label: "English", short: "EN", dir: "ltr" },

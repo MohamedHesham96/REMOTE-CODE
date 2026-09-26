@@ -13,10 +13,6 @@ export function pinsEvent(pins: unknown): string {
 export class EventHub {
   private readonly clients = new Set<Response>()
 
-  get size(): number {
-    return this.clients.size
-  }
-
   add(client: Response): void {
     if (this.clients.size >= MAX_EVENT_CLIENTS) {
       const oldest = this.clients.values().next()

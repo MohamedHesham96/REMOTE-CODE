@@ -1,5 +1,5 @@
 import { ApiError, request } from "./http"
-import type { FileDiff, HistoryTurn, SessionMessage, SessionModelRef, SessionRequests, Todo } from "../types"
+import type { HistoryTurn, SessionModelRef, SessionRequests } from "../types"
 
 // كاش ETag لطلبات المحادثة: السيرفر يرجّع 304 فاضي لما مفيش تغيير،
 // فنرجّع آخر payload من الذاكرة — نفس المرجع (reference) عشان React
@@ -52,10 +52,6 @@ export async function getRequests(id: string, lang: "ar" | "en" = "ar"): Promise
   return result
 }
 
-export function getMessages(id: string): Promise<SessionMessage[]> {
-  return request<SessionMessage[]>(`/api/session/${encodeURIComponent(id)}/message`)
-}
-
 export function getHistory(id: string, lang: "ar" | "en" = "ar"): Promise<HistoryTurn[]> {
   return request<HistoryTurn[]>(`/api/session/${encodeURIComponent(id)}/history?lang=${lang}`)
 }
@@ -81,12 +77,4 @@ export function removeQueuedRequest(id: string, requestId: string): Promise<{ re
 
 export function runQueuedRequest(id: string, requestId: string): Promise<{ started: boolean; remaining: number }> {
   return request<{ started: boolean; remaining: number }>(`/api/session/${encodeURIComponent(id)}/request/${encodeURIComponent(requestId)}/run`, { method: "POST" })
-}
-
-export function getTodos(id: string): Promise<Todo[]> {
-  return request<Todo[]>(`/api/session/${encodeURIComponent(id)}/todo`)
-}
-
-export function getDiff(id: string): Promise<FileDiff[]> {
-  return request<FileDiff[]>(`/api/session/${encodeURIComponent(id)}/diff`)
 }

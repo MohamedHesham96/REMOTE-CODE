@@ -70,7 +70,7 @@ export class PushService {
   readonly enabled: boolean
   readonly publicKey: string | undefined
 
-  constructor(private readonly options: PushOptions) {
+  constructor(options: PushOptions) {
     this.storagePath = resolve(process.cwd(), "data", "push-subscriptions.json")
     this.enabled = Boolean(options.publicKey && options.privateKey)
     this.publicKey = options.publicKey

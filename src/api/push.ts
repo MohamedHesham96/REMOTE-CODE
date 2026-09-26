@@ -14,10 +14,3 @@ export function unsubscribePush(endpoint: string): Promise<{ ok: true }> {
     body: JSON.stringify({ endpoint }),
   })
 }
-
-export function testPush(subscription: PushSubscriptionJson, lang: "ar" | "en" = "ar"): Promise<{ ok: true }> {
-  return request<{ ok: true }>("/api/push/test", {
-    method: "POST",
-    body: JSON.stringify({ ...subscription, lang }),
-  })
-}

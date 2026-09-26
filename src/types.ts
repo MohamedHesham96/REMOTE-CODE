@@ -1,6 +1,6 @@
-import type { Event, FileDiff, Message, Part, Permission, Project, Session, SessionStatus, Todo } from "@opencode-ai/sdk"
+import type { Event, Permission, Project, Session, SessionStatus, Todo } from "@opencode-ai/sdk"
 
-export type { Event, FileDiff, Message, Part, Permission, Project, Session, SessionStatus, Todo }
+export type { Event, Permission, Project, Session, SessionStatus, Todo }
 
 export type AuthState = "loading" | "signedOut" | "signedIn"
 
@@ -110,11 +110,6 @@ export interface AppConfig {
     publicKey: string | null
   }
   secureContext: boolean
-}
-
-export interface SessionMessage {
-  info: Message
-  parts: Part[]
 }
 
 export interface PushSubscriptionJson {
