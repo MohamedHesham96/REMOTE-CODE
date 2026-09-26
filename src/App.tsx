@@ -181,6 +181,20 @@ function App() {
   // للجلسات الخلفية كانت بتضرب /api/activity مع كل حدث — الآن حد أقصى واحد
   const activityTimerRef = useRef<number | null>(null)
 
+  // Track keyboard visibility on mobile to keep topbar visible
+  const [keyboardOpen, setKeyboardOpen] = useState(false)
+  useEffect(() => {
+    if (typeof window.visualViewport === "undefined") return
+    const viewport = window.visualViewport!
+    const handleResize = () => {
+      if (!viewport) return
+      const heightRatio = viewport.height / window.innerHeight
+      setKeyboardOpen(heightRatio < 0.75)
+    }
+    viewport.addEventListener("resize", handleResize)
+    return () => viewport.removeEventListener("resize", handleResize)
+  }, [])
+
   const activeSession = useMemo(() => sessionMatches(sessions, activeId), [sessions, activeId])
   const activeTitle = displayTitle(activeSession?.title, t)
   const activeStatus = activeId ? statuses[activeId] : undefined
@@ -1672,7 +1686,7 @@ function App() {
       </aside>
 
       <main className="main-panel">
-        <header className="topbar">
+        <header className={`topbar${keyboardOpen ? " keyboard-open" : ""}`}>
           <button className="icon-button mobile-only" onClick={() => setShowSessions(true)} aria-label={t.openSessions}>☰</button>
           <div className="current-session">
             <div className="topbar-project-row">
