@@ -580,13 +580,15 @@
 [data-theme="glass"] .todo-panel {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 100%), var(--todo-panel-bg);
 }
-[data-theme="glass"] .task-summary {
+[data-theme="glass"] .task-summary,
+[data-theme="glass"] .topbar {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 100%), var(--grad-summary);
 }
 [data-theme="glass"] .toast {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 100%), var(--toast-bg);
 }
 [data-theme="glass"] .task-summary,
+[data-theme="glass"] .topbar,
 [data-theme="glass"] .composer,
 [data-theme="glass"] .todo-panel,
 [data-theme="glass"] .toast {
@@ -782,9 +784,9 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .connection-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .main-panel { min-width: 0; min-height: 0; height: 100%; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-/* الهيدر كله بطاقة حبة واحدة عائمة: العنوان وصف المشروع وأزرار
-   الإجراءات جوّه نفس الحاوية المستديرة بدل الشريط المسطّح. */
-.topbar { min-height: 84px; flex: 0 0 auto; display: flex; align-items: center; gap: 15px; margin: calc(12px + env(safe-area-inset-top)) clamp(12px, 3vw, 40px) 0; padding: 14px clamp(14px, 2.5vw, 28px); border: 1px solid var(--border); border-radius: 8px; background: var(--topbar-bg); }
+/* الهيدر بنفس بطاقة المهمة الأب: نفس الحد الكامل والخلفية والظل والاستدارة
+   مع هامش جانبي صغير حتى يقرأ كجزء من نفس المجموعة. */
+.topbar { min-height: 84px; flex: 0 0 auto; display: flex; align-items: center; gap: 15px; margin: calc(12px + env(safe-area-inset-top)) 8px 0; padding: 14px clamp(14px, 2.5vw, 28px); border: 1px solid var(--accent-border); border-radius: 8px; background: var(--grad-summary); box-shadow: 0 16px 45px rgba(0, 0, 0, 0.16); }
 .current-session { min-width: 0; flex: 1; }
 /* غلاف شفاف بلا كروم بطاقة: الـ topbar نفسه هو البطاقة الآن،
    فالبطانة الداخلية كانت هتعمل بطاقة جوّه بطاقة. عنوان المحادثة
@@ -1336,12 +1338,14 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .project-dropdown-standalone { display: grid; gap: 10px; margin-top: 22px; }
 .project-dropdown-standalone .project-listbox { max-height: min(50vh, 420px); }
 
-.task-summary { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; padding: clamp(18px, 4vw, 28px); border: 1px solid var(--accent-border); border-radius: 8px; background: var(--grad-summary); box-shadow: 0 16px 45px rgba(0, 0, 0, 0.16); }
+.task-summary { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; padding: clamp(18px, 4vw, 28px) clamp(14px, 2.5vw, 28px); border: 1px solid var(--accent-border); border-radius: 8px; background: var(--grad-summary); box-shadow: 0 16px 45px rgba(0, 0, 0, 0.16); }
 /* سلسلة ارتفاعات محددة لارتفاع النافذة: حاوية التمرير لها ارتفاع فعلي
    (flex:1)، فالستاك ياخذ 100٪ منه بالظبط والبطاقة 100٪ من الستاك —
    من غير ارتفاع محدد الـ flex:1 لا يقيّد والقائمة الداخلية تتمدد بلا
    سكرول. القائمة وحدها هي اللي بتسكرول (flex:1 + min-height:0). */
-.request-stack { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+/* البطاقة الأب بنفس عرض الهيدر: الهامش السالب يقلّص الحشو الجانبي
+   للحاوية إلى هامش صغير مساوٍ لهامش الهيدر بدل الامتداد من حافة إلى حافة. */
+.request-stack { display: flex; flex-direction: column; height: 100%; min-height: 0; margin: 0 -4px; }
 /* الطلبات كلها جواه كارت واحد على شكل قائمة مهام */
 .request-list { display: grid; gap: 9px; align-content: start; margin: 8px 0 0; padding: 0; list-style: none; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .request-row { min-width: 0; border: 1px solid var(--border); border-radius: 5px; background: var(--accent-soft-bg2); --request-mark-size: 22px; --request-action-size: 24px; }
@@ -1605,7 +1609,7 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   .project-grid { grid-template-columns: 1fr; }
   .project-picker { padding: 25px 17px; border-radius: 8px; }
   .project-picker-header h1 { font-size: 26px; }
-  .task-summary { padding: 16px; }
+  .task-summary { padding: 16px 12px; }
   .copy-result { position: static; display: block; margin-top: 10px; padding: 0; }
   /* أزرار الطابور: أيقونة بس + هدف لمس أكبر، عشان السطر ما يتزحزحش */
   .request-row-head { padding: 11px 8px 11px 12px; }
