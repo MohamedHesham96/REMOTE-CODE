@@ -14,7 +14,7 @@ export function RequestCard({ requests, sessionId, onCopy, onToast, onSkip, onRu
     <section className={`task-summary task-${latest ? latest.state : "done"}`}>
       <div className="task-summary-top">
         <div>
-          <div className="eyebrow">{t.taskStatus} · {t.requestsInSession} {requests.length}</div>
+          <div className="eyebrow">{t.taskStatus} · {t.requestsInSession} [{requests.length}]</div>
           <h2>{latest ? t[REQUEST_STATE_TITLE[latest.state]] : t.taskFinished}</h2>
         </div>
         <span className="task-summary-state">{latest ? t[REQUEST_STATE_LABEL[latest.state]] : t.done}</span>

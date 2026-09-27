@@ -782,15 +782,14 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .connection-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .main-panel { min-width: 0; min-height: 0; height: 100%; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.topbar { min-height: 84px; flex: 0 0 auto; display: flex; align-items: center; gap: 15px; padding: calc(18px + env(safe-area-inset-top)) clamp(18px, 4vw, 48px) 18px; border-bottom: 1px solid var(--border); background: var(--topbar-bg); }
+/* الهيدر كله بطاقة حبة واحدة عائمة: العنوان وصف المشروع وأزرار
+   الإجراءات جوّه نفس الحاوية المستديرة بدل الشريط المسطّح. */
+.topbar { min-height: 84px; flex: 0 0 auto; display: flex; align-items: center; gap: 15px; margin: calc(12px + env(safe-area-inset-top)) clamp(12px, 3vw, 40px) 0; padding: 14px clamp(14px, 2.5vw, 28px); border: 1px solid var(--border); border-radius: 24px; background: var(--topbar-bg); }
 .current-session { min-width: 0; flex: 1; }
-/* One panel wrapping the project row and the conversation title, so the two
-   read as a single merged block instead of two loose strips. It is a flex
-   column, which is what lets the mobile order rules flip title-above-project
-   without moving anything in the DOM. No inner divider: the two rows swap
-   places between breakpoints, so a fixed hairline would land on the wrong
-   side. */
-.session-head { min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 9px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-card); }
+/* ترتيب عمودي فقط بلا كروم بطاقة: الـ topbar نفسه هو البطاقة الآن،
+   فالبطانة الداخلية كانت هتعمل بطاقة جوّه بطاقة. الـ flex column هو
+   اللي بيخلّي قواعد الموبايل تقلب العنوان فوق المشروع من غير تحريك DOM. */
+.session-head { min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 9px; padding: 0; border: 0; background: transparent; }
 /* The conversation title is a chip so it speaks the same visual
    language as the project badge and the model pill above it. The h1
    itself carries the pill, and the rename pencil lives inside it so
@@ -996,7 +995,7 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .activity-row-body { min-width: 0; flex: 1; display: grid; gap: 3px; }
 .activity-row-body strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .activity-row-body small { color: var(--text-faint); font-size: 10px; }
-.workspace-scroll { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: auto; padding: clamp(22px, 5vw, 64px) clamp(18px, 6vw, 90px) 30px; }
+.workspace-scroll { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: auto; padding: clamp(10px, 2.5vw, 28px) clamp(18px, 6vw, 90px) 14px; }
 .welcome-state { max-width: 690px; margin: clamp(35px, 10vh, 110px) auto 0; text-align: center; }
 .welcome-orb { width: 84px; height: 84px; display: grid; place-items: center; margin: 0 auto 24px; padding: 0; overflow: hidden; border-radius: 28px; background: linear-gradient(145deg, #1e1b4b, #0b1020); border: 1px solid rgba(255, 255, 255, 0.16); box-shadow: 0 0 60px rgba(110, 94, 255, 0.35), 0 16px 38px rgba(0, 0, 0, 0.45), 0 0 0 5px rgba(139, 124, 255, 0.08); animation: orb-float 3.5s ease-in-out infinite; }
 .welcome-orb img { width: 100%; height: 100%; display: block; border-radius: inherit; object-fit: cover; }
@@ -1336,10 +1335,14 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .project-dropdown-standalone { display: grid; gap: 10px; margin-top: 22px; }
 .project-dropdown-standalone .project-listbox { max-height: min(50vh, 420px); }
 
-.task-summary { width: 100%; padding: clamp(18px, 4vw, 28px); border: 1px solid var(--accent-border); border-radius: 19px; background: var(--grad-summary); box-shadow: 0 16px 45px rgba(0, 0, 0, 0.16); }
-.request-stack { display: grid; gap: 14px; }
+.task-summary { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; padding: clamp(18px, 4vw, 28px); border: 1px solid var(--accent-border); border-radius: 19px; background: var(--grad-summary); box-shadow: 0 16px 45px rgba(0, 0, 0, 0.16); }
+/* سلسلة ارتفاعات محددة لارتفاع النافذة: حاوية التمرير لها ارتفاع فعلي
+   (flex:1)، فالستاك ياخذ 100٪ منه بالظبط والبطاقة 100٪ من الستاك —
+   من غير ارتفاع محدد الـ flex:1 لا يقيّد والقائمة الداخلية تتمدد بلا
+   سكرول. القائمة وحدها هي اللي بتسكرول (flex:1 + min-height:0). */
+.request-stack { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 /* الطلبات كلها جواه كارت واحد على شكل قائمة مهام */
-.request-list { display: grid; gap: 9px; margin: 18px 0 0; padding: 0; list-style: none; }
+.request-list { display: grid; gap: 9px; align-content: start; margin: 8px 0 0; padding: 0; list-style: none; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .request-row { min-width: 0; border: 1px solid var(--border); border-radius: 13px; background: var(--accent-soft-bg2); --request-mark-size: 22px; --request-action-size: 24px; }
 .request-row.is-open { border-color: var(--accent-border); background: var(--surface-tint); }
 /* نص الطلب ياخد سطر كامل بعرض الكارت، فوقه رقم الطلب والحالة — والأزرار
@@ -1387,8 +1390,17 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .task-queued .activity-pulse { background: var(--yellow); box-shadow: 0 0 0 4px rgba(245, 199, 108, 0.12); }
 .task-stopped .activity-pulse { background: var(--red); box-shadow: 0 0 0 4px rgba(239, 105, 105, 0.12); animation: none; }
 [data-theme="dark"] .task-stopped .task-summary-state { color: var(--red); background: rgba(239, 105, 105, 0.1); }
-.task-summary-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
-.task-summary h2 { margin: 5px 0 0; font-size: 21px; }
+/* ترويسة المحادثة ("حالة المهمة · الطلبات في المحادثة") ثابتة فوق أثناء
+   التمرير: sticky داخل حاوية التمرير، وشايلة حدّ بطاقتها معاها (إطار
+   مستدير) فتتحرك ككتلة واحدة بدل نص عائم. الخلفية معتمة في كل الثيمات
+   عشان الصفوف تعدّي من تحتها من غير ما تبان من خلالها. */
+.task-summary-top { position: sticky; top: 0; z-index: 3; display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; margin-bottom: 10px; padding: 10px 14px; border: 1px solid var(--accent-border); border-radius: 14px; background: var(--grad-summary); }
+/* ذيل تلاشي تحت الترويسة الثابتة: الصفوف وهي داخلة تحتها تدوب تدريجيًا
+   في خلفية البطاقة بدل ما تتقصّ بخط حاد. نفس الخلفية بقناع متدرج. */
+.task-summary-top::after { content: ""; position: absolute; inset-inline: 0; top: calc(100% + 1px); height: 22px; background: var(--grad-summary); -webkit-mask-image: linear-gradient(180deg, black, transparent); mask-image: linear-gradient(180deg, black, transparent); pointer-events: none; }
+[data-theme="glass"] .task-summary-top { background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 100%), var(--grad-summary); }
+[data-theme="glass"] .task-summary-top::after { background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 100%), var(--grad-summary); }
+.task-summary h2 { margin: 5px 0 0; font-size: 17px; }
 .task-summary-state { padding: 6px 9px; border-radius: 9px; color: var(--yellow); background: rgba(245, 199, 108, 0.1); font-size: 10px; white-space: nowrap; }
 .task-finished .task-summary-state { color: var(--green); background: rgba(66, 215, 162, 0.1); }
 .task-queued .task-summary-state { color: var(--yellow); background: rgba(245, 199, 108, 0.12); }
@@ -1546,7 +1558,7 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   .sidebar { position: fixed; z-index: 30; top: 0; bottom: 0; right: 0; width: min(300px, 88vw); transform: translateX(105%); transition: transform 0.22s ease; box-shadow: var(--shadow); padding-top: env(safe-area-inset-top); }
   .sidebar.sidebar-open { transform: translateX(0); }
   .mobile-only { display: grid; }
-  .topbar { min-height: 0; padding: calc(12px + env(safe-area-inset-top)) 12px 10px; flex-wrap: wrap; gap: 10px; row-gap: 8px; align-items: flex-start; }
+  .topbar { min-height: 0; margin: calc(8px + env(safe-area-inset-top)) 8px 0; padding: 10px 12px; border-radius: 20px; flex-wrap: wrap; gap: 10px; row-gap: 8px; align-items: flex-start; }
   /* The rail sits on the top line: menu button, divider, then the icon row.
      display: contents dissolves .topbar-actions so all ten buttons become
      siblings in one flex row, which is what makes them exactly equal size. */
@@ -1579,7 +1591,7 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   .session-title-form input { font-size: 13px; }
   .title-edit { width: 22px; height: 22px; flex-basis: 22px; }
   .title-action { width: 26px; height: 26px; flex-basis: 26px; }
-  .workspace-scroll { padding: 23px 15px 22px; }
+  .workspace-scroll { padding: 12px 15px; }
   .composer-wrap { padding-right: 12px; padding-left: 12px; }
   .composer-hint { display: none; }
   .composer { padding: 5px 8px; border-radius: 14px; }
@@ -1593,7 +1605,7 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   .project-picker { padding: 25px 17px; border-radius: 21px; }
   .project-picker-header h1 { font-size: 26px; }
   .task-summary { padding: 16px; }
-  .task-summary h2 { font-size: 18px; }
+  .task-summary h2 { font-size: 15px; }
   .copy-result { position: static; display: block; margin-top: 10px; padding: 0; }
   /* أزرار الطابور: أيقونة بس + هدف لمس أكبر، عشان السطر ما يتزحزحش */
   .request-row-head { padding: 11px 8px 11px 12px; }
