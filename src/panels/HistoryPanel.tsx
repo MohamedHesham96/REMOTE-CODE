@@ -101,7 +101,7 @@ export function HistoryPanel({
                     <div className="history-label">✅ {t.finalResult}</div>
                     {result ? (
                       <>
-                        <div className="history-result-text">{visibleResult}</div>
+                        <div className={isLong && !isOpen ? "history-result-text is-collapsed" : "history-result-text"}>{visibleResult}</div>
                         <div className="history-actions">
                           {isLong ? (
                             <button className="history-copy" onClick={() => toggleExpanded(turn.id)}>

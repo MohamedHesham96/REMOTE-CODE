@@ -1412,6 +1412,10 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .live-stats.finished .live-stat { color: var(--green-text); border-color: var(--green-border); background: var(--green-bg); }
 .final-result { position: relative; margin-top: 22px; padding: 15px; border: 1px solid var(--green-border); border-radius: 13px; background: var(--final-result-bg); }
 .final-result-text { margin-top: 8px; max-height: 42vh; overflow-y: auto; overscroll-behavior: auto; color: var(--final-result-text); font-size: 13px; line-height: 1.95; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* النص المطوي (نتيجة نهائية/مباشرة/سؤال) يقف عند ٦ أسطر بصرية بالظبط —
+   القصّ بعدد `\n` في الجافاسكربت لا يكفي مع الفقرات الطويلة بلا فواصل،
+   فالـ clamp البصري هو الضمانة. الموسّع يشيل القيد ويرجع النص كاملًا. */
+.expandable-body.is-collapsed { display: -webkit-box; line-clamp: 6; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
 /* "عرض كامل" على سطر لوحده تحت النص — block عشان يكسر السطر، وfit-content
    عشان يفضل لاصق في أول السطر (يمين بالعربي، شمال بالإنجليزي) من غير ما يتمدّد. */
 .expand-toggle { display: flex; align-items: center; justify-content: center; width: fit-content; margin-top: 8px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--accent-strong); background: var(--accent-soft-bg2); font-size: 10px; font-weight: 700; cursor: pointer; transition: 0.18s ease; }
@@ -1458,6 +1462,9 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .history-question p { margin: 7px 0 8px; color: var(--text-body); font-size: 12.5px; font-weight: 600; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
 .history-label { color: var(--task-request-label); font-size: 10px; font-weight: 800; }
 .history-answer .history-result-text { margin-top: 7px; max-height: 320px; overflow-y: auto; color: var(--final-result-text); background: rgba(45, 212, 191, 0.06); border: 1px solid rgba(45, 212, 191, 0.28); border-radius: 10px; padding: 10px 12px; font-size: 12.5px; line-height: 1.95; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* المطوي يقف عند ٦ أسطر بصرية مثل بطاقة الطلب — الأسبقية أعلى من
+   `overflow-y: auto` أعلاه عشان الـ clamp يتطبق فعلًا. */
+.history-answer .history-result-text.is-collapsed { display: -webkit-box; line-clamp: 6; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
 [data-theme="glass"] .history-card-top { background: rgba(13, 148, 136, 0.07); }
 [data-theme="glass"] .history-answer .history-result-text { background: rgba(13, 148, 136, 0.06); border-color: rgba(13, 148, 136, 0.3); }
 .history-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }

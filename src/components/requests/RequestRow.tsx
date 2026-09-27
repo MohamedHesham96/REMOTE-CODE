@@ -36,12 +36,17 @@ const REQUEST_STATE_MARK: Record<RequestState, string> = {
   stopped: "×",
 }
 
+// سقف الأحرف اللي بعدها النص أكيد أطول من ٦ أسطر بصرية على الموبايل —
+// القصّ بعدد `\n` وحده كان يفشل مع الفقرات الطويلة بلا فواصل أسطر،
+// فكانت "النتيجة النهائية" تظهر كاملة بلا زر "عرض كامل".
+const COLLAPSED_CHAR_BUDGET = 400
+
 // `trailing` يتلزق آخر النص وقبل زرار "عرض كامل"، عشان مؤشّر الكتابة
 // يبان في مكانه الصح بدل ما يقف ورا الزرار.
 function ExpandableText({ text, maxLines = 6, className = "", trailing = null, t }: { text: string; maxLines?: number; className?: string; trailing?: ReactNode; t: Strings }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const lines = text.split("\n")
-  const shouldTruncate = lines.length > maxLines
+  const shouldTruncate = lines.length > maxLines || text.length > COLLAPSED_CHAR_BUDGET
   const displayText = isExpanded || !shouldTruncate ? text : lines.slice(0, maxLines).join("\n") + "…"
 
   if (!shouldTruncate) {
@@ -50,8 +55,13 @@ function ExpandableText({ text, maxLines = 6, className = "", trailing = null, t
 
   return (
     <span className={className}>
-      {displayText}
-      {trailing}
+      <span
+        className={isExpanded ? "expandable-body" : "expandable-body is-collapsed"}
+        style={isExpanded ? undefined : { WebkitLineClamp: maxLines, lineClamp: maxLines }}
+      >
+        {displayText}
+        {trailing}
+      </span>
       <button
         type="button"
         className="expand-toggle"
