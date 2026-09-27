@@ -201,6 +201,37 @@ export const STALE_BUSY_GRACE_MS = 20_000
 // بعد كام محاولة فاشلة بنسقط الطلب من الطابور بدل ما نفضل نعيد تجربته
 export const MAX_PROMPT_ATTEMPTS = 3
 
+// سقف إرسال الطلب الواحد لـ OpenCode: الـ promptAsync طلب enqueue سريع،
+// فلو ما ردّش خلال المهلة يبقى الـ HTTP معلّق (سيرفر مزنوق/واقع) والـ promise
+// عمرها ما هتستقر — ومن غير السقف ده علَم runningSessions يفضل متسجّل للأبد
+// والطابور يتجمّد والكارت يفضل "شغّال" للأبد. المهلة ترمي خطأ فيدخل نفس
+// مسار الفشل العادي (إعادة/إسقاط بعد MAX_PROMPT_ATTEMPTS).
+export const PROMPT_DISPATCH_TIMEOUT_MS = 60_000
+
+// مهلة الجمود: شغل محسوب busy بلا أي تقدّم في الرسائل (لا رسالة جديدة ولا
+// إتمام ولا نمو نص) للمدة دي يتفهم متعطّل ونحرّره بدل ما الكارت يفضل
+// "يعمل OpenCode على المهمة" للأبد. النافذة طويلة قصدًا (١٠ دقايق) عشان
+// المهام الطويلة المشروعة (بناء/بحث مطوّل) ما تتفهمش جمود بالغلط.
+export const BUSY_STALL_MS = 10 * 60 * 1000
+
+// سقف مراقبات الجمود — منع نمو غير محدود للذاكرة لجلسات كثيرة
+export const MAX_STALL_WATCHES = 200
+
+// سباق promise ضد مهلة: يرمي خطأ لو المهلة خلصت الأول، وينضّف المؤقت
+// في الحالتين عشان ما يسرّبش مؤقتات.
+export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    timer.unref?.()
+  })
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== undefined) {
+      clearTimeout(timer)
+    }
+  })
+}
+
 // بادئة الـ id اللي بتظهر بيه الطلبات المستنية في كروت المحادثة
 export const QUEUED_ID_PREFIX = "queued:"
 

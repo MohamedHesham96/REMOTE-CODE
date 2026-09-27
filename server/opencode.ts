@@ -33,6 +33,7 @@ import type {
 } from "./opencode/types.js"
 import {
   ACTIVITY_CACHE_MS,
+  BUSY_STALL_MS,
   directoryKey,
   errorMessage,
   fileNameFromPath,
@@ -42,10 +43,12 @@ import {
   MAX_CACHED_CLIENTS,
   MAX_FILE_DOWNLOAD_BYTES,
   MAX_PROMPT_ATTEMPTS,
+  MAX_STALL_WATCHES,
   mimeFromName,
   MODELS_CACHE_MS,
   parseModelString,
   projectUpdatedAt,
+  PROMPT_DISPATCH_TIMEOUT_MS,
   QUEUED_ID_PREFIX,
   queuedItemId,
   QUESTIONS_CACHE_MS,
@@ -58,6 +61,7 @@ import {
   unwrap,
   variantIds,
   VARIANTS_CACHE_MS,
+  withTimeout,
 } from "./opencode/utils.js"
 
 // إعادة تصدير للتوافق: الاستيراد من "./opencode.js" ما زال يعطي نفس الأنواع.
@@ -133,6 +137,16 @@ export class OpenCodeService {
   // بيقول "شغّال" و /api/session/:id بيقول "خلص" ⇒ عنوان الحالة في الواجهة
   // بيتبدّل "شغّال ⇄ جاهز" كل بضع ثواني للأبد. فبنشارك الحكم ده مع الكل.
   private readonly finishedRuns = new Set<string>()
+  // مراقبة الجمود: آخر بصمة تقدّم ووقتها لكل جلسة محسوبة busy. لو الجلسة
+  // فضلت busy بنفس البصمة (لا رسالة جديدة ولا إتمام ولا نمو نص ولا سؤال)
+  // لمهلة BUSY_STALL_MS، وهي لا مستنية طابور ولا سؤال/إذن من المستخدم،
+  // بنحرّرها بدل ما الكارت يفضل "يعمل OpenCode على المهمة" للأبد.
+  private readonly stallWatches = new Map<string, { sig: string; at: number }>()
+  // جلسات اتحرّرت بالجمود: حكم "خلص" ثابت حتى يظهر تقدّم حقيقي أو يتبعت
+  // طلب جديد أو يوصل idle. مجموعة مستقلة عن finishedRuns عشان صيانته
+  // الدورية (المسح مع أي تقدّم) ما تمسحش حكم الجمود في نفس الـ poll
+  // فيتنطط الكارت "شغّال ⇄ خلص" — المسح هنا مع تغيّر البصمة فقط.
+  private readonly stalledSessions = new Set<string>()
   private promptSeq = 0
   private queueWatchdog: NodeJS.Timeout | null = null
   private readonly pendingPermissions = new Map<string, Permission>()
@@ -402,19 +416,64 @@ export class OpenCodeService {
     // جاهزة، حتى لو OpenCode لسه واقف على "busy" والـ idle بتاعه ضاع. من غير
     // السطر ده الـ /session/status بيخالف /api/session/:id، والواجهة بتخطف
     // "شغّال ⇄ جاهز" (وكمان بتكرّر صوت الإتمام) كل بضع ثواني.
+    // جلسة متحرّرة بالجمود (stalledSessions) تتعامل نفس المعاملة: busy بلا
+    // تقدّم لمهلة طويلة = خلصت حكمًا حتى لو OpenCode ما قالش.
     if (
       (status.type === "busy" || status.type === "retry")
       && !this.hasPendingWork(sessionId)
-      && this.finishedRuns.has(sessionId)
+      && (this.finishedRuns.has(sessionId) || this.stalledSessions.has(sessionId))
     ) {
       return { type: "idle" }
     }
     return status
   }
 
+  // كاشف الجمود — بيتنادى مع كل poll للـ requests (كل ~٢.٥ ثانية أثناء
+  // الشغل) فمفيش مؤقتات إضافية. البصمة هي نفس version الـ ETag: أي تقدّم
+  // مرئي يغيّرها. الغير مؤهل (طابور مستني/سؤال/إذن) يمسح المراقبة ويبدأ
+  // من جديد بعدها — الانتظار ده مشروع للمستخدم مش جمود، ورسائل الطابور
+  // ملك المستخدم فممنوع المساس بها هنا.
+  private trackStall(id: string, busy: boolean, sig: string, eligible: boolean): void {
+    if (!busy || !eligible) {
+      this.stallWatches.delete(id)
+      return
+    }
+    const previous = this.stallWatches.get(id)
+    if (!previous) {
+      // أول مراقبة: سجّل من غير ما تمسح حكم جمود ثابت سابق — وإلا الحكم
+      // هيتمسح في الـ poll اللي بعد إطلاقه مباشرة والكارت هيتنطط.
+      if (this.stallWatches.size >= MAX_STALL_WATCHES) {
+        const oldest = this.stallWatches.keys().next()
+        if (!oldest.done) {
+          this.stallWatches.delete(oldest.value)
+        }
+      }
+      this.stallWatches.set(id, { sig, at: Date.now() })
+      return
+    }
+    if (previous.sig !== sig) {
+      // تقدّم حقيقي ظهر — امسح أي حكم جمود قديم على الجلسة دي
+      this.stallWatches.set(id, { sig, at: Date.now() })
+      this.stalledSessions.delete(id)
+      return
+    }
+    if (Date.now() - previous.at >= BUSY_STALL_MS) {
+      // جمود مؤكد: حرّر أعلام الشغل وسجّل الحكم الثابت. الطابور فاضي هنا
+      // (شرط الأهلية) فمفيش رسائل مستخدم هتضيع.
+      this.stallWatches.delete(id)
+      this.runningSessions.delete(id)
+      this.busySessions.delete(id)
+      this.stalledSessions.add(id)
+    }
+  }
+
   // الجلسة خلصت: ابعت الطلب اللي مستني في الطابور (لو فيه).
   private releaseSession(sessionId: string): void {
     this.runningSessions.delete(sessionId)
+    // إشارة نهاية حقيقية (idle/خطأ/إيقاف) تنسخ أي حكم جمود ثابت —
+    // الواقع الجديد هو مصدر الحقيقة من هنا.
+    this.stalledSessions.delete(sessionId)
+    this.stallWatches.delete(sessionId)
     if (this.skippingSessions.has(sessionId)) {
       // تخطّي شغّال: الـ idle ده بتاع الطلب القديم، والـ skip نفسه هيبني
       // الطابور تاني لما الإيقاف يخلص.
@@ -444,6 +503,9 @@ export class OpenCodeService {
     this.runningSessions.add(sessionId)
     // طلب جديد اتبعت فعلًا ⇒ حكم "آخر ردّ خلص" القديم بقى ملغي
     this.finishedRuns.delete(sessionId)
+    // وحكم الجمود الثابت كمان: النشاط الجديد يبدأ مراقبة من الصفر
+    this.stalledSessions.delete(sessionId)
+    this.stallWatches.delete(sessionId)
     void this.dispatchPrompt(sessionId, next).catch((error: unknown) => {
       // الطلب مانعتش — سيبه للـ watchdog يجرب تاني أو يشيله نهائيًا
       this.runningSessions.delete(sessionId)
@@ -623,6 +685,8 @@ export class OpenCodeService {
     this.skippingSessions.delete(id)
     this.busySessions.delete(id)
     this.finishedRuns.delete(id)
+    this.stalledSessions.delete(id)
+    this.stallWatches.delete(id)
     this.idlePolls.delete(id)
     for (const [permissionId, permission] of this.pendingPermissions) {
       if (permission.sessionID === id) {
@@ -757,11 +821,36 @@ export class OpenCodeService {
     } else {
       this.finishedRuns.delete(id)
     }
+    const queue = this.promptQueues.get(id) ?? []
+    const activeTodo = todos.find((todo) => todo.status === "in_progress")
+    const completedTodos = todos.filter((todo) => todo.status === "completed").length
+    // بصمة التقدّم: أي حراك مرئي (رسالة/إتمام/نص/طابور/سؤال/todo) يغيّرها.
+    // الطول التراكمي للنصوص يلتقط نمو الـ live text حتى لو الأوقات لم تتغير.
+    // الطابور الفاضي شرط الأهلية: رسائل المستخدم ملكه فممنوع المساس بها هنا.
+    // والسؤال/الإذن المعلّق انتظار مشروع للمستخدم (كارت ظاهر) مش جمود.
+    const turnSig = turns
+      .map((turn) => `${turn.updatedAt}:${turn.completedAt}:${turn.texts.join("").length}`)
+      .join(";")
+    const sharedTail = [
+      turns.length,
+      turnSig,
+      queue.map((item) => item.id).join(","),
+      questions.map((question) => question.id).join(","),
+      `${todos.length}:${completedTodos}:${activeTodo?.id ?? ""}`,
+    ].join("|")
+    const waitingOnUser = questions.length > 0
+      || [...this.pendingPermissions.values()].some((permission) => permission.sessionID === id)
+    // كاشف الجمود يشتغل على الحالة الخام وقبل الحكم الفعّال، عشان تحرير
+    // الجلسة في الـ poll ده نفسه ينعكس على الكارت فورًا بلا تأخير poll.
+    this.trackStall(
+      id,
+      rawStatus.type === "busy" || rawStatus.type === "retry",
+      `${rawStatus.type}|${sharedTail}`,
+      queue.length === 0 && !waitingOnUser,
+    )
     const status = this.effectiveStatus(id, staleBusy ? { type: "idle" } : rawStatus)
     const busy = status.type === "busy" || status.type === "retry"
     const runningIndex = busy ? turns.length - 1 : -1
-    const activeTodo = todos.find((todo) => todo.status === "in_progress")
-    const completedTodos = todos.filter((todo) => todo.status === "completed").length
 
     const requests: SessionRequest[] = turns.map((turn, index) => {
       const running = index === runningIndex
@@ -818,7 +907,6 @@ export class OpenCodeService {
       }
     })
 
-    const queue = this.promptQueues.get(id) ?? []
     for (const [offset, item] of queue.entries()) {
       requests.push({
         id: `${QUEUED_ID_PREFIX}${item.id}`,
@@ -840,19 +928,9 @@ export class OpenCodeService {
       })
     }
 
-    // بصمة الحالة: أي تغيير مرئي (نص حي، إتمام، طابور، أسئلة، todos) يغيّرها.
-    // الطول التراكمي للنصوص يلتقط نمو الـ live text حتى لو الأوقات لم تتغير.
-    const turnSig = turns
-      .map((turn) => `${turn.updatedAt}:${turn.completedAt}:${turn.texts.join("").length}`)
-      .join(";")
-    const version = [
-      status.type,
-      turns.length,
-      turnSig,
-      queue.map((item) => item.id).join(","),
-      questions.map((question) => question.id).join(","),
-      `${todos.length}:${completedTodos}:${activeTodo?.id ?? ""}`,
-    ].join("|")
+    // بصمة الحالة (ETag): نفس مكوّنات بصمة الجمود لكن بنوع الحالة الفعّالة،
+    // فأي تغيير مرئي يغيّرها والعميل يوفّر إعادة التحميل (304) لما مفيش جديد.
+    const version = [status.type, sharedTail].join("|")
 
     return { status, requests, questions, queued: queue.length, version }
   }
@@ -1029,23 +1107,30 @@ export class OpenCodeService {
   }
 
   private async dispatchPrompt(id: string, item: QueuedPrompt): Promise<void> {
-    const result = await this.clientFor().session.promptAsync({
-      path: { id },
-      body: {
-        parts: [{ type: "text", text: item.text }],
-        ...(item.agent ? { agent: item.agent } : {}),
-        ...(item.model?.providerID && item.model?.modelID
-          ? {
-            model: {
-              providerID: item.model.providerID,
-              modelID: item.model.modelID,
-              ...(item.model.variant ? { variant: item.model.variant } : {}),
-            } as { providerID: string; modelID: string },
-          }
-          : {}),
-      },
-      query: this.directoryQuery(),
-    })
+    // سقف زمني بدل الانتظار الأبدي: لو OpenCode معلّق والـ HTTP ما استقرّش،
+    // الـ catch في pumpQueue يعيد الطلب أو يسقطه بعد MAX_PROMPT_ATTEMPTS،
+    // بدل ما runningSessions يتجمّد والكارت يفضل "شغّال" للأبد.
+    const result = await withTimeout(
+      this.clientFor().session.promptAsync({
+        path: { id },
+        body: {
+          parts: [{ type: "text", text: item.text }],
+          ...(item.agent ? { agent: item.agent } : {}),
+          ...(item.model?.providerID && item.model?.modelID
+            ? {
+              model: {
+                providerID: item.model.providerID,
+                modelID: item.model.modelID,
+                ...(item.model.variant ? { variant: item.model.variant } : {}),
+              } as { providerID: string; modelID: string },
+            }
+            : {}),
+        },
+        query: this.directoryQuery(),
+      }),
+      PROMPT_DISPATCH_TIMEOUT_MS,
+      "Prompt dispatch",
+    )
 
     if (result.error) {
       throw new Error(errorMessage(result.error))
