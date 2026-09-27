@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- ملف helpers مشترك عمدًا
-   بين App واللوحات الكسولة، مع الأيقونات SVG (GitBranchIcon, LogoutIcon,
-   SoundOnIcon, SoundMuteIcon, SettingsIcon) */
+   بين App واللوحات الكسولة، مع الأيقونات SVG (GitBranchIcon, GitCommitIcon,
+   GitRevertIcon, GitRefreshIcon, SpinnerIcon, LogoutIcon, SoundOnIcon,
+   SoundMuteIcon, SettingsIcon) */
 import { localeOf, type Language, type Strings } from "./i18n"
 import type { GitChangeFile, GitChangeStatus, ModelInfo, Project, SessionModelRef, SessionStatus } from "./types"
 
@@ -223,13 +224,45 @@ export function GitCommitIcon() {
   )
 }
 
-// سهم دائري راجع عكس عقارب الساعة = تراجع. منفصل عن سهم الـ commit الطالع
-// في الشكل: واحد بيلغي الشغل والتاني بيحفظه، فلازم يتميّزوا من غير لون.
+// سهم نازل داخل صينية: انعكاس رأسي لسهم الـ commit الطالع، فالزرارين معناهيا
+// عكس بعض تمامًا — واحد بيحفظ الشغل والتاني بيلغيه، والاثنين بيفصلوا بالشكل
+// من غير ما نرجع للون.
+// الشكل القديم كان سهمًا دائريًا راجعًا عكس عقارب الساعة، وده بالظبط نفس معنى
+// زرار التحديث اللي جنبه في الشريط، فالمستخدم كان بياخد التراجع على إنه تحديث.
+// والخط الأفقي اللي اتحط جوه الحلقة ما كانش بيكفّي: بيفرّق بس وبيخلي السهمين
+// دائريين، ففضلوا متشابهين للعين. وده اللي خلّى زرار التحديث نفسه بقى سهمًا
+// دائريًا مع عقارب الساعة (GitRefreshIcon) — كل واحد فيهم معناه واضح من الشكل.
 export function GitRevertIcon() {
   return (
     <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
+      <path d="M4 9v-3.5A1.5 1.5 0 0 1 5.5 4h13a1.5 1.5 0 0 1 1.5 1.5V9" />
+      <path d="M12 9v11" />
+      <path d="m7.5 15.5 4.5 4.5 4.5-4.5" />
+    </svg>
+  )
+}
+
+// سهم دائري مع عقارب الساعة = تحديث. كان الحرف "↻" كنص جوه الصفحة، والحرف
+// بيختلف شكله من خط لخط وبيطلع أصغر من باقي أيقونات الـ SVG، فكان أسهل حاجة
+// بتلخبط مع سهم التراجع. بقى SVG بنفس المقاسات عشان يبقى متساوي معاهم.
+export function GitRefreshIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.7 6.3A8 8 0 1 1 12 4" />
+      <path d="M9.1 2.3 12 4 9.1 5.7" />
+    </svg>
+  )
+}
+
+// قوس ناقص مع دوّارة: الحالة الشغالة لأزرار git. سبقت إيموجي "⏳" كانت بتظهر
+// ملوّنة على أي نظام وبتتجاهل لون التيمت، فكانت الزرار الوحيد في الدرج مش
+// على نفس نظام الأيقونات. القوس ده بياخد currentColor وبيلف مع keyframes
+// spin الموجودة في styles.css.
+export function SpinnerIcon() {
+  return (
+    <svg className="git-busy-icon" viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3a9 9 0 0 1 9 9" />
+      <path d="M12 21a9 9 0 0 1-9-9" opacity="0.35" />
     </svg>
   )
 }

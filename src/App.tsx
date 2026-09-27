@@ -1826,7 +1826,7 @@ function App() {
                   <button className="title-action" type="button" onClick={cancelRenamingSession} disabled={renamingTitle} aria-label={t.cancel}>×</button>
                 </form>
               ) : (
-                <div className="session-title-row"><h1 title={activeTitle}>{activeTitle}</h1>{activeSession ? <button className="title-edit" onClick={startRenamingSession} aria-label={t.renameConversation}>✎</button> : null}</div>
+                <div className="session-title-row"><h1 title={activeTitle}><span className="session-title-text">{activeTitle}</span>{activeSession ? <button className="title-edit" onClick={startRenamingSession} aria-label={t.renameConversation}>✎</button> : null}</h1></div>
               )}
             </div>
           </div>

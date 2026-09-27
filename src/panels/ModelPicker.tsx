@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import {
   getVarietyLevels,
+  GitRefreshIcon,
   modelLabel,
   shortModelName,
   variantLabel,
@@ -109,7 +110,7 @@ export function ModelPicker({
             placeholder={t.searchModelsPlaceholder}
             aria-label={t.searchModelsAria}
           />
-          <button className="icon-button" onClick={onRefresh} aria-label={t.refreshList} title={t.refreshFromOpencode} disabled={loading}>↻</button>
+          <button className="icon-button" onClick={onRefresh} aria-label={t.refreshList} title={t.refreshFromOpencode} disabled={loading}><GitRefreshIcon /></button>
         </div>
         <div className="model-count">{loading ? t.updatingFromOpencode : `${t.availableNow}: ${freeOnly.length} ${t.freeModels}`}</div>
         {loading && freeOnly.length === 0 ? (

@@ -793,13 +793,16 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .session-head { min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 9px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-card); }
 /* The conversation title is a chip so it speaks the same visual
    language as the project badge and the model pill above it. The h1
-   itself carries the pill (not a wrapper) because it needs
-   overflow:hidden for the ellipsis, and a wrapper would not clip.
-   Scoped to .current-session: sidebar rows reuse .session-title-row. */
-.current-session .session-title-row { min-width: 0; display: flex; align-items: center; gap: 6px; }
-.current-session h1 { flex: 1 1 0; min-width: 0; overflow: hidden; margin: 0; padding: 6px 14px; border: 1px solid var(--accent-border); border-radius: 999px; color: var(--text); background: var(--accent-soft-bg2); text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.3; transition: border-color 0.15s ease, background 0.15s ease; }
+   itself carries the pill, and the rename pencil lives inside it so
+   the chip reads as one unit instead of a chip plus a loose button.
+   The text span (not the h1) owns the ellipsis, so the button never
+   gets clipped. Scoped to .current-session: sidebar rows reuse
+   .session-title-row. */
+.current-session .session-title-row { min-width: 0; display: flex; align-items: center; }
+.current-session h1 { flex: 1 1 0; min-width: 0; overflow: hidden; display: flex; align-items: center; gap: 6px; margin: 0; padding-block: 4px; padding-inline-start: 14px; padding-inline-end: 6px; border: 1px solid var(--accent-border); border-radius: 999px; color: var(--text); background: var(--accent-soft-bg2); font-size: 16px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.3; transition: border-color 0.15s ease, background 0.15s ease; }
 .current-session .session-title-row:hover h1 { border-color: var(--accent); }
-.title-edit { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 28px; border: 0; border-radius: 8px; color: var(--text-faint); background: transparent; font-size: 15px; opacity: 0; transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease; }
+.session-title-text { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.title-edit { width: 24px; height: 24px; display: grid; place-items: center; flex: 0 0 24px; border: 0; border-radius: 50%; color: var(--text-faint); background: transparent; font-size: 13px; opacity: 0; transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease; }
 .current-session .session-title-row:hover .title-edit,
 .current-session .session-title-row:focus-within .title-edit { opacity: 1; }
 .title-edit:hover { color: var(--accent-strong); background: rgba(139,124,255,0.1); }
@@ -822,7 +825,7 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
    first when the line gets tight. */
 .model-bar { flex: 0 1 auto; min-width: 0; max-width: 100%; display: flex; }
 .icon-button { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 11px; color: var(--text-dimmer); background: var(--surface-card); font-size: 19px; }
-.icon-button:hover { color: var(--text); border-color: var(--accent-border); }
+.icon-button:hover:not(:disabled) { color: var(--text); border-color: var(--accent-border); }
 /* Header option icons — each with its own vivid tint like the ⚡ active icon */
 .topbar-actions .icon-button { transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease, filter 0.18s ease; }
 .topbar-actions .icon-button:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.12) saturate(1.15); }
@@ -948,7 +951,7 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 [data-theme="glass"] .task-stopped .activity-pulse { box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.12); }
 [data-theme="glass"] .git-status-mark.git-status-deleted { background: rgba(225, 29, 72, 0.1); }
 [data-theme="glass"] .git-diff-removed { background: rgba(225, 29, 72, 0.09); }
-[data-theme="glass"] .git-revert-button:hover, [data-theme="glass"] .git-file-revert:hover { background: rgba(225, 29, 72, 0.1); }
+[data-theme="glass"] .git-revert-button:hover:not(:disabled), [data-theme="glass"] .git-file-revert:hover:not(:disabled) { background: rgba(225, 29, 72, 0.1); }
 [data-theme="glass"] .git-confirm-actions .git-confirm-accept { background: rgba(225, 29, 72, 0.12); }
 [data-theme="glass"] .git-confirm-actions .git-confirm-accept:hover { background: rgba(225, 29, 72, 0.2); }
 [data-theme="glass"] .toast-error { border-color: rgba(225, 29, 72, 0.4); }
@@ -1511,10 +1514,16 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .git-diff-added { color: var(--green); background: var(--green-bg); }
 .git-diff-removed { color: var(--red); background: rgba(255, 127, 157, 0.12); }
 .git-revert-button { color: var(--error-text); border-color: var(--error-border); background: var(--error-bg); }
-.git-revert-button:hover { color: var(--red); border-color: var(--red); background: rgba(255, 127, 157, 0.2); }
+.git-revert-button:hover:not(:disabled) { color: var(--red); border-color: var(--red); background: rgba(255, 127, 157, 0.2); }
 .git-file-revert { flex: 0 0 auto; width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 9px; color: var(--text-dimmer); background: var(--surface-card); font: inherit; font-size: 15px; line-height: 1; transition: 0.18s ease; }
-.git-file-revert:hover { color: var(--error-text); border-color: var(--error-border); background: var(--error-bg); }
+/* زرار السطر أصغر من زرار الشريط (30px مقابل 42px)، فالأيقونة لازم تنزل
+   معاه — 19px جوه 30px بتبان ممتلئة أكتر من اللازم ومباشرة على الحافة. */
+.git-file-revert svg { width: 15px; height: 15px; }
+.git-file-revert:hover:not(:disabled) { color: var(--error-text); border-color: var(--error-border); background: var(--error-bg); }
 .git-file-revert:disabled { opacity: 0.45; cursor: not-allowed; }
+/* الـ busy state بتاع زرار الـ push: نفس keyframes spin بتاع الـ loader */
+.git-busy-icon { animation: spin 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .git-busy-icon { animation: none; } }
 .git-confirm { display: grid; gap: 10px; margin-bottom: 12px; padding: 11px 12px; border: 1px solid var(--error-border); border-radius: 12px; background: var(--error-bg); }
 .git-confirm-text { margin: 0; color: var(--error-text); font-size: 12px; line-height: 1.7; }
 .git-confirm-actions { display: flex; gap: 8px; }
@@ -1545,10 +1554,10 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   .compact-trigger-name { max-width: 26vw; }
   .new-chat-top-label { max-width: 24vw; overflow: hidden; text-overflow: ellipsis; }
   .current-session .eyebrow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 700; }
-  .current-session h1 { padding: 5px 11px; font-size: 14px; line-height: 1.35; }
+  .current-session h1 { padding-block: 3px; padding-inline-start: 11px; padding-inline-end: 5px; font-size: 14px; line-height: 1.35; }
   .current-session .session-title-form input { padding: 5px 11px; font-size: 14px; }
   .current-session .session-title-row { align-items: center; }
-  .title-edit { flex: 0 0 26px; }
+  .title-edit { flex: 0 0 22px; }
   /* عناوين قائمة المحادثات على الموبايل: سطرين بدل قصّ من أول سطر */
   .session-item .session-title-row { flex-wrap: wrap; row-gap: 2px; }
   .session-item .session-title { flex: 1 1 100%; min-width: 0; white-space: normal; display: -webkit-box; line-clamp: 2; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; word-break: break-word; }
@@ -1559,7 +1568,8 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   .model-pill-name { max-width: none; }
   .session-title-form { flex-wrap: nowrap; }
   .session-title-form input { font-size: 13px; }
-  .title-edit, .title-action { width: 26px; height: 26px; flex-basis: 26px; }
+  .title-edit { width: 22px; height: 22px; flex-basis: 22px; }
+  .title-action { width: 26px; height: 26px; flex-basis: 26px; }
   .workspace-scroll { padding: 23px 15px 22px; }
   .composer-wrap { padding-right: 12px; padding-left: 12px; }
   .composer-hint { display: none; }

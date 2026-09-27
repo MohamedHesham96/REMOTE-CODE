@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { EMPTY_GIT_FILES, GitBranchIcon, GitCommitIcon, GitRevertIcon, gitStatusMeta, splitChangePath } from "../display"
+import { EMPTY_GIT_FILES, GitBranchIcon, GitCommitIcon, GitRefreshIcon, GitRevertIcon, SpinnerIcon, gitStatusMeta, splitChangePath } from "../display"
 import type { Strings } from "../i18n"
 import type { GitChangeFile, GitChanges } from "../types"
 
@@ -51,8 +51,12 @@ export function GitChangesPanel({ changes, loading, busy, confirming, onRefresh,
             <span className="git-summary-pill git-status-deleted">－{summary.deleted}</span>
           </div>
           <div className="git-toolbar-actions">
-            <button className="icon-button" onClick={onRefresh} aria-label={t.refreshList} title={`${t.refreshList} ↻`} disabled={loading}>↻</button>
-            {hasFiles && !confirming ? (
+            <button className="icon-button" onClick={onRefresh} aria-label={t.refreshList} title={t.refreshList} disabled={loading}><GitRefreshIcon /></button>
+            {/* زراري التراجع والـ push بيفضلوا ظاهرين حتى لو مفيش تغييرات:
+                زرار بيختفي وقت ما يبقى مفيش حاجة يعمله المستخدم بيدور عليه
+                وميشوفش إن الأداة موجودة أصلاً. بيتقفلوا بـ canAct بدل ما
+                يتشالوا من الشجرة. */}
+            {!confirming ? (
               <button
                 type="button"
                 className="icon-button git-revert-button"
@@ -64,18 +68,17 @@ export function GitChangesPanel({ changes, loading, busy, confirming, onRefresh,
                 <GitRevertIcon />
               </button>
             ) : null}
-            {hasFiles ? (
-              <button
-                type="button"
-                className="icon-button git-commit-button"
-                disabled={!canAct}
-                onClick={onCommitPush}
-                aria-label={t.gitCommitPush}
-                title={t.gitCommitPush}
-              >
-                {busy ? "⏳" : <GitCommitIcon />}
-              </button>
-            ) : null}
+            <button
+              type="button"
+              className="icon-button git-commit-button"
+              disabled={!canAct}
+              onClick={onCommitPush}
+              aria-busy={busy}
+              aria-label={t.gitCommitPush}
+              title={t.gitCommitPush}
+            >
+              {busy ? <SpinnerIcon /> : <GitCommitIcon />}
+            </button>
           </div>
         </div>
         {/* التراجع عن الكل مدمّر ومش بيرجع — عشان كده بيتأكد جوه الدرج بدل ما ينفّذ طول */}
