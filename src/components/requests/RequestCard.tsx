@@ -16,11 +16,11 @@ export function RequestCard({ requests, sessionId, title, canRenameTitle, isEdit
   return (
     <section className={`task-summary task-${latest ? latest.state : "done"}`}>
       <div className="task-summary-top">
-        <div>
+        <ConversationTitle title={title} canRename={canRenameTitle} isEditing={isEditingTitle} draft={titleDraft} renaming={renamingTitle} t={t} onStartRename={onStartRename} onCancelRename={onCancelRename} onDraftChange={onTitleDraftChange} onSubmit={onRenameSubmit} onKeyDown={onTitleKeyDown} />
+        <div className="task-summary-meta">
           <div className="eyebrow">{t.taskStatus} · {t.requestsInSession} [{requests.length}]</div>
-          <ConversationTitle title={title} canRename={canRenameTitle} isEditing={isEditingTitle} draft={titleDraft} renaming={renamingTitle} t={t} onStartRename={onStartRename} onCancelRename={onCancelRename} onDraftChange={onTitleDraftChange} onSubmit={onRenameSubmit} onKeyDown={onTitleKeyDown} />
+          <span className="task-summary-state">{latest ? t[REQUEST_STATE_LABEL[latest.state]] : t.done}</span>
         </div>
-        <span className="task-summary-state">{latest ? t[REQUEST_STATE_LABEL[latest.state]] : t.done}</span>
       </div>
       <ul className="request-list">
         {requests.map((request) => (
