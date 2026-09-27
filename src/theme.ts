@@ -1,8 +1,8 @@
 import type { Strings } from "./i18n"
 
-export type AppTheme = "glass" | "dark" | "hacker"
+export type AppTheme = "glass" | "dark" | "hacker" | "metal"
 
-export const THEMES: AppTheme[] = ["glass", "dark", "hacker"]
+export const THEMES: AppTheme[] = ["glass", "dark", "hacker", "metal"]
 
 const THEME_KEY = "opencode-theme"
 
@@ -10,6 +10,7 @@ export const THEME_META: Record<AppTheme, { label: string; icon: string; descrip
   glass: { label: "نهاري", icon: "☀", description: "وضع فاتح — زجاج سائل بأسلوب Apple" },
   dark: { label: "داكن", icon: "☾", description: "وضع داكن — أريح للعين ليلًا" },
   hacker: { label: "هاكر", icon: "👾", description: "طرفية خضراء كلاسيكية — جمال المصفوفة" },
+  metal: { label: "معدني", icon: "🔩", description: "فولاذ مصقول — رمادي بارد بلمعان معدني" },
 }
 
 export function getSavedTheme(): AppTheme {
@@ -56,6 +57,9 @@ export function themeLabel(value: AppTheme, t: Strings): string {
   if (value === "hacker") {
     return t.themeHacker
   }
+  if (value === "metal") {
+    return t.themeMetal
+  }
   return t.themeDark
 }
 
@@ -65,6 +69,9 @@ export function themeDescription(value: AppTheme, t: Strings): string {
   }
   if (value === "hacker") {
     return t.themeHackerDesc
+  }
+  if (value === "metal") {
+    return t.themeMetalDesc
   }
   return t.themeDarkDesc
 }

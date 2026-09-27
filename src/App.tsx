@@ -55,6 +55,7 @@ import { ProjectDropdown, ProjectPicker } from "./components/projects/ProjectPic
 import { QuestionCard } from "./components/requests/QuestionCard"
 import { RequestCard } from "./components/requests/RequestCard"
 import { useActivityGrace } from "./hooks/useActivityGrace"
+import { useGitRequests } from "./hooks/useGitRequests"
 import { usePinnedConversations } from "./hooks/usePinnedConversations"
 import { useSettledStatuses } from "./hooks/useSettledStatuses"
 import { isTouchComposer } from "./utils/device"
@@ -135,7 +136,6 @@ function App() {
   const [activity, setActivity] = useState<ActiveSession[]>([])
   const [jumpingId, setJumpingId] = useState<string | null>(null)
   // حالة git: الأيقونة بتجيب العدد من غير ما تفتح القائمة، والقائمة بتجيبها لما تفتحها
-  const [showGitChanges, setShowGitChanges] = useState(false)
   const [gitChanges, setGitChanges] = useState<GitChanges | null>(null)
   const [gitLoading, setGitLoading] = useState(false)
   const toastId = useRef(0)
@@ -465,11 +465,6 @@ function App() {
       setGitLoading(false)
     }
   }, [markFetched])
-
-  const openGitChanges = useCallback(() => {
-    setShowGitChanges(true)
-    void refreshGitChanges()
-  }, [refreshGitChanges])
 
   // Only count files with actual git status (added, modified, deleted)
   // Filter out any potential stale/empty entries from backend
@@ -1381,20 +1376,14 @@ function App() {
     await sendPrompt(composer)
   }
 
-  // زرار الـ side menu بتاع الـ git: يبعت طلب يعمل commit و push للتغييرات
-  const handleCommitPush = useCallback(async () => {
-    const files = gitChanges?.files ?? []
-    if (!gitChanges?.available || files.length === 0 || sending) {
-      return
-    }
-    const branch = gitChanges.branch || ""
-    const fileLines = files.slice(0, 50).map((file) => `- ${file.path} (${file.status})`).join("\n")
-    const prompt = langRef.current === "ar"
-      ? `اعمل commit لكل التغييرات الحالية في git وبعدها push${branch ? ` على الفرع '${branch}'` : ""}.\nخطواتك:\n1) راجع git status و git diff.\n2) اعمل git add للملفات المتغيرة.\n3) اعمل commit برسالة واضحة ومختصرة.\n4) اعمل push${branch ? ` إلى '${branch}'` : ""}.\nالملفات المتغيرة:\n${fileLines}\nلو مفيش remote متظبط قولي بوضوح ومتخترعش حاجة.`
-      : `Commit all current git changes and then push${branch ? ` to branch '${branch}'` : ""}.\nSteps:\n1) Review git status and git diff.\n2) git add the changed files.\n3) Commit with a clear, concise message.\n4) Push${branch ? ` to '${branch}'` : ""}.\nChanged files:\n${fileLines}\nIf no remote is configured, say so clearly and don't invent anything.`
-    setShowGitChanges(false)
-    await sendPrompt(prompt)
-  }, [gitChanges, sending, sendPrompt])
+  // طلبات الـ git كلها جوّه hook واحد عشان الـ drawer والـ guard وحالة التأكيد
+  // يفضلوا في مكان واحد بدل ما App يوزّعهم
+  const gitRequests = useGitRequests(gitChanges, sending, langRef.current, sendPrompt)
+
+  const openGitChanges = useCallback(() => {
+    gitRequests.show()
+    void refreshGitChanges()
+  }, [gitRequests, refreshGitChanges])
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter يبعت على الديسكتوب بس. على الموبايل سيبه يسلك سطر جديد عادي.
@@ -1945,15 +1934,20 @@ function App() {
           />
         </Suspense>
       ) : null}
-      {showGitChanges ? (
+      {gitRequests.isOpen ? (
         <Suspense fallback={<PanelFallback />}>
           <GitChangesPanel
             changes={gitChanges}
             loading={gitLoading}
+            busy={sending}
+            confirming={gitRequests.confirming}
             onRefresh={() => void refreshGitChanges()}
-            onCommitPush={() => void handleCommitPush()}
-            commitBusy={sending}
-            onClose={() => setShowGitChanges(false)}
+            onCommitPush={() => void gitRequests.commitPush()}
+            onAskRevertAll={gitRequests.askRevertAll}
+            onRevertAll={() => void gitRequests.revertAll()}
+            onCancelRevertAll={gitRequests.cancelRevertAll}
+            onRevertFile={(file) => void gitRequests.revertFile(file)}
+            onClose={gitRequests.close}
             t={t}
           />
         </Suspense>

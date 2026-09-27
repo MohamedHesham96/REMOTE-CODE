@@ -209,6 +209,31 @@ export function GitBranchIcon() {
   )
 }
 
+// سهم طالع من صينية: الزرار بيعمل commit و push، فالسهم الطالع معناه إن
+// التغييرات رايحة للفرع. استبدلنا به الحرف "⑂" القديم لأن شكله في خطوط كتير
+// بيبان شبه سمكة، وكمان كان بيتلخبط بزرار التراجع اللي جنبه — والاتنين
+// معناهيا عكس بعض تمامًا.
+export function GitCommitIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />
+      <path d="M12 15V4" />
+      <path d="m7.5 8.5 4.5-4.5 4.5 4.5" />
+    </svg>
+  )
+}
+
+// سهم دائري راجع عكس عقارب الساعة = تراجع. منفصل عن سهم الـ commit الطالع
+// في الشكل: واحد بيلغي الشغل والتاني بيحفظه، فلازم يتميّزوا من غير لون.
+export function GitRevertIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+    </svg>
+  )
+}
+
 // أيقونة الطاقة بدل "↪" كحرف: الرسم ثابت في الاتجاهين، يعني بتقرأ صح
 // في العربي (RTL) والإنجليزي (LTR) من غير قلب ولا CSS إضافي.
 export function LogoutIcon() {

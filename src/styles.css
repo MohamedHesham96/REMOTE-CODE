@@ -133,132 +133,138 @@
   --session-item-ring: rgba(139, 124, 255, 0.16);
 }
 
+/* الثيم ده اتحوّل من "أخضر على أخضر" إلى "فسفوري على معدن": الهيكل كله رمادي
+   بارد كأنه فولاذ مصقول، والأخضر بيفضل لون العرض وحده. السبب إن الأخضر كان
+   ماسك الخلفية والحدود والبطاقات مع بعض، فمفيش أي حد يفصل بين السطح
+   والمحتوى فوقه. الأخضر دلوقتي متركّز في المتغيرات الدلالية بس:
+   التمييز والحالات وأكواد المخرجات. */
 [data-theme="hacker"] {
   color-scheme: dark;
-  color: #b6ffc9;
-  background: #050a05;
-  --bg: #050a05;
-  --bg-glow: rgba(0, 255, 65, 0.14);
-  --panel: #0a130a;
-  --panel-raised: #0f1c10;
-  --panel-soft: #12240f;
-  --border: rgba(0, 255, 65, 0.18);
-  --muted: #5fa56f;
-  --text: #b6ffc9;
-  --text-body: #8fe0a5;
-  --text-user: #b6ffc9;
-  --text-strong: #9fe8b1;
-  --text-dimmer: #6fbf83;
-  --text-faint: #55a069;
-  --text-fainter: #458454;
-  --text-faintest: #386d46;
+  color: #d3e6d9;
+  background: #0c0f12;
+  --bg: #0c0f12;
+  --bg-glow: rgba(150, 172, 198, 0.13);
+  --panel: #141920;
+  --panel-raised: #1b212a;
+  --panel-soft: #232a34;
+  --border: rgba(168, 186, 208, 0.15);
+  --muted: #77828f;
+  --text: #d3e6d9;
+  --text-body: #adc7b6;
+  --text-user: #dcefe1;
+  --text-strong: #c1dbc9;
+  --text-dimmer: #93b09d;
+  --text-faint: #748d7e;
+  --text-fainter: #5e7466;
+  --text-faintest: #4e6155;
   --text-code: #7dff9e;
-  --on-accent: #03230f;
+  --on-accent: #05180b;
   --accent: #00ff41;
-  --accent-strong: #55ff85;
+  --accent-strong: #5cff85;
   --accent-deep: #00cc33;
-  --accent-blue: #00a82c;
-  --green: #00ff41;
-  --yellow: #ffde75;
-  --red: #ff5f56;
-  --surface-input: #071007;
-  --surface-card: rgba(0, 255, 65, 0.04);
-  --surface-card2: rgba(0, 255, 65, 0.03);
-  --surface-tint: rgba(0, 255, 65, 0.05);
-  --surface-raised: #0c160c;
-  --sidebar-bg: rgba(5, 10, 5, 0.88);
-  --topbar-bg: rgba(4, 8, 4, 0.55);
-  --composer-wrap-bg: rgba(4, 8, 4, 0.95);
-  --composer-bg: #0a130a;
-  --drawer-bg: #081008;
-  --toast-bg: #0c170c;
-  --scrim: rgba(0, 8, 0, 0.62);
-  --shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
-  --grad-card: linear-gradient(145deg, rgba(15, 28, 16, 0.96), rgba(7, 13, 7, 0.98));
-  --grad-summary: linear-gradient(145deg, rgba(15, 28, 16, 0.92), rgba(8, 15, 8, 0.95));
-  --grad-question: linear-gradient(145deg, rgba(48, 42, 22, 0.72), rgba(24, 22, 12, 0.88));
-  --scrollbar: #1e3d24;
-  --todo-panel-bg: rgba(10, 21, 11, 0.75);
-  --todo-text: #9fe0ae;
-  --todo-muted: #5fa56f;
-  --todo-inprogress-text: #ccffd9;
-  --result-file-bg: rgba(4, 8, 4, 0.6);
-  --result-files-bg: rgba(0, 255, 65, 0.09);
-  --result-files-border: rgba(0, 255, 65, 0.32);
-  --log-muted: #5fa56f;
-  --working-banner-text: #ffde75;
-  --working-badge-text: #ffde75;
-  --permission-badge-text: #ff8f86;
-  --soft-purple-text: #55ff85;
+  --accent-blue: #00b336;
+  --green: #22e05c;
+  --yellow: #ffd45c;
+  --red: #ff6158;
+  --surface-input: #0e1216;
+  --surface-tool: #0a0d11;
+  --surface-card: rgba(198, 214, 232, 0.035);
+  --surface-card2: rgba(198, 214, 232, 0.022);
+  --surface-tint: rgba(198, 214, 232, 0.05);
+  --surface-raised: #11161c;
+  --sidebar-bg: rgba(16, 20, 25, 0.9);
+  --topbar-bg: rgba(12, 15, 18, 0.62);
+  --composer-wrap-bg: rgba(12, 15, 18, 0.95);
+  --composer-bg: #171d24;
+  --drawer-bg: #13181e;
+  --toast-bg: #181e25;
+  --scrim: rgba(7, 9, 12, 0.66);
+  --shadow: 0 1px 0 rgba(198, 214, 232, 0.05), 0 2px 6px rgba(0, 0, 0, 0.4), 0 24px 80px rgba(0, 0, 0, 0.5);
+  --grad-card: linear-gradient(152deg, #1e242d 0%, #171d25 40%, #101419 100%);
+  --grad-summary: linear-gradient(152deg, #1a2029 0%, #131820 100%);
+  --grad-question: linear-gradient(150deg, rgba(42, 37, 26, 0.8), rgba(22, 20, 15, 0.9));
+  --scrollbar: #2c343e;
+  --todo-panel-bg: rgba(20, 25, 31, 0.76);
+  --todo-text: #b6c9bb;
+  --todo-muted: #748d7e;
+  --todo-inprogress-text: #d9efe0;
+  --result-file-bg: rgba(10, 13, 17, 0.62);
+  --result-files-bg: rgba(0, 255, 65, 0.07);
+  --result-files-border: rgba(0, 255, 65, 0.28);
+  --log-muted: #748d7e;
+  --working-banner-text: #ffd98f;
+  --working-badge-text: #ffd45c;
+  --permission-badge-text: #ff8078;
+  --soft-purple-text: #5cff85;
   --soft-green-text: #7dff9e;
-  --avatar-purple-bg: rgba(0, 255, 65, 0.14);
-  --avatar-green-bg: rgba(0, 255, 65, 0.1);
-  --accent-soft-bg: rgba(0, 255, 65, 0.14);
-  --accent-soft-bg2: rgba(0, 255, 65, 0.1);
-  --accent-soft-bg3: rgba(0, 255, 65, 0.14);
-  --accent-border: rgba(0, 255, 65, 0.32);
-  --green-text: #7dff9e;
-  --green-border: rgba(0, 255, 65, 0.28);
-  --green-bg: rgba(0, 255, 65, 0.09);
-  --warning-border: rgba(255, 222, 117, 0.3);
-  --warning-bg: rgba(255, 222, 117, 0.09);
-  --warning-text: #ffde75;
-  --error-border: rgba(255, 95, 86, 0.35);
-  --error-bg: rgba(255, 95, 86, 0.12);
-  --error-text: #ff8f86;
+  --avatar-purple-bg: rgba(0, 255, 65, 0.1);
+  --avatar-green-bg: rgba(0, 255, 65, 0.07);
+  --accent-soft-bg: rgba(0, 255, 65, 0.11);
+  --accent-soft-bg2: rgba(0, 255, 65, 0.08);
+  --accent-soft-bg3: rgba(0, 255, 65, 0.11);
+  --accent-border: rgba(0, 255, 65, 0.26);
+  --green-text: #5cff85;
+  --green-border: rgba(34, 224, 92, 0.24);
+  --green-bg: rgba(34, 224, 92, 0.07);
+  --warning-border: rgba(255, 212, 92, 0.28);
+  --warning-bg: rgba(255, 212, 92, 0.08);
+  --warning-text: #ffd45c;
+  --error-border: rgba(255, 97, 88, 0.34);
+  --error-bg: rgba(255, 97, 88, 0.1);
+  --error-text: #ff8078;
   --file-text: #7dff9e;
-  --error-part-text: #ff8f86;
-  --question-text: #e6e2d2;
-  --question-header: #d8c690;
-  --question-option-text: #d8d2ba;
-  --question-option-small: #a49d7f;
-  --question-hint: #8f8a70;
-  --question-count-text: #e6d28f;
-  --question-count-bg: rgba(255, 222, 117, 0.12);
-  --question-card-border: rgba(255, 222, 117, 0.28);
-  --question-option-border: rgba(255, 222, 117, 0.18);
-  --question-option-bg: rgba(255, 255, 255, 0.03);
-  --question-option-selected-bg: rgba(255, 222, 117, 0.13);
-  --question-option-selected-border: rgba(255, 222, 117, 0.62);
-  --question-custom-input-bg: #071007;
-  --question-custom-label: #b8ad84;
-  --permission-code-text: #e6d28f;
-  --permission-body-text: #c0bca9;
-  --info-box-color: #9fffae;
-  --info-box-bg: rgba(0, 255, 65, 0.08);
-  --warning-box-color: #f0dc9c;
-  --warning-box-bg: rgba(255, 222, 117, 0.08);
-  --toast-text: #c8ffd4;
-  --toast-close: #5fa56f;
-  --model-green-text: #7dff9e;
-  --current-badge-text: #55ff85;
-  --current-badge-bg: rgba(0, 255, 65, 0.22);
-  --composer-placeholder: #386d46;
-  --composer-note: #386d46;
-  --composer-model-line: #5fa56f;
-  --reasoning-text: #6fbf83;
-  --reasoning-bg: rgba(0, 255, 65, 0.06);
-  --task-request-label: #55ff85;
-  --task-request-text: #8fe0a5;
-  --task-activity-text: #9fe8b1;
-  --live-stat-text: #9fffae;
-  --live-stat-bg: rgba(0, 255, 65, 0.09);
-  --live-stat-border: rgba(0, 255, 65, 0.26);
-  --live-time-text: #ffde75;
-  --progress-track-bg: rgba(255, 255, 255, 0.08);
-  --final-result-text: #c8ffd4;
-  --final-result-bg: rgba(0, 255, 65, 0.05);
-  --result-pending-text: #6fbf83;
-  --diff-file-text: #9fe8b1;
-  --copy-result: #7dff9e;
-  --status-dot-idle: #386d46;
-  --button-secondary-text: #55ff85;
-  --button-ghost-text: #6fbf83;
-  --label-text: #9fe8b1;
-  --session-item-active-bg: rgba(0, 255, 65, 0.12);
-  --session-item-border: rgba(0, 255, 65, 0.14);
-  --session-item-border-hover: rgba(0, 255, 65, 0.38);
-  --session-item-ring: rgba(0, 255, 65, 0.18);
+  --error-part-text: #ff8078;
+  --question-text: #ddd7c9;
+  --question-header: #e0b463;
+  --question-option-text: #d3cdba;
+  --question-option-small: #9a937c;
+  --question-hint: #807a66;
+  --question-count-text: #ffd45c;
+  --question-count-bg: rgba(255, 212, 92, 0.1);
+  --question-card-border: rgba(255, 212, 92, 0.26);
+  --question-option-border: rgba(198, 190, 168, 0.16);
+  --question-option-bg: rgba(198, 214, 232, 0.03);
+  --question-option-selected-bg: rgba(255, 212, 92, 0.1);
+  --question-option-selected-border: rgba(255, 212, 92, 0.55);
+  --question-custom-input-bg: #0e1216;
+  --question-custom-label: #bdb489;
+  --permission-code-text: #ffd45c;
+  --permission-body-text: #bdb8a6;
+  --info-box-color: #a8d4c0;
+  --info-box-bg: rgba(120, 190, 165, 0.08);
+  --warning-box-color: #e8d093;
+  --warning-box-bg: rgba(255, 212, 92, 0.07);
+  --toast-text: #cfe0d5;
+  --toast-close: #748d7e;
+  --model-green-text: #5cff85;
+  --current-badge-text: #5cff85;
+  --current-badge-bg: rgba(0, 255, 65, 0.18);
+  --composer-placeholder: #4e6155;
+  --composer-note: #4e6155;
+  --composer-model-line: #748d7e;
+  --reasoning-text: #93b09d;
+  --reasoning-bg: rgba(198, 214, 232, 0.04);
+  --task-request-label: #5cff85;
+  --task-request-text: #b6c3ba;
+  --task-activity-text: #adc0b4;
+  --live-stat-text: #5cff85;
+  --live-stat-bg: rgba(0, 255, 65, 0.07);
+  --live-stat-border: rgba(0, 255, 65, 0.22);
+  --live-time-text: #ffd45c;
+  --progress-track-bg: rgba(198, 214, 232, 0.08);
+  --final-result-text: #d2e3d8;
+  --final-result-bg: rgba(34, 224, 92, 0.045);
+  --result-pending-text: #748d7e;
+  --diff-file-text: #b6c9bb;
+  --copy-result: #5cff85;
+  --status-dot-idle: #4e6155;
+  --button-secondary-text: #5cff85;
+  --button-ghost-text: #93b09d;
+  --label-text: #adc0b4;
+  --session-item-active-bg: rgba(0, 255, 65, 0.1);
+  --session-item-border: rgba(198, 214, 232, 0.08);
+  --session-item-border-hover: rgba(0, 255, 65, 0.32);
+  --session-item-ring: rgba(0, 255, 65, 0.14);
 }
 
 [data-theme="glass"] {
@@ -389,6 +395,139 @@
   --session-item-ring: rgba(79, 70, 229, 0.18);
 }
 
+/* فولاذ مصقول: رمادي بارد مشبعته أقل من الداكن، واللمعان بييجي من تدرّجات
+   رمادية محايدة مش من لون. الـ accent تيتانيوم بارد — في وسط الطيف الرمادي
+   محتاج لون يوجّه العين، واخترنا أبرد درجات الفولاذ عشان يفضل صامت. */
+[data-theme="metal"] {
+  color-scheme: dark;
+  color: #e9edf3;
+  background: #0f1216;
+  --bg: #0f1216;
+  --bg-glow: rgba(158, 176, 200, 0.16);
+  --panel: #171a20;
+  --panel-raised: #1d212a;
+  --panel-soft: #242935;
+  --border: rgba(186, 199, 217, 0.16);
+  --muted: #808b9d;
+  --text: #eef1f6;
+  --text-body: #cdd4e0;
+  --text-user: #e5e9f0;
+  --text-strong: #c3cbd9;
+  --text-dimmer: #a7b1c2;
+  --text-faint: #7e8899;
+  --text-fainter: #6a7484;
+  --text-faintest: #5b6472;
+  --text-code: #aac6e6;
+  --on-accent: #0b0e13;
+  --accent: #9db4d0;
+  --accent-strong: #c6d5e7;
+  --accent-deep: #8098b4;
+  --accent-blue: #6d8cae;
+  --green: #7ed4a6;
+  --yellow: #e6c88c;
+  --red: #f08a8a;
+  --surface-input: #0c0f13;
+  --surface-tool: #0a0d11;
+  --surface-card: rgba(255, 255, 255, 0.035);
+  --surface-card2: rgba(255, 255, 255, 0.022);
+  --surface-tint: rgba(190, 205, 226, 0.05);
+  --surface-raised: rgba(20, 24, 30, 0.8);
+  --sidebar-bg: rgba(17, 20, 25, 0.88);
+  --topbar-bg: rgba(15, 18, 22, 0.6);
+  --composer-wrap-bg: rgba(15, 18, 22, 0.95);
+  --composer-bg: #1a1e25;
+  --drawer-bg: #191d24;
+  --toast-bg: #1f242c;
+  --scrim: rgba(6, 8, 11, 0.66);
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  --grad-card: linear-gradient(150deg, rgba(35, 40, 48, 0.96), rgba(17, 20, 25, 0.98));
+  --grad-summary: linear-gradient(150deg, rgba(31, 36, 44, 0.9), rgba(19, 23, 29, 0.94));
+  --grad-question: linear-gradient(145deg, rgba(38, 33, 22, 0.74), rgba(20, 18, 13, 0.88));
+  --scrollbar: #39414d;
+  --todo-panel-bg: rgba(23, 26, 32, 0.74);
+  --todo-text: #b3bccb;
+  --todo-muted: #78828f;
+  --todo-inprogress-text: #dee4ed;
+  --result-file-bg: rgba(12, 15, 19, 0.6);
+  --result-files-bg: rgba(157, 180, 208, 0.07);
+  --result-files-border: rgba(157, 180, 208, 0.3);
+  --log-muted: #7a8494;
+  --working-banner-text: #e9d3a0;
+  --working-badge-text: #eed59f;
+  --permission-badge-text: #ffa3a3;
+  --soft-purple-text: #cfdbeb;
+  --soft-green-text: #b6e6cf;
+  --avatar-purple-bg: rgba(157, 180, 208, 0.14);
+  --avatar-green-bg: rgba(126, 212, 166, 0.1);
+  --accent-soft-bg: rgba(157, 180, 208, 0.15);
+  --accent-soft-bg2: rgba(157, 180, 208, 0.11);
+  --accent-soft-bg3: rgba(157, 180, 208, 0.14);
+  --accent-border: rgba(157, 180, 208, 0.3);
+  --green-text: #8fdcb8;
+  --green-border: rgba(126, 212, 166, 0.2);
+  --green-bg: rgba(126, 212, 166, 0.08);
+  --warning-border: rgba(230, 200, 140, 0.28);
+  --warning-bg: rgba(230, 200, 140, 0.09);
+  --warning-text: #e9d3a0;
+  --error-border: rgba(240, 138, 138, 0.36);
+  --error-bg: rgba(240, 138, 138, 0.1);
+  --error-text: #ffa3a3;
+  --file-text: #aecae8;
+  --error-part-text: #ffb3b3;
+  --tool-output-text: #a3adbe;
+  --question-text: #e4e0d2;
+  --question-header: #d6c795;
+  --question-option-text: #d6d1bd;
+  --question-option-small: #a49f88;
+  --question-hint: #8e8a78;
+  --question-count-text: #e6d49c;
+  --question-count-bg: rgba(230, 200, 140, 0.12);
+  --question-card-border: rgba(230, 200, 140, 0.28);
+  --question-option-border: rgba(255, 255, 255, 0.1);
+  --question-option-bg: rgba(255, 255, 255, 0.03);
+  --question-option-selected-bg: rgba(230, 200, 140, 0.13);
+  --question-option-selected-border: rgba(230, 200, 140, 0.62);
+  --question-custom-input-bg: #14140f;
+  --question-custom-label: #b6ad8c;
+  --permission-code-text: #e6d49c;
+  --permission-body-text: #c0bcab;
+  --info-box-color: #b3c0d2;
+  --info-box-bg: rgba(157, 180, 208, 0.09);
+  --warning-box-color: #e2d1a0;
+  --warning-box-bg: rgba(230, 200, 140, 0.08);
+  --toast-text: #dde3ec;
+  --toast-close: #808b9d;
+  --model-green-text: #a2e3c6;
+  --current-badge-text: #d6e0ee;
+  --current-badge-bg: rgba(157, 180, 208, 0.25);
+  --composer-placeholder: #697382;
+  --composer-note: #5b6472;
+  --composer-model-line: #808b9d;
+  --reasoning-text: #909aab;
+  --reasoning-bg: rgba(157, 180, 208, 0.06);
+  --task-request-label: #b3c6dd;
+  --task-request-text: #c3cbd8;
+  --task-activity-text: #b7c0ce;
+  --live-stat-text: #c0cbdb;
+  --live-stat-bg: rgba(157, 180, 208, 0.08);
+  --live-stat-border: rgba(157, 180, 208, 0.24);
+  --live-time-text: #e6d49c;
+  --progress-track-bg: rgba(255, 255, 255, 0.08);
+  --final-result-text: #dfe5ee;
+  --final-result-bg: rgba(126, 212, 166, 0.055);
+  --result-pending-text: #a5aebc;
+  --diff-file-text: #c7cedb;
+  --copy-result: #8fdcb8;
+  --status-dot-idle: #697382;
+  --button-secondary-text: #d2dded;
+  --button-ghost-text: #a7b1c2;
+  --label-text: #b7c0ce;
+  --session-item-active-bg: rgba(157, 180, 208, 0.13);
+  --session-item-border: rgba(255, 255, 255, 0.07);
+  --session-item-border-hover: rgba(157, 180, 208, 0.36);
+  --session-item-ring: rgba(157, 180, 208, 0.18);
+}
+
 /* Light theme ambience — calm frosted-glass wash, subtle by design */
 [data-theme="glass"] body::before {
   content: "";
@@ -475,6 +614,56 @@
 }
 [data-theme="dark"] .task-finished .task-summary-state {
   box-shadow: 0 0 0 1px rgba(66, 215, 162, 0.55);
+}
+
+/* ---- Metal theme polish ----
+   كتير من الحالات في الملف مكتوبة بلون بنفسجي ثابت مش متغيّرات (حلقات التركيز،
+   علامات الـ todo، بيزل الإرسال) — فالمتغيّرات لوحدها مش بيوصلها، والـ indigo
+   لوحده كان هيبقى بقعة غريبة وسط رمادي بارد. فبنعيد كتابتها هنا للنيكل. */
+[data-theme="metal"] ::-webkit-scrollbar-thumb:hover { background: rgba(157, 180, 208, 0.45); }
+[data-theme="metal"] .loader { border-color: rgba(157, 180, 208, 0.2); }
+[data-theme="metal"] .brand-mark { background: linear-gradient(145deg, #39404a, #14171c); box-shadow: 0 16px 38px rgba(0, 0, 0, 0.5), 0 0 0 4px rgba(157, 180, 208, 0.1), 0 0 32px rgba(198, 213, 231, 0.14); }
+[data-theme="metal"] .brand-mark:hover { box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6), 0 0 0 5px rgba(157, 180, 208, 0.14), 0 0 44px rgba(198, 213, 231, 0.22); }
+[data-theme="metal"] .brand-mark.small { box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45), 0 0 0 2px rgba(157, 180, 208, 0.12); }
+[data-theme="metal"] .welcome-orb { background: linear-gradient(145deg, #39404a, #14171c); box-shadow: 0 0 60px rgba(157, 180, 208, 0.24), 0 16px 38px rgba(0, 0, 0, 0.5), 0 0 0 5px rgba(157, 180, 208, 0.08); }
+[data-theme="metal"] .login-card input:focus,
+[data-theme="metal"] .session-title-form input:focus,
+[data-theme="metal"] .project-search:focus,
+[data-theme="metal"] .history-search:focus { box-shadow: 0 0 0 3px rgba(157, 180, 208, 0.16); }
+[data-theme="metal"] .title-edit:hover,
+[data-theme="metal"] .suggestions button:hover { background: rgba(157, 180, 208, 0.08); }
+[data-theme="metal"] .icon-pinned:hover:not(:disabled) { box-shadow: 0 4px 16px rgba(157, 180, 208, 0.25); }
+[data-theme="metal"] .reasoning { border-right-color: rgba(157, 180, 208, 0.4); }
+html[dir="ltr"] [data-theme="metal"] .reasoning { border-left-color: rgba(157, 180, 208, 0.4); }
+[data-theme="metal"] .tool-running { border-color: rgba(157, 180, 208, 0.34); }
+[data-theme="metal"] .todo-mark,
+[data-theme="metal"] .request-row-mark { background: rgba(157, 180, 208, 0.08); }
+[data-theme="metal"] .todo-in_progress .todo-mark,
+[data-theme="metal"] .request-row-running .request-row-mark { border-color: rgba(198, 213, 231, 0.5); background: rgba(157, 180, 208, 0.15); }
+[data-theme="metal"] .todo-in_progress .todo-status,
+[data-theme="metal"] .request-row-running .request-row-state { background: rgba(157, 180, 208, 0.11); }
+[data-theme="metal"] .composer:focus-within { border-color: rgba(157, 180, 208, 0.62); box-shadow: 0 0 0 3px rgba(157, 180, 208, 0.1); }
+[data-theme="metal"] .expand-toggle:focus-visible { box-shadow: 0 0 0 3px rgba(157, 180, 208, 0.25); }
+[data-theme="metal"] .button-primary { box-shadow: 0 8px 20px rgba(120, 145, 175, 0.28); }
+[data-theme="metal"] .task-running { border-color: rgba(157, 180, 208, 0.45); box-shadow: 0 16px 50px rgba(96, 116, 140, 0.14); }
+[data-theme="metal"] .activity-pulse { box-shadow: 0 0 0 4px rgba(157, 180, 208, 0.14); }
+[data-theme="metal"] .progress-track.indeterminate { background: rgba(157, 180, 208, 0.12); }
+/* بيزل الإرسال: كروم مصقول — درجته الفاتحة بتفرق عن الخلفية أكتر من الـ indigo */
+[data-theme="metal"] .launch-bezel { background: radial-gradient(circle at 35% 28%, #e8eef6 0%, #9db4d0 52%, #4c5866 100%); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.55), 0 0 16px rgba(157, 180, 208, 0.45); }
+[data-theme="metal"] .send-button.is-ready .launch-bezel { box-shadow: 0 4px 10px rgba(0, 0, 0, 0.55), 0 0 20px rgba(198, 213, 231, 0.55); }
+[data-theme="metal"] .send-button:hover:not(--disabled) .launch-bezel { box-shadow: 0 4px 10px rgba(0, 0, 0, 0.55), 0 0 24px rgba(198, 213, 231, 0.7); }
+[data-theme="metal"] .send-button.is-sending .launch-bezel { box-shadow: 0 4px 10px rgba(0, 0, 0, 0.55), 0 0 10px rgba(157, 180, 208, 0.3); }
+
+/* فرش المعدن: خطوط قطرية دقيقة بشفافيات خفيفة. ساكنة عن قصد — التدرّج المتحرك
+   بتاع النهاري بياخد GPU وساعات بيبان رقرشة على شاشات OLED، وخطوط الفرش لو
+   حركناها بتبان متكسّرة. */
+[data-theme="metal"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: repeating-linear-gradient(105deg, rgba(255, 255, 255, 0.016) 0 1px, transparent 1px 4px), linear-gradient(160deg, rgba(214, 226, 240, 0.05), transparent 42%);
+  pointer-events: none;
 }
 
 * { box-sizing: border-box; }
@@ -759,6 +948,9 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 [data-theme="glass"] .task-stopped .activity-pulse { box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.12); }
 [data-theme="glass"] .git-status-mark.git-status-deleted { background: rgba(225, 29, 72, 0.1); }
 [data-theme="glass"] .git-diff-removed { background: rgba(225, 29, 72, 0.09); }
+[data-theme="glass"] .git-revert-button:hover, [data-theme="glass"] .git-file-revert:hover { background: rgba(225, 29, 72, 0.1); }
+[data-theme="glass"] .git-confirm-actions .git-confirm-accept { background: rgba(225, 29, 72, 0.12); }
+[data-theme="glass"] .git-confirm-actions .git-confirm-accept:hover { background: rgba(225, 29, 72, 0.2); }
 [data-theme="glass"] .toast-error { border-color: rgba(225, 29, 72, 0.4); }
 /* Selected / active / disabled polish */
 [data-theme="glass"] .session-item.active { background: var(--session-item-active-bg); border-color: var(--accent-border); box-shadow: inset -2px 0 0 0 var(--accent-strong), inset 0 0 0 1px var(--session-item-ring); }
@@ -1293,6 +1485,8 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 /* قائمة الملفات المتغيّرة في git */
 .git-button svg { display: block; }
 .git-drawer { width: min(460px, 94vw); }
+/* أيقونة الفرع في الـ eyebrow جنب نص 11px، فنصغّرها ونحاذيها على خط الأساس */
+.git-drawer .drawer-header .eyebrow svg { width: 13px; height: 13px; vertical-align: -2px; }
 .git-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .git-toolbar .icon-button { flex: 0 0 42px; width: 42px; }
 .git-toolbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
@@ -1316,6 +1510,19 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .git-diff { padding: 2px 6px; border-radius: 6px; font-size: 10px; font-weight: 800; line-height: 1; white-space: nowrap; }
 .git-diff-added { color: var(--green); background: var(--green-bg); }
 .git-diff-removed { color: var(--red); background: rgba(255, 127, 157, 0.12); }
+.git-revert-button { color: var(--error-text); border-color: var(--error-border); background: var(--error-bg); }
+.git-revert-button:hover { color: var(--red); border-color: var(--red); background: rgba(255, 127, 157, 0.2); }
+.git-file-revert { flex: 0 0 auto; width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 9px; color: var(--text-dimmer); background: var(--surface-card); font: inherit; font-size: 15px; line-height: 1; transition: 0.18s ease; }
+.git-file-revert:hover { color: var(--error-text); border-color: var(--error-border); background: var(--error-bg); }
+.git-file-revert:disabled { opacity: 0.45; cursor: not-allowed; }
+.git-confirm { display: grid; gap: 10px; margin-bottom: 12px; padding: 11px 12px; border: 1px solid var(--error-border); border-radius: 12px; background: var(--error-bg); }
+.git-confirm-text { margin: 0; color: var(--error-text); font-size: 12px; line-height: 1.7; }
+.git-confirm-actions { display: flex; gap: 8px; }
+.git-confirm-actions button { flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-dimmer); background: var(--surface-card); font: inherit; font-size: 12px; font-weight: 800; line-height: 1.4; }
+.git-confirm-actions button:hover { color: var(--text); border-color: var(--accent-border); }
+.git-confirm-actions .git-confirm-accept { color: var(--error-text); border-color: var(--error-border); background: rgba(255, 127, 157, 0.16); }
+.git-confirm-actions .git-confirm-accept:hover { color: var(--red); border-color: var(--red); background: rgba(255, 127, 157, 0.26); }
+.git-confirm-actions button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 @media (max-width: 800px) {
   .sidebar { position: fixed; z-index: 30; top: 0; bottom: 0; right: 0; width: min(300px, 88vw); transform: translateX(105%); transition: transform 0.22s ease; box-shadow: var(--shadow); padding-top: env(safe-area-inset-top); }

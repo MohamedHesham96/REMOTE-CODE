@@ -1,0 +1,41 @@
+import type { Language } from "../i18n"
+import type { GitChangeFile } from "../types"
+
+// سقف سطور القائمة في الطلب: البوت بيقرأ طلب طويل وبيرد بالساعات، والقائمة
+// الطويلة ما بتضيفش حاجة لقرار الـ commit أو الـ revert.
+const MAX_LISTED_FILES = 50
+
+function listFiles(files: GitChangeFile[]): string {
+  return files.slice(0, MAX_LISTED_FILES).map((file) => `- ${file.path} (${file.status})`).join("\n")
+}
+
+// طلب commit و push للتغييرات كلها — نفس منطق زرار الـ commit في قائمة git.
+export function commitPushPrompt(files: GitChangeFile[], branch: string, lang: Language): string {
+  const fileLines = listFiles(files)
+  return lang === "ar"
+    ? `اعمل commit لكل التغييرات الحالية في git وبعدها push${branch ? ` على الفرع '${branch}'` : ""}.\nخطواتك:\n1) راجع git status و git diff.\n2) اعمل git add للملفات المتغيرة.\n3) اعمل commit برسالة واضحة ومختصرة.\n4) اعمل push${branch ? ` إلى '${branch}'` : ""}.\nالملفات المتغيرة:\n${fileLines}\nلو مفيش remote متظبط قولي بوضوح ومتخترعش حاجة.`
+    : `Commit all current git changes and then push${branch ? ` to branch '${branch}'` : ""}.\nSteps:\n1) Review git status and git diff.\n2) git add the changed files.\n3) Commit with a clear, concise message.\n4) Push${branch ? ` to '${branch}'` : ""}.\nChanged files:\n${fileLines}\nIf no remote is configured, say so clearly and don't invent anything.`
+}
+
+// التراجع عن ملف واحد. صيغة الأمر بتختلف على حسب حالة الملف: الملف الجديد
+// (added) مش متتبَّع في git أصلًا فمفيش له نسخة يرجع لها، فالتراجع عنه = حذفه.
+// أما المعدَّل والمحوذ فـ "restore" بيرجّعهم من الـ index أو من آخر commit.
+export function revertFilePrompt(file: GitChangeFile, lang: Language): string {
+  const untracked = file.status === "added"
+  return lang === "ar"
+    ? `تراجع عن التغييرات في ملف واحد بس: '${file.path}'.\n${untracked
+        ? "الملف جديد ومش متتبَّع في git، فامسح الملف من القرص."
+        : "ارجع الملف لحالته قبل التغيير بـ git restore، ولو التعديل متعمله add فاستخدم git restore --staged."}\nممنوع تلمس أي ملف تاني، وممنوع تعمل commit.\nبعد ما تخلص، اعمل git status وقولي إيه اللي اتغيّر فعلًا.`
+    : `Discard the changes in exactly one file: '${file.path}'.\n${untracked
+        ? "The file is new and untracked in git, so delete it from disk."
+        : "Bring the file back to its pre-change state with git restore, or git restore --staged if the change was already added."}\nDo not touch any other file, and do not commit.\nAfterwards run git status and tell me what actually changed.`
+}
+
+// التراجع عن كل التغييرات غير المُودَعة — عملية مدمّرة لأن الشغل غير
+// المحفوظ بيضيع نهائيًا، فالطلب نفسه بيحذّر والبنية بتفرض تأكيد قبل الإرسال.
+export function revertAllPrompt(files: GitChangeFile[], lang: Language): string {
+  const fileLines = listFiles(files)
+  return lang === "ar"
+    ? `تراجع عن كل التغييرات غير المُودَعة في مجلد العمل (التراجع النهائي).\nخطواتك:\n1) راجع git status.\n2) ارجع الملفات المتتبَّعة لحالتها الأصلية بـ git restore.\n3) احذف الملفات الجديدة غير المتتبَّعة (المُضافة) من القرص.\n4) امسح أي تعديلات على الـ staging area بدون ما تعمل commit.\nالملفات المتاحة للتراجع عنها:\n${fileLines}\nممنوع تعمل commit أو push. لو التراجع الكامل مالوش معنى لحالة معينة وضّحها قبل ما تنفذ.`
+    : `Discard every uncommitted change in the working tree (final rollback).\nSteps:\n1) Review git status.\n2) Restore all tracked files to their original state with git restore.\n3) Delete the new untracked (added) files from disk.\n4) Clear any staging-area changes without committing.\nFiles available to revert:\n${fileLines}\nDo not commit or push. If a full revert makes no sense for some file, say so before you run anything.`
+}
