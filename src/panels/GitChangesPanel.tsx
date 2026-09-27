@@ -3,13 +3,16 @@ import { EMPTY_GIT_FILES, GitBranchIcon, GitCommitIcon, GitRefreshIcon, GitRever
 import type { Strings } from "../i18n"
 import type { GitChangeFile, GitChanges } from "../types"
 
-export function GitChangesPanel({ changes, loading, busy, confirming, onRefresh, onCommitPush, onAskRevertAll, onRevertAll, onCancelRevertAll, onRevertFile, onClose, t }: {
+export function GitChangesPanel({ changes, loading, busy, confirming, confirmingPush, onRefresh, onCommitPush, onAskCommitPush, onCancelCommitPush, onAskRevertAll, onRevertAll, onCancelRevertAll, onRevertFile, onClose, t }: {
   changes: GitChanges | null
   loading: boolean
   busy: boolean
   confirming: boolean
+  confirmingPush: boolean
   onRefresh: () => void
   onCommitPush: () => void
+  onAskCommitPush: () => void
+  onCancelCommitPush: () => void
   onAskRevertAll: () => void
   onRevertAll: () => void
   onCancelRevertAll: () => void
@@ -20,9 +23,9 @@ export function GitChangesPanel({ changes, loading, busy, confirming, onRefresh,
   // قائمة الملفات المتغيّرة في git للمشروع الحالي، مع ملخص سريع فوقها
   const files = changes?.files ?? EMPTY_GIT_FILES
   const hasFiles = Boolean(changes?.available) && files.length > 0
-  // كل أزرار التحكم بتتقفل لما مفيش ملفات، وبتتقفل كمان وقت التأكيد
-  // عشان المستخدم ميضربش commit أو تراجع ملف وهو بيأكد التراجع عن الكل.
-  const canAct = hasFiles && !loading && !busy && !confirming
+  // كل أزرار التحكم بتتقفل لما مفيش ملفات، وبتتقفل كمان وقت أي تأكيد
+  // عشان المستخدم ميضربش action تاني وهو بيأكد واحد شغّال.
+  const canAct = hasFiles && !loading && !busy && !confirming && !confirmingPush
   const summary = useMemo(() => files.reduce((total, file) => {
     if (file.status === "added") {
       total.added += 1
@@ -70,17 +73,19 @@ export function GitChangesPanel({ changes, loading, busy, confirming, onRefresh,
                 <GitRevertIcon />
               </button>
             ) : null}
-            <button
-              type="button"
-              className="icon-button git-commit-button"
-              disabled={!canAct}
-              onClick={onCommitPush}
-              aria-busy={busy}
-              aria-label={t.gitCommitPush}
-              title={t.gitCommitPush}
-            >
-              {busy ? <SpinnerIcon /> : <GitCommitIcon />}
-            </button>
+            {!confirmingPush ? (
+              <button
+                type="button"
+                className="icon-button git-commit-button"
+                disabled={!canAct}
+                onClick={onAskCommitPush}
+                aria-busy={busy}
+                aria-label={t.gitCommitPush}
+                title={t.gitCommitPush}
+              >
+                {busy ? <SpinnerIcon /> : <GitCommitIcon />}
+              </button>
+            ) : null}
           </div>
         </div>
         {/* التراجع عن الكل مدمّر ومش بيرجع — عشان كده بيتأكد جوه الدرج بدل ما ينفّذ طول */}
@@ -93,6 +98,20 @@ export function GitChangesPanel({ changes, loading, busy, confirming, onRefresh,
               </button>
               <button type="button" className="git-confirm-accept" onClick={onRevertAll} disabled={busy || !hasFiles}>
                 {t.gitRevertAllConfirmYes}
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {/* الـ push بيعدّل الفرع البعيد، فبيتأكد جوه الدرج زي التراجع عن الكل */}
+        {confirmingPush ? (
+          <div className="git-confirm" role="alertdialog" aria-label={t.gitCommitPushConfirm}>
+            <p className="git-confirm-text">{t.gitCommitPushConfirm}</p>
+            <div className="git-confirm-actions">
+              <button type="button" className="git-confirm-cancel" onClick={onCancelCommitPush} disabled={busy}>
+                {t.cancel}
+              </button>
+              <button type="button" className="git-confirm-accept" onClick={onCommitPush} disabled={busy || !hasFiles}>
+                {t.gitCommitPushConfirmYes}
               </button>
             </div>
           </div>

@@ -6,10 +6,13 @@ import { commitPushPrompt, revertAllPrompt, revertFilePrompt } from "../utils/gi
 export interface GitRequests {
   isOpen: boolean
   confirming: boolean
+  confirmingPush: boolean
   show: () => void
   close: () => void
   askRevertAll: () => void
   cancelRevertAll: () => void
+  askCommitPush: () => void
+  cancelCommitPush: () => void
   commitPush: () => Promise<void>
   revertAll: () => Promise<void>
   revertFile: (file: GitChangeFile) => Promise<void>
@@ -27,10 +30,12 @@ export function useGitRequests(
 ): GitRequests {
   const [isOpen, setIsOpen] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [confirmingPush, setConfirmingPush] = useState(false)
 
   const close = useCallback(() => {
     setIsOpen(false)
     setConfirming(false)
+    setConfirmingPush(false)
   }, [])
 
   // نطلب من السطر الأول فيه تغييرات حقيقية، وإلا الطلب هيتنفّذ على مجلد نضيف
@@ -63,6 +68,7 @@ export function useGitRequests(
   const show = useCallback(() => {
     setIsOpen(true)
     setConfirming(false)
+    setConfirmingPush(false)
   }, [])
 
   // فتح dialog التأكيد هو نفسه action مدمّر — ميتفتحش لما مفيش ملفات.
@@ -76,5 +82,15 @@ export function useGitRequests(
   // الإلغاء بيسيب الدرج مفتوح — المستخدم لسه بيراجع الملفات قبل ما يقرر
   const cancelRevertAll = useCallback(() => setConfirming(false), [])
 
-  return { isOpen, confirming, show, close, askRevertAll, cancelRevertAll, commitPush, revertAll, revertFile }
+  // الـ push بيبعت commit حقيقي للفرع، فبيتأكد زي التراجع عن الكل تمامًا.
+  const askCommitPush = useCallback(() => {
+    if (!canRequest()) {
+      return
+    }
+    setConfirmingPush(true)
+  }, [canRequest])
+
+  const cancelCommitPush = useCallback(() => setConfirmingPush(false), [])
+
+  return { isOpen, confirming, confirmingPush, show, close, askRevertAll, cancelRevertAll, askCommitPush, cancelCommitPush, commitPush, revertAll, revertFile }
 }

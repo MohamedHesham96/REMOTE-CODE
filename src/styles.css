@@ -1515,7 +1515,9 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .git-diff-removed { color: var(--red); background: rgba(255, 127, 157, 0.12); }
 .git-revert-button { color: var(--error-text); border-color: var(--error-border); background: var(--error-bg); }
 .git-revert-button:hover:not(:disabled) { color: var(--red); border-color: var(--red); background: rgba(255, 127, 157, 0.2); }
-.git-file-revert { flex: 0 0 auto; width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 9px; color: var(--text-dimmer); background: var(--surface-card); font: inherit; font-size: 15px; line-height: 1; transition: 0.18s ease; }
+/* الـ ✕ بتاعة التراجع حمرا دايمًا مش على الـ hover بس — الفعل مدمّر
+   ولازم يبان كده من أول نظرة، زي زرار التراجع عن الكل في الشريط. */
+.git-file-revert { flex: 0 0 auto; width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 9px; color: var(--error-text); background: var(--surface-card); font: inherit; font-size: 15px; line-height: 1; transition: 0.18s ease; }
 /* زرار السطر أصغر من زرار الشريط (30px مقابل 42px)، فالأيقونة لازم تنزل
    معاه — 19px جوه 30px بتبان ممتلئة أكتر من اللازم ومباشرة على الحافة. */
 .git-file-revert svg { width: 15px; height: 15px; }

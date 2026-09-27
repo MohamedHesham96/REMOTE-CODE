@@ -1941,8 +1941,11 @@ function App() {
             loading={gitLoading}
             busy={sending}
             confirming={gitRequests.confirming}
+            confirmingPush={gitRequests.confirmingPush}
             onRefresh={() => void refreshGitChanges()}
             onCommitPush={() => void gitRequests.commitPush()}
+            onAskCommitPush={gitRequests.askCommitPush}
+            onCancelCommitPush={gitRequests.cancelCommitPush}
             onAskRevertAll={gitRequests.askRevertAll}
             onRevertAll={() => void gitRequests.revertAll()}
             onCancelRevertAll={gitRequests.cancelRevertAll}
