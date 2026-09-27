@@ -65,7 +65,13 @@ export function useGitRequests(
     setConfirming(false)
   }, [])
 
-  const askRevertAll = useCallback(() => setConfirming(true), [])
+  // فتح dialog التأكيد هو نفسه action مدمّر — ميتفتحش لما مفيش ملفات.
+  const askRevertAll = useCallback(() => {
+    if (!canRequest()) {
+      return
+    }
+    setConfirming(true)
+  }, [canRequest])
 
   // الإلغاء بيسيب الدرج مفتوح — المستخدم لسه بيراجع الملفات قبل ما يقرر
   const cancelRevertAll = useCallback(() => setConfirming(false), [])

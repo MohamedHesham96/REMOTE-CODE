@@ -20,7 +20,9 @@ export function GitChangesPanel({ changes, loading, busy, confirming, onRefresh,
   // قائمة الملفات المتغيّرة في git للمشروع الحالي، مع ملخص سريع فوقها
   const files = changes?.files ?? EMPTY_GIT_FILES
   const hasFiles = Boolean(changes?.available) && files.length > 0
-  const canAct = hasFiles && !loading && !busy
+  // كل أزرار التحكم بتتقفل لما مفيش ملفات، وبتتقفل كمان وقت التأكيد
+  // عشان المستخدم ميضربش commit أو تراجع ملف وهو بيأكد التراجع عن الكل.
+  const canAct = hasFiles && !loading && !busy && !confirming
   const summary = useMemo(() => files.reduce((total, file) => {
     if (file.status === "added") {
       total.added += 1
@@ -89,7 +91,7 @@ export function GitChangesPanel({ changes, loading, busy, confirming, onRefresh,
               <button type="button" className="git-confirm-cancel" onClick={onCancelRevertAll} disabled={busy}>
                 {t.cancel}
               </button>
-              <button type="button" className="git-confirm-accept" onClick={onRevertAll} disabled={busy}>
+              <button type="button" className="git-confirm-accept" onClick={onRevertAll} disabled={busy || !hasFiles}>
                 {t.gitRevertAllConfirmYes}
               </button>
             </div>
