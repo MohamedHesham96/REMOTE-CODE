@@ -786,31 +786,30 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
    الإجراءات جوّه نفس الحاوية المستديرة بدل الشريط المسطّح. */
 .topbar { min-height: 84px; flex: 0 0 auto; display: flex; align-items: center; gap: 15px; margin: calc(12px + env(safe-area-inset-top)) clamp(12px, 3vw, 40px) 0; padding: 14px clamp(14px, 2.5vw, 28px); border: 1px solid var(--border); border-radius: 24px; background: var(--topbar-bg); }
 .current-session { min-width: 0; flex: 1; }
-/* ترتيب عمودي فقط بلا كروم بطاقة: الـ topbar نفسه هو البطاقة الآن،
-   فالبطانة الداخلية كانت هتعمل بطاقة جوّه بطاقة. الـ flex column هو
-   اللي بيخلّي قواعد الموبايل تقلب العنوان فوق المشروع من غير تحريك DOM. */
+/* غلاف شفاف بلا كروم بطاقة: الـ topbar نفسه هو البطاقة الآن،
+   فالبطانة الداخلية كانت هتعمل بطاقة جوّه بطاقة. عنوان المحادثة
+   خرج من هنا لكارت حالة المهمة، فبقى صف المشروع والموديل فقط. */
 .session-head { min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 9px; padding: 0; border: 0; background: transparent; }
-/* The conversation title is a chip so it speaks the same visual
-   language as the project badge and the model pill above it. The h1
-   itself carries the pill, and the rename pencil lives inside it so
-   the chip reads as one unit instead of a chip plus a loose button.
-   The text span (not the h1) owns the ellipsis, so the button never
-   gets clipped. Scoped to .current-session: sidebar rows reuse
-   .session-title-row. */
-.current-session .session-title-row { min-width: 0; display: flex; align-items: center; }
-.current-session h1 { flex: 1 1 0; min-width: 0; overflow: hidden; display: flex; align-items: center; gap: 6px; margin: 0; padding-block: 4px; padding-inline-start: 14px; padding-inline-end: 6px; border: 1px solid var(--accent-border); border-radius: 999px; color: var(--text); background: var(--accent-soft-bg2); font-size: 16px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.3; transition: border-color 0.15s ease, background 0.15s ease; }
-.current-session .session-title-row:hover h1 { border-color: var(--accent); }
+/* عنوان المحادثة شارة بنفس لغة شارة المشروع وحبة الموديل. الـ h2
+   نفسه شايل الشارة وقلم إعادة التسمية جواه عشان يتقري كوحدة واحدة
+   بدل شارة وزرار سايب. الـ span النصي (مش الـ h2) هو اللي بيملك
+   الـ ellipsis فالزرار عمره ما يتقص. النطاق .task-summary-top:
+   صفوف القائمة الجانبية بتستخدم .session-title-row العام. */
+.task-summary-top > div { min-width: 0; flex: 1; }
+.task-summary-top .session-title-row { min-width: 0; display: flex; align-items: center; }
+.task-summary-top h2 { flex: 1 1 0; min-width: 0; overflow: hidden; display: flex; align-items: center; gap: 6px; margin: 5px 0 0; padding-block: 4px; padding-inline-start: 14px; padding-inline-end: 6px; border: 1px solid var(--accent-border); border-radius: 999px; color: var(--text); background: var(--accent-soft-bg2); font-size: 16px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.3; transition: border-color 0.15s ease, background 0.15s ease; }
+.task-summary-top .session-title-row:hover h2 { border-color: var(--accent); }
 .session-title-text { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .title-edit { width: 24px; height: 24px; display: grid; place-items: center; flex: 0 0 24px; border: 0; border-radius: 50%; color: var(--text-faint); background: transparent; font-size: 13px; opacity: 0; transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease; }
-.current-session .session-title-row:hover .title-edit,
-.current-session .session-title-row:focus-within .title-edit { opacity: 1; }
+.task-summary-top .session-title-row:hover .title-edit,
+.task-summary-top .session-title-row:focus-within .title-edit { opacity: 1; }
 .title-edit:hover { color: var(--accent-strong); background: rgba(139,124,255,0.1); }
 /* No hover on touch, so the pencil has to stay visible there */
 @media (hover: none), (pointer: coarse) {
   .title-edit { opacity: 1; }
 }
-.current-session .session-title-form { min-width: 0; display: flex; align-items: center; gap: 5px; }
-.current-session .session-title-form input { flex: 1 1 0; min-width: 0; width: auto; max-width: none; padding: 6px 14px; border: 1px solid var(--accent); border-radius: 999px; outline: none; color: var(--text); background: var(--accent-soft-bg2); font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+.task-summary-top .session-title-form { min-width: 0; display: flex; align-items: center; gap: 5px; margin: 5px 0 0; }
+.task-summary-top .session-title-form input { flex: 1 1 0; min-width: 0; width: auto; max-width: none; padding: 6px 14px; border: 1px solid var(--accent); border-radius: 999px; outline: none; color: var(--text); background: var(--accent-soft-bg2); font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
 .session-title-form input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139,124,255,0.14); }
 .title-action { width: 29px; height: 29px; display: grid; place-items: center; flex: 0 0 29px; border: 1px solid var(--border); border-radius: 8px; color: var(--text-dimmer); background: var(--surface-card); font-size: 15px; }
 .title-action:hover:not(:disabled) { color: var(--text); border-color: var(--accent-border); }
@@ -1400,7 +1399,6 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .task-summary-top::after { content: ""; position: absolute; inset-inline: 0; top: calc(100% + 1px); height: 22px; background: var(--grad-summary); -webkit-mask-image: linear-gradient(180deg, black, transparent); mask-image: linear-gradient(180deg, black, transparent); pointer-events: none; }
 [data-theme="glass"] .task-summary-top { background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 100%), var(--grad-summary); }
 [data-theme="glass"] .task-summary-top::after { background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 100%), var(--grad-summary); }
-.task-summary h2 { margin: 5px 0 0; font-size: 17px; }
 .task-summary-state { padding: 6px 9px; border-radius: 9px; color: var(--yellow); background: rgba(245, 199, 108, 0.1); font-size: 10px; white-space: nowrap; }
 .task-finished .task-summary-state { color: var(--green); background: rgba(66, 215, 162, 0.1); }
 .task-queued .task-summary-state { color: var(--yellow); background: rgba(245, 199, 108, 0.12); }
@@ -1566,18 +1564,14 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   .topbar-actions { display: contents; }
   .topbar-rail .icon-button { position: relative; flex: 1 1 0; min-width: 0; width: auto; height: auto; aspect-ratio: 1; font-size: 16px; }
   .current-session { order: 1; flex: 1 1 100%; min-width: 0; display: flex; flex-direction: column; }
-  /* Conversation title takes the second row, so the project/model row drops below it */
-  .current-session .session-title-row,
-  .current-session .session-title-form { order: -1; }
   .topbar-project-row { gap: 6px; flex-wrap: nowrap; }
   .model-bar { flex: 1 1 auto; }
   .new-chat-top { padding: 4px 10px; font-size: 11px; }
   .compact-trigger-name { max-width: 26vw; }
   .new-chat-top-label { max-width: 24vw; overflow: hidden; text-overflow: ellipsis; }
   .current-session .eyebrow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 700; }
-  .current-session h1 { padding-block: 3px; padding-inline-start: 11px; padding-inline-end: 5px; font-size: 14px; line-height: 1.35; }
-  .current-session .session-title-form input { padding: 5px 11px; font-size: 14px; }
-  .current-session .session-title-row { align-items: center; }
+  .task-summary-top h2 { padding-block: 3px; padding-inline-start: 11px; padding-inline-end: 5px; font-size: 14px; line-height: 1.35; }
+  .task-summary-top .session-title-form input { padding: 5px 11px; font-size: 14px; }
   .title-edit { flex: 0 0 22px; }
   /* عناوين قائمة المحادثات على الموبايل: سطرين بدل قصّ من أول سطر */
   .session-item .session-title-row { flex-wrap: wrap; row-gap: 2px; }
@@ -1605,7 +1599,6 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
   .project-picker { padding: 25px 17px; border-radius: 21px; }
   .project-picker-header h1 { font-size: 26px; }
   .task-summary { padding: 16px; }
-  .task-summary h2 { font-size: 15px; }
   .copy-result { position: static; display: block; margin-top: 10px; padding: 0; }
   /* أزرار الطابور: أيقونة بس + هدف لمس أكبر، عشان السطر ما يتزحزحش */
   .request-row-head { padding: 11px 8px 11px 12px; }

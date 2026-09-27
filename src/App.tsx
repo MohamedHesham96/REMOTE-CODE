@@ -1835,15 +1835,6 @@ function App() {
                   </button>
                 </div>
               </div>
-              {editingSessionId !== null && editingSessionId === activeId ? (
-                <form className="session-title-form" onSubmit={handleRenameSession}>
-                  <input aria-label={t.conversationName} value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} onKeyDown={handleSessionTitleKeyDown} maxLength={120} required autoFocus disabled={renamingTitle} />
-                  <button className="title-action" type="submit" disabled={!titleDraft.trim() || renamingTitle} aria-label={t.save}>{renamingTitle ? "…" : "✓"}</button>
-                  <button className="title-action" type="button" onClick={cancelRenamingSession} disabled={renamingTitle} aria-label={t.cancel}>×</button>
-                </form>
-              ) : (
-                <div className="session-title-row"><h1 title={activeTitle}><span className="session-title-text">{activeTitle}</span>{activeSession ? <button className="title-edit" onClick={startRenamingSession} aria-label={t.renameConversation}>✎</button> : null}</h1></div>
-              )}
             </div>
           </div>
           <div className="topbar-rail">
@@ -1885,7 +1876,7 @@ function App() {
           <div className="workspace-scroll" ref={workspaceScrollRef}>
             {requests.length > 0 ? (
               <div className="request-stack">
-                <RequestCard requests={requests} sessionId={activeId} onCopy={copyText} onToast={addToast} onSkip={(request) => void handleSkip(request)} onRunNow={(request) => void handleRunNow(request)} onRemove={(request) => void handleRemoveQueued(request)} busyAction={queueAction} t={t} lang={lang} />
+                <RequestCard requests={requests} sessionId={activeId} title={activeTitle} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={(request) => void handleSkip(request)} onRunNow={(request) => void handleRunNow(request)} onRemove={(request) => void handleRemoveQueued(request)} busyAction={queueAction} t={t} lang={lang} />
               </div>
             ) : (
               <div className="welcome-state">
