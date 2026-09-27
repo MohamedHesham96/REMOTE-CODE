@@ -3,7 +3,18 @@ import type { PinnedConversation, Session, SessionModelRef, SessionRequest } fro
 import { normalizeProjectPath } from "./paths"
 
 export function sortSessionsByCreated(list: Session[]): Session[] {
-  return [...list].sort((a, b) => (b.time.created - a.time.created) || (b.time.updated - a.time.updated))
+  const sorted = [...list].sort((a, b) => (b.time.created - a.time.created) || (b.time.updated - a.time.updated))
+  // نفس المحادثة مستحيل تظهر مرتين في القائمة الجانبية: إرسال مزدوج سريع
+  // أو ردّ متأخر من السيرفر قد يزرع نفس الـ id مرتين، فتبان "محادثتان نشطتان"
+  // وهي واحدة. نحتفظ بالأحدث ونرمي التكرار.
+  const seen = new Set<string>()
+  return sorted.filter((session) => {
+    if (seen.has(session.id)) {
+      return false
+    }
+    seen.add(session.id)
+    return true
+  })
 }
 
 export function sessionMatches(sessions: Session[], id: string | null): Session | undefined {

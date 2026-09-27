@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { DEFAULT_MODEL_KEY, PINNED_SESSIONS_KEY, PINNED_SESSIONS_LIMIT } from "../constants"
-import type { PinnedConversation } from "../types"
+import type { PinnedConversation, Session } from "../types"
 import {
   forgetPinnedConversations,
   hasLegacyPinnedFormat,
@@ -13,6 +13,7 @@ import {
   pinsForProject,
   saveDefaultModel,
   savePinnedConversations,
+  sortSessionsByCreated,
   stampPinnedProject,
   unpinConversation,
 } from "./storage"
@@ -257,6 +258,22 @@ describe("pin list transitions", () => {
     const start = [pin("ses_a"), pin("ses_b"), pin("ses_c")]
     const round = unpinConversation(pinConversation(start, pin("ses_d")), "ses_d")
     expect(round.map((item) => item.id)).toEqual(["ses_a", "ses_b", "ses_c"])
+  })
+})
+
+describe("sortSessionsByCreated", () => {
+  function session(id: string, created: number): Session {
+    return { id, title: id, time: { created, updated: created } } as Session
+  }
+
+  it("sorts newest first", () => {
+    expect(sortSessionsByCreated([session("a", 1), session("b", 3), session("c", 2)]).map((item) => item.id))
+      .toEqual(["b", "c", "a"])
+  })
+
+  it("drops duplicate ids so one conversation never shows twice in the sidebar", () => {
+    const next = sortSessionsByCreated([session("a", 1), session("b", 2), session("a", 1)])
+    expect(next.map((item) => item.id)).toEqual(["b", "a"])
   })
 })
 

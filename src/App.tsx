@@ -99,6 +99,10 @@ function App() {
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
+  // حارس متزامن ضد الإرسال المزدوج: ضغطتان سريعتان قبل إعادة الرسم
+  // كانتا تتجاوزان فحص `sending` وتنشئان جلستين على السيرفر، فتظهر
+  // "محادثتان نشطتان" وهي واحدة. الـ ref يتحدث فورًا بلا انتظار الـ render.
+  const sendingRef = useRef(false)
   // معرّف الطلب اللي شغّال عليه فعل في الطابور دلوقتي (تخطّي/حذف) عشان نمنع ضغط مزدوج
   const [queueAction, setQueueAction] = useState<string | null>(null)
   const [loginError, setLoginError] = useState("")
@@ -433,8 +437,18 @@ function App() {
   const refreshActivity = useCallback(async () => {
     try {
       const items = await getActivity(langRef.current)
-      setActivity(items)
-      trackActivity(items, Date.now())
+      // نفس المحادثة مستحيل تتكرر في قائمة النشاط: ردّ متأخر قد يرجّع
+      // نفس الـ id مرتين فتبان "محادثتان نشطتان" وهي واحدة.
+      const seen = new Set<string>()
+      const unique = items.filter((item) => {
+        if (seen.has(item.id)) {
+          return false
+        }
+        seen.add(item.id)
+        return true
+      })
+      setActivity(unique)
+      trackActivity(unique, Date.now())
       markFetched("activity")
     } catch {
       // Keep last known activity when the poll fails (offline / reconnecting).
@@ -1289,9 +1303,10 @@ function App() {
   // إرسال نص كطلب — المشترك بين زرار الإرسال وزرار commit و push
   const sendPrompt = useCallback(async (rawText: string) => {
     const text = rawText.trim()
-    if (!text || sending) {
+    if (!text || sendingRef.current) {
       return
     }
+    sendingRef.current = true
     setSending(true)
     setComposer("")
     // كارت optimist: بيظهر الطلب تحت اللي قبله فورًا قبل ما السيرفر يرد
@@ -1367,9 +1382,10 @@ function App() {
       setComposer((current) => current || text)
       addToast(error instanceof Error ? error.message : getStrings(langRef.current).messageSendFailed, "error")
     } finally {
+      sendingRef.current = false
       setSending(false)
     }
-  }, [sending, pendingModel, projectDefaultModel, currentModel, defaultModel, refreshRequests, refreshSessions, setSettledStatus, addToast])
+  }, [pendingModel, projectDefaultModel, currentModel, defaultModel, refreshRequests, refreshSessions, setSettledStatus, addToast])
 
   const handleSend = async (event?: FormEvent) => {
     event?.preventDefault()
