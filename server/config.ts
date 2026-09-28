@@ -80,9 +80,6 @@ export const config = {
   openCode: {
     projectDirectory,
     serverUrl: process.env.OPENCODE_SERVER_URL?.trim(),
-    username: process.env.OPENCODE_SERVER_USERNAME?.trim() || "opencode",
-    password: process.env.OPENCODE_SERVER_PASSWORD?.trim(),
-    port: integer("OPENCODE_PORT", 4196),
   },
   push: {
     publicKey: process.env.VAPID_PUBLIC_KEY?.trim(),

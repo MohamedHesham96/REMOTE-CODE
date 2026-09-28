@@ -2,36 +2,34 @@ import { existsSync, readFileSync } from "node:fs"
 import { stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import { basename as pathBasename, isAbsolute, resolve } from "node:path"
-import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk"
-import { createOpencodeClient as createOpencodeV2Client } from "@opencode-ai/sdk/v2"
+import { OpenCode, type OpenCodeClient, type OpenCodeEvent } from "@opencode/client"
+import { Service } from "@opencode/client/service"
 import type {
-  Event,
-  FileDiff,
-  Message,
-  OpencodeClient,
-  Part,
-  Permission,
-  Project,
-  Session,
-  SessionStatus,
-  Todo,
-} from "@opencode-ai/sdk"
-import type { GlobalSession, OpencodeClient as OpencodeV2Client, QuestionAnswer, QuestionRequest, VcsFileStatus } from "@opencode-ai/sdk/v2"
+  FileDiffInfo,
+  FormInfo,
+  SessionInfo,
+  SessionMessageAssistant,
+  SessionMessageAssistantTool,
+  SessionMessageInfo,
+} from "@opencode/client"
 import { setTimeout as sleep } from "node:timers/promises"
-import { collectDesktopProjectDirectories } from "./desktop-projects.js"
 import { serverMessage, type ServerLang } from "./i18n.js"
 import type {
   ActiveSession,
   ConversationQuestionRequest,
+  EnginePermission,
   GitChanges,
   HistoryTurn,
   ModelInfo,
+  Project,
   RequestState,
   ResultFile,
   ServiceOptions,
+  Session,
   SessionModelRef,
   SessionRequest,
   SessionRequests,
+  SessionStatus,
 } from "./opencode/types.js"
 import {
   ACTIVITY_CACHE_MS,
@@ -39,28 +37,24 @@ import {
   directoryKey,
   errorMessage,
   fileNameFromPath,
+  folderName,
   isDefaultTitle,
   isFreeCost,
   isListableProjectDirectory,
-  MAX_CACHED_CLIENTS,
   MAX_FILE_DOWNLOAD_BYTES,
   MAX_PROMPT_ATTEMPTS,
   MAX_STALL_WATCHES,
   mimeFromName,
   MODELS_CACHE_MS,
   parseModelString,
-  projectUpdatedAt,
   PROMPT_DISPATCH_TIMEOUT_MS,
   QUEUED_ID_PREFIX,
   queuedItemId,
   QUESTIONS_CACHE_MS,
-  sessionProject,
   sortVariants,
   STALE_BUSY_GRACE_MS,
   stripMobileSuffix,
-  textFromParts,
   titleFromUserText,
-  unwrap,
   variantIds,
   VARIANTS_CACHE_MS,
   withTimeout,
@@ -76,19 +70,23 @@ export type {
   GitChanges,
   HistoryTurn,
   ModelInfo,
+  Project,
   RequestState,
   ResultFile,
   ServiceOptions,
+  Session,
   SessionModelRef,
   SessionRequest,
   SessionRequests,
+  SessionStatus,
+  Todo,
 } from "./opencode/types.js"
 
 interface MobileSessionFile {
   sessions: string[]
 }
 
-type EventListener = (event: Event) => void | Promise<void>
+type EventListener = (event: OpenCodeEvent) => void | Promise<void>
 
 interface QueuedPrompt {
   id: string
@@ -108,18 +106,13 @@ interface RequestTurn {
   updatedAt: number
   texts: string[]
   steps: number
-  entries: Array<{ info: Message; parts: Part[] }>
+  entries: SessionMessageAssistant[]
 }
 
 export class OpenCodeService {
-  private baseClient!: OpencodeClient
-  private globalClient!: OpencodeV2Client
-  private baseUrl = ""
-  private readonly authHeaders: Record<string, string> = {}
-  private readonly clients = new Map<string, OpencodeClient>()
+  private client: OpenCodeClient | null = null
   private selectedProjectDirectory: string
   private selectedProjectId: string | null = null
-  private closeServer: (() => void) | undefined
   private readonly abortController = new AbortController()
   private readonly listeners = new Set<EventListener>()
   private readonly busySessions = new Set<string>()
@@ -151,22 +144,33 @@ export class OpenCodeService {
   private readonly stalledSessions = new Set<string>()
   private promptSeq = 0
   private queueWatchdog: NodeJS.Timeout | null = null
-  private readonly pendingPermissions = new Map<string, Permission>()
+  private readonly pendingPermissions = new Map<string, EnginePermission>()
   private readonly mobileSessions = new Set<string>()
   private readonly mobileSessionsPath = resolve(process.cwd(), "data", "mobile-sessions.json")
-  // مجلدات الديسكتوب المسجلة في قاعدتنا — مرة واحدة لكل تشغيل حتى لا يتكرر
-  // project.current مع كل فتح لقائمة المشاريع.
-  private readonly desktopSynced = new Set<string>()
   private eventsStarted = false
   // كاش Variants:endpoint واحد بس وبطيء، والقائمة مش بتتغير كتير
-  private variantsCache: { directory: string; expiresAt: number; map: Map<string, string[]> } | null = null
+  private variantsCache: {
+    directory: string
+    expiresAt: number
+    map: Map<string, string[]>
+    items: Array<{
+      id: string
+      modelID: string
+      providerID: string
+      name: string
+      cost: Array<{ input: number; output: number; cache: { read: number; write: number } }>
+      enabled: boolean
+      status: string
+      variants: string[] | undefined
+    }>
+  } | null = null
   // إلغاء تكرار الطلبات المتزامنة: نفس المورد المطلوب لحظيًا يشارك promise واحدة
   private readonly inflight = new Map<string, Promise<unknown>>()
   // كاش النشاط قصير المدى ( Issue: fan-out كل ٤ ثواني لكل عميل )
   private activityCache: { expiresAt: number; lang: ServerLang; value: ActiveSession[] } | null = null
-  // كاش الموديلات الكامل + قوائم الأسئلة لكل directory
+  // كاش الموديلات الكامل + قوائم الأسئلة لكل جلسة
   private modelsCache: { expiresAt: number; directory: string; value: ModelInfo[] } | null = null
-  private readonly questionsCache = new Map<string, { expiresAt: number; value: QuestionRequest[] }>()
+  private readonly questionsCache = new Map<string, { expiresAt: number; value: FormInfo[]}>()
   // سلسلة كتابة ملف الجلسات: ترتيب مضمون من غير حظر الـ event loop
   private persistChain: Promise<void> = Promise.resolve()
 
@@ -223,67 +227,34 @@ export class OpenCodeService {
     return task
   }
 
-  private clientFor(directory = this.selectedProjectDirectory): OpencodeClient {
-    const existing = this.clients.get(directory)
-    if (existing) {
-      return existing
+  // عميل واحد لكل الاتجاهات: v2 يأخذ الموقع (directory) مع كل نداء،
+  // فلا حاجة لعملاء مُخزّنة لكل مجلد كما في v1.
+  private requireClient(): OpenCodeClient {
+    if (!this.client) {
+      throw new Error("OpenCode is not connected")
     }
-
-    const client = createOpencodeClient({
-      baseUrl: this.baseUrl,
-      directory,
-      headers: this.authHeaders,
-    })
-    this.clients.set(directory, client)
-    // سقف LRU: اطرد أقدم directory غير محمي (المختار والجديد محميان دايمًا)
-    if (this.clients.size > MAX_CACHED_CLIENTS) {
-      for (const key of this.clients.keys()) {
-        if (key !== this.selectedProjectDirectory && key !== directory) {
-          this.clients.delete(key)
-          break
-        }
-      }
-    }
-    return client
+    return this.client
   }
 
-  private directoryQuery(): { directory: string } {
-    return { directory: this.selectedProjectDirectory }
+  private location(directory = this.selectedProjectDirectory): { directory: string } {
+    return { directory }
   }
 
   async connect(): Promise<void> {
-    if (this.options.password) {
-      const credentials = Buffer.from(`${this.options.username}:${this.options.password}`).toString("base64")
-      this.authHeaders.Authorization = `Basic ${credentials}`
-    }
-
     if (this.options.serverUrl) {
-      this.baseUrl = this.options.serverUrl
+      this.client = OpenCode.make({ baseUrl: this.options.serverUrl })
     } else {
-      const currentDirectory = process.cwd()
-      let instance: Awaited<ReturnType<typeof createOpencode>>
-      try {
-        process.chdir(this.options.projectDirectory)
-        instance = await createOpencode({
-          hostname: "127.0.0.1",
-          port: this.options.port,
-          timeout: 15000,
-        })
-      } finally {
-        process.chdir(currentDirectory)
-      }
-      this.baseUrl = instance.server.url
-      this.closeServer = instance.server.close
+      // خدمة v2 المحلية: تُكتشف أو تُشغَّل تلقائيًا مع تثبيت الإصدار 2،
+      // وتستخدم قاعدة البيانات المشتركة مع تطبيق الديسكتوب — فالجلسات
+      // القديمة والجديدة من مصدر واحد دون عزل أو استيراد.
+      const endpoint = await Service.ensure({
+        version: (version: string) => version.startsWith("2."),
+      })
+      this.client = OpenCode.make({
+        baseUrl: endpoint.url,
+        headers: Service.headers(endpoint),
+      })
     }
-
-    this.baseClient = createOpencodeClient({
-      baseUrl: this.baseUrl,
-      headers: this.authHeaders,
-    })
-    this.globalClient = createOpencodeV2Client({
-      baseUrl: this.baseUrl,
-      headers: this.authHeaders,
-    })
     await this.health()
   }
 
@@ -300,11 +271,7 @@ export class OpenCodeService {
   private async consumeEvents(): Promise<void> {
     while (!this.abortController.signal.aborted) {
       try {
-        const stream = await this.baseClient.event.subscribe({
-          signal: this.abortController.signal,
-        })
-
-        for await (const event of stream.stream) {
+        for await (const event of this.requireClient().event.subscribe({ signal: this.abortController.signal })) {
           this.trackEvent(event)
           await Promise.all([...this.listeners].map((listener) => listener(event)))
         }
@@ -320,53 +287,70 @@ export class OpenCodeService {
     }
   }
 
-  private trackEvent(event: Event): void {
-    const eventType = event.type as string
+  private trackEvent(event: OpenCodeEvent): void {
+    // الاتحاد اللفظي المغلق يُنسخ لنص حر — نفس علة server/sse/filter.ts.
+    const eventType: string = event.type
     // أي دورة حياة جلسة تبطل كاش النشاط فورًا (من غير انتظار TTL) عشان
     // القائمة متعرضش حالة قديمة، والـ TTL القصير يمتص العواصف بين الأحداث
     if (
       eventType === "session.status"
       || eventType === "session.idle"
-      || eventType === "session.error"
+      || eventType === "session.execution.failed"
       || eventType === "session.created"
-      || eventType === "session.updated"
+      || eventType === "session.renamed"
+      || eventType === "session.moved"
       || eventType === "session.deleted"
     ) {
       this.activityCache = null
     }
-    // أحداث الأسئلة تبطل كاش الأسئلة لنفس الـ directory المختار
-    if (eventType.startsWith("question.")) {
-      this.questionsCache.delete(this.selectedProjectDirectory)
+    // أحداث الاستمارات (أسئلة المستخدم) تبطل كاش أسئلة جلستها
+    if (eventType === "form.created" || eventType === "form.replied" || eventType === "form.cancelled") {
+      const sessionId = (event.data as { sessionID?: unknown }).sessionID
+      if (typeof sessionId === "string") {
+        this.questionsCache.delete(sessionId)
+      } else {
+        this.questionsCache.clear()
+      }
     }
-    if (event.type === "permission.updated") {
-      this.pendingPermissions.set(event.properties.id, event.properties)
+    if (eventType === "permission.asked") {
+      const data = event.data as unknown as { id: string; sessionID: string; action: string; resources: string[]; message?: unknown }
+      this.pendingPermissions.set(data.id, {
+        id: data.id,
+        sessionID: data.sessionID,
+        title: typeof data.message === "string" && data.message.trim() ? data.message : data.action,
+        pattern: data.resources.join(", "),
+      })
     }
 
-    if (event.type === "permission.replied") {
-      this.pendingPermissions.delete(event.properties.permissionID)
+    if (eventType === "permission.replied") {
+      const replied = event.data as unknown as { requestID: string }
+      this.pendingPermissions.delete(replied.requestID)
     }
 
-    if (event.type === "session.status") {
-      const statusType = (event.properties as { status?: { type?: string } }).status?.type
+    if (eventType === "session.status") {
+      const withStatus = event.data as unknown as { sessionID: string; status: { type: string } }
+      const statusType = withStatus.status.type
       if (statusType === "busy" || statusType === "retry") {
-        this.busySessions.add(event.properties.sessionID)
+        this.busySessions.add(withStatus.sessionID)
       } else if (statusType === "idle") {
-        this.busySessions.delete(event.properties.sessionID)
-        this.releaseSession(event.properties.sessionID)
+        this.busySessions.delete(withStatus.sessionID)
+        this.releaseSession(withStatus.sessionID)
       }
       // أي نوع حالة غير معروف (أو حدث ناقص): تجاهل — الـ poll الدوري
       // لـ /session/status هو مصدر الحقيقة الأساسي
     }
 
-    if (event.type === "session.idle") {
-      this.busySessions.delete(event.properties.sessionID)
-      this.releaseSession(event.properties.sessionID)
+    if (eventType === "session.idle") {
+      const idle = event.data as unknown as { sessionID: string }
+      this.busySessions.delete(idle.sessionID)
+      this.releaseSession(idle.sessionID)
     }
 
-    if (event.type === "session.error") {
+    if (eventType === "session.execution.failed") {
       // خطأ OpenCode بيقفل الشغل من غير ما يبعت idle بعدها، فبدون السطر ده
       // الجلسة هتفضل متسجّلة "شغّال" للأبد في قائمة المحادثات النشطة.
-      const sessionId = event.properties.sessionID
+      const failed = event.data as unknown as { sessionID: string }
+      const sessionId = failed.sessionID
       if (sessionId) {
         this.busySessions.delete(sessionId)
         this.releaseSession(sessionId)
@@ -387,7 +371,7 @@ export class OpenCodeService {
     if (!turn) {
       return false
     }
-    return turn.entries.some((entry) => entry.info.role === "assistant" && !entry.info.time.completed)
+    return turn.entries.some((entry) => entry.time.completed === undefined)
   }
 
   // جلسة مسجّلة "شغّالة" عندنا بس ردّها خلص فعلًا (OpenCode سجّل completedAt):
@@ -575,56 +559,65 @@ export class OpenCodeService {
   }
 
   async health(): Promise<{ healthy: boolean; version: string }> {
-    await unwrap(await this.baseClient.project.current())
-    return { healthy: true, version: "connected" }
+    const info = await this.requireClient().server.info()
+    return { healthy: true, version: info.version || "connected" }
   }
 
-  // تسجيل مجلدات الديسكتوب في قاعدتنا من غير تغيير المشروع المختار.
-  // project.current يسجّل المجلد (git أو عادي) بصمت؛ المجلد المرفوض من
-  // سيرفر v1 يُعلَّم متزامنًا أيضًا حتى لا يُحاوَل مع كل طلب.
-  async syncDesktopProjects(directories: string[]): Promise<number> {
-    let added = 0
-    for (const directory of directories) {
-      const key = directoryKey(directory)
-      if (this.desktopSynced.has(key)) {
-        continue
+  // كل الجلسات عبر كل المواقع مع ترقيم الصفحات: v2 يرجّع دفعات بمؤشر،
+  // فنجمعها حتى ينفد المؤشر التالي (بسقف يمنع الحلقات الطويلة).
+  private async listAllSessions(limit = 200): Promise<SessionInfo[]> {
+    const all: SessionInfo[] = []
+    let cursor: string | undefined
+    for (let page = 0; page < 20; page += 1) {
+      const response = await this.requireClient().session.list(
+        cursor ? { cursor, limit } : { limit },
+      )
+      all.push(...response.data)
+      const next = response.cursor.next
+      if (!next) {
+        break
       }
-      this.desktopSynced.add(key)
-      try {
-        await unwrap(await this.clientFor(directory).project.current({ query: { directory } }))
-        added += 1
-      } catch {
-        // مجلد لا يقبله السيرفر — يُتجاهل بصمت
-      }
+      cursor = next
     }
-    return added
+    return all
+  }
+
+  // جلسات المجلد المختار فقط — هي ما تعرضه قائمة المحادثات.
+  private async listDirectorySessions(directory: string): Promise<SessionInfo[]> {
+    const response = await this.requireClient().session.list({ directory, limit: 200 })
+    return response.data
+  }
+
+  private toSession(summary: SessionInfo): Session {
+    return {
+      id: summary.id,
+      title: summary.title || "",
+      directory: summary.location.directory,
+      time: { created: summary.time.created, updated: summary.time.updated },
+    }
   }
 
   async projects(): Promise<Project[]> {
-    // مجلدات الديسكتوب تُستورد لقاعدتنا أولًا — بعدها القائمة كلها من
-    // مصدر واحد هو projects-database. المحادثات القديمة لا تُنقل (الصيغتان
-    // مختلفتان)، فالمجلد يظهر لبدء جلسات جديدة عليه من الهاتف.
-    try {
-      await this.syncDesktopProjects(collectDesktopProjectDirectories())
-    } catch {
-      // الاستيراد اختياري — الفشل يُبقي مشاريع الـ PWA الخاصة فقط
-    }
-    // بلا فلتر directory: كل المشاريع المسجلة في OpenCode تظهر مهما كان
-    // المجلد الذي فُتحت منه، ومعها مشاريع أي جلسة موجودة. جهاز جديد يبدأ
-    // فارغًا، والمشاريع تنضاف مع أول جلسة تُنشأ من الـ PWA أو من CLI v1
-    // على نفس القاعدة، مع مجلدات الديسكتوب المستوردة. الجذور والمسارات
-    // النسبية والأعشاش المؤقتة تُخفى من كل مصدر.
-    const registered = unwrap(await this.baseClient.project.list({}))
-    const sessions = await this.globalClient.experimental.session
-      .list({ roots: true, limit: 1000 })
-      .then(unwrap)
-      .catch(() => [] as GlobalSession[])
-    const projectsByDirectory = new Map<string, Project>()
-    const registeredKeys = new Set<string>()
+    // v2 بلا سجل مشاريع بمجلدات: المشروع `id` مجرد، والمجلدات تُعرف من
+    // الجلسات نفسها (location.directory). القاعدة مشتركة مع الديسكتوب،
+    // فلا عزل ولا استيراد — القائمة كلها من مصدر واحد حي.
+    // الجذور والمسارات النسبية والأعشاش المؤقتة تُخفى من كل مصدر.
     const home = homedir()
+    const projectsByDirectory = new Map<string, Project>()
+    const nameByProjectId = new Map<string, string>()
+    try {
+      const registered = await this.requireClient().project.list()
+      for (const project of registered) {
+        if (project.name) {
+          nameByProjectId.set(project.id, project.name)
+        }
+      }
+    } catch {
+      // أسماء المشاريع تجميلية — الفشل يُبقي اسم المجلد
+    }
 
     // المجلد المُعدّ يظهر دائمًا — حتى قبل أول جلسة — فشاشة الاختيار لا
-    // تُسدّ أبدًا. أي بيانات حقيقية عنه من OpenCode تتجاوزه تحت. إعداد خاطئ
+    // تُسدّ أبدًا. أي بيانات حقيقية عنه من الجلسات تتجاوزه تحت. إعداد خاطئ
     // بجذر قرص (الافتراضي القديم `..` من داخل `E:\REMOTE-CODE` يساوي `E:\`)
     // يُتجاهل هنا بدل عرضه كمشروع، فسطر بدء السيرفر يكشف الخطأ لا القائمة.
     const configured = this.options.projectDirectory
@@ -632,44 +625,45 @@ export class OpenCodeService {
       projectsByDirectory.set(directoryKey(configured), {
         id: configured,
         worktree: configured,
-        time: { created: 0 },
+        time: { created: 0, updated: 0 },
       })
     }
 
-    for (const project of registered) {
-      // القمامة تُخفى دائمًا: الجذر الشامل `/` وجذور أقراص وندوز والمسارات
-      // النسبية وأعشاش الـ worktree المؤقتة ليست مشاريع حقيقية.
-      if (!isListableProjectDirectory(project.worktree, home)) {
-        continue
-      }
-      const key = directoryKey(project.worktree)
-      registeredKeys.add(key)
-      projectsByDirectory.set(key, project)
+    let sessions: SessionInfo[] = []
+    try {
+      sessions = await this.listAllSessions()
+    } catch {
+      // الفشل يُبقي المجلد المُعدّ فقط
     }
-
     for (const session of sessions) {
-      if (!isListableProjectDirectory(session.directory, home)) {
+      const directory = session.location.directory
+      if (!isListableProjectDirectory(directory, home)) {
         continue
       }
-      const key = directoryKey(session.directory)
-      // المسجّل في OpenCode هو المرجع — مدخل المجلد المُعدّ المؤقت فقط هو
-      // ما يُستبدل ببيانات الجلسة الحقيقية.
-      if (registeredKeys.has(key)) {
+      const key = directoryKey(directory)
+      const existing = projectsByDirectory.get(key)
+      const created = session.time.created
+      const updated = session.time.updated
+      if (existing && existing.id !== configured) {
+        existing.time = {
+          created: Math.min(existing.time.created || created, created),
+          updated: Math.max(existing.time.updated, updated),
+        }
         continue
       }
-      const project = session.project
-      const hasProject = Boolean(project && isListableProjectDirectory(project.worktree, home))
+      if (existing) {
+        continue
+      }
+      const fallbackName = folderName(directory)
       projectsByDirectory.set(key, {
-        id: hasProject ? project!.id : session.directory,
-        worktree: session.directory,
-        ...(hasProject && project!.name ? { name: project!.name } : {}),
-        time: {
-          created: session.time.created,
-        },
+        id: session.projectID,
+        worktree: directory,
+        name: nameByProjectId.get(session.projectID) || fallbackName,
+        time: { created, updated },
       })
     }
 
-    return [...projectsByDirectory.values()].sort((left, right) => projectUpdatedAt(right) - projectUpdatedAt(left))
+    return [...projectsByDirectory.values()].sort((left, right) => right.time.updated - left.time.updated)
   }
 
   async selectedProject(): Promise<Project | null> {
@@ -691,14 +685,16 @@ export class OpenCodeService {
       throw new Error("Project not found")
     }
 
-    await unwrap(await this.clientFor(project.worktree).project.current({ query: { directory: project.worktree } }))
+    // v2 بلا project.current: الاختيار حالة محلية فقط، والموقع يُمرَّر
+    // مع كل نداء — فلا تسجيل ولا تبديل على مستوى المحرك.
     this.selectedProjectId = project.id
     this.selectedProjectDirectory = project.worktree
     return project
   }
 
   async sessions(): Promise<Session[]> {
-    return unwrap(await this.clientFor().session.list({ query: this.directoryQuery() }))
+    const sessions = await this.listDirectorySessions(this.selectedProjectDirectory)
+    return sessions.map((session) => this.toSession(session))
   }
 
   async createSession(title?: string, mobile = false): Promise<Session> {
@@ -707,10 +703,11 @@ export class OpenCodeService {
     // just like on desktop. A custom title would make native generation skip.
     const cleanTitle = stripMobileSuffix((title || "").trim())
     const useTitle = cleanTitle && !isDefaultTitle(cleanTitle) ? cleanTitle : undefined
-    const session = unwrap(await this.clientFor().session.create({
-      body: useTitle ? { title: useTitle } : {},
-      query: this.directoryQuery(),
-    }))
+    const created = await this.requireClient().session.create({
+      ...(useTitle ? { title: useTitle } : {}),
+      location: this.location(),
+    })
+    const session = this.toSession(created)
 
     if (!mobile) {
       return session
@@ -723,11 +720,8 @@ export class OpenCodeService {
 
   async updateSession(id: string, title: string, lang: ServerLang = "ar"): Promise<Session> {
     const nextTitle = stripMobileSuffix(title.trim()).slice(0, 120) || serverMessage("newConversation", lang)
-    return unwrap(await this.clientFor().session.update({
-      path: { id },
-      body: { title: nextTitle },
-      query: this.directoryQuery(),
-    }))
+    await this.requireClient().session.update({ sessionID: id, title: nextTitle })
+    return this.toSession(await this.requireClient().session.get({ sessionID: id }))
   }
 
   async deleteSession(id: string): Promise<boolean> {
@@ -749,39 +743,38 @@ export class OpenCodeService {
     }
     this.activityCache = null
     await this.persistMobileSessions()
-    return unwrap(await this.clientFor().session.delete({ path: { id }, query: this.directoryQuery() }))
+    await this.requireClient().session.remove({ sessionID: id })
+    return true
   }
 
-  async messages(id: string): Promise<Array<{ info: Message; parts: Part[] }>> {
-    return unwrap(await this.clientFor().session.messages({
-      path: { id },
-      query: { ...this.directoryQuery(), limit: 200 },
-    }))
+  async messages(id: string): Promise<SessionMessageInfo[]> {
+    const response = await this.requireClient().message.list({ sessionID: id, limit: 200 })
+    return response.data
   }
 
   // تقسيم رسائل الجلسة إلى "طوابق": كل رسالة مستخدم بتبدأ طابق،
   // والردود اللي بعدها بتاعتها. الترتيب زمني من الأقدم للأحدث.
-  private turns(messages: Array<{ info: Message; parts: Part[] }>): RequestTurn[] {
-    const sorted = [...messages].sort((a, b) => a.info.time.created - b.info.time.created)
+  private turns(messages: SessionMessageInfo[]): RequestTurn[] {
+    const sorted = [...messages].sort((a, b) => this.messageCreated(a) - this.messageCreated(b))
     const turns: RequestTurn[] = []
     let current: RequestTurn | null = null
 
     for (const entry of sorted) {
-      if (entry.info.role === "user") {
+      if (entry.type === "user") {
         if (current) {
           turns.push(current)
         }
-        const prompt = textFromParts(entry.parts)
-        if (!prompt && entry.parts.length === 0) {
+        const prompt = entry.text.trim()
+        if (!prompt && !entry.files?.length && !entry.agents?.length && !entry.skills?.length) {
           current = null
           continue
         }
         current = {
-          id: entry.info.id,
+          id: entry.id,
           prompt,
-          createdAt: entry.info.time.created,
+          createdAt: entry.time.created,
           completedAt: 0,
-          updatedAt: entry.info.time.created,
+          updatedAt: entry.time.created,
           texts: [],
           steps: 0,
           entries: [],
@@ -789,22 +782,21 @@ export class OpenCodeService {
         continue
       }
 
-      if (entry.info.role !== "assistant" || !current) {
+      if (entry.type !== "assistant" || !current) {
         continue
       }
-      const text = textFromParts(entry.parts)
-      if (text) {
-        current.texts.push(text)
-      }
-      for (const part of entry.parts) {
+      for (const part of entry.content) {
+        if (part.type === "text" && part.text.trim()) {
+          current.texts.push(part.text)
+        }
         if (part.type === "tool" && part.state.status === "completed") {
           current.steps += 1
         }
       }
       current.entries.push(entry)
-      current.updatedAt = Math.max(current.updatedAt, entry.info.time.created, entry.info.time.completed ?? 0)
-      if (entry.info.time.completed) {
-        current.completedAt = Math.max(current.completedAt, entry.info.time.completed)
+      current.updatedAt = Math.max(current.updatedAt, entry.time.created, entry.time.completed ?? 0)
+      if (entry.time.completed) {
+        current.completedAt = Math.max(current.completedAt, entry.time.completed)
       }
     }
     if (current) {
@@ -812,6 +804,10 @@ export class OpenCodeService {
     }
 
     return turns
+  }
+
+  private messageCreated(message: SessionMessageInfo): number {
+    return message.time.created
   }
 
   async history(id: string, lang: ServerLang = "ar"): Promise<HistoryTurn[]> {
@@ -835,10 +831,9 @@ export class OpenCodeService {
   // كارت لكل طلب في المحادثة: القديم فوق والأحدث تحت، وآخر كارت هو
   // الطلب الشغّال دلوقتي وبعديه الطلبات اللي مستنية في الطابور.
   async requests(id: string, lang: ServerLang = "ar"): Promise<SessionRequests> {
-    const [rawStatuses, messages, todos, questions] = await Promise.all([
+    const [rawStatuses, messages, questions] = await Promise.all([
       this.rawStatuses(),
       this.messages(id),
-      this.todos(id),
       this.sessionQuestions(id),
     ])
     const turns = this.turns(messages)
@@ -876,12 +871,11 @@ export class OpenCodeService {
       this.finishedRuns.delete(id)
     }
     const queue = this.promptQueues.get(id) ?? []
-    const activeTodo = todos.find((todo) => todo.status === "in_progress")
-    const completedTodos = todos.filter((todo) => todo.status === "completed").length
-    // بصمة التقدّم: أي حراك مرئي (رسالة/إتمام/نص/طابور/سؤال/todo) يغيّرها.
+    // بصمة التقدّم: أي حراك مرئي (رسالة/إتمام/نص/طابور/سؤال) يغيّرها.
     // الطول التراكمي للنصوص يلتقط نمو الـ live text حتى لو الأوقات لم تتغير.
     // الطابور الفاضي شرط الأهلية: رسائل المستخدم ملكه فممنوع المساس بها هنا.
     // والسؤال/الإذن المعلّق انتظار مشروع للمستخدم (كارت ظاهر) مش جمود.
+    // (v2 بلا قائمة مهام، فلا todos في البصمة ولا في الكروت.)
     const turnSig = turns
       .map((turn) => `${turn.updatedAt}:${turn.completedAt}:${turn.texts.join("").length}`)
       .join(";")
@@ -890,7 +884,6 @@ export class OpenCodeService {
       turnSig,
       queue.map((item) => item.id).join(","),
       questions.map((question) => question.id).join(","),
-      `${todos.length}:${completedTodos}:${activeTodo?.id ?? ""}`,
     ].join("|")
     const waitingOnUser = questions.length > 0
       || [...this.pendingPermissions.values()].some((permission) => permission.sessionID === id)
@@ -909,21 +902,17 @@ export class OpenCodeService {
     const requests: SessionRequest[] = turns.map((turn, index) => {
       const running = index === runningIndex
       const reversed = [...turn.entries].reverse()
-      const currentAssistant = reversed.find((entry) => entry.info.role === "assistant")
-      const completedAssistant = reversed.find((entry) => entry.info.role === "assistant" && Boolean(entry.info.time.completed))
-      const activeTool = currentAssistant?.parts.find((part): part is Extract<Part, { type: "tool" }> =>
-        part.type === "tool" && (part.state.status === "running" || part.state.status === "pending"))
+      const currentAssistant = reversed.find((entry) => entry.time.completed === undefined)
+      const completedAssistant = reversed.find((entry) => entry.time.completed !== undefined)
+      const activeTool = currentAssistant?.content.find((part): part is SessionMessageAssistantTool =>
+        part.type === "tool" && (part.state.status === "running" || part.state.status === "streaming"))
 
       let activity = serverMessage("taskReady", lang)
       if (running) {
         if (status.type === "retry") {
           activity = serverMessage("retryingNow", lang)
         } else if (activeTool) {
-          activity = activeTool.state.status === "running" && "title" in activeTool.state && activeTool.state.title
-            ? activeTool.state.title
-            : `${serverMessage("usesTool", lang)} ${activeTool.tool}`
-        } else if (activeTodo) {
-          activity = activeTodo.content
+          activity = `${serverMessage("usesTool", lang)} ${activeTool.name}`
         } else {
           activity = serverMessage("workingOnTask", lang)
         }
@@ -946,14 +935,14 @@ export class OpenCodeService {
         prompt: turn.prompt,
         state,
         activity,
-        finalResult: completedAssistant ? textFromParts(completedAssistant.parts) : "",
+        finalResult: completedAssistant ? this.assistantText(completedAssistant) : "",
         liveText,
         stepsCompleted: turn.steps,
-        activeTool: activeTool?.tool ?? null,
-        // خطة الـ todos بتاعة الشغل الشغّال دلوقتي بس
-        todos: running ? todos : [],
-        completedTodos: running ? completedTodos : 0,
-        totalTodos: running ? todos.length : 0,
+        activeTool: activeTool?.name ?? null,
+        // v2 بلا قائمة مهام — الحقول باقية في العقد فارغة
+        todos: [],
+        completedTodos: 0,
+        totalTodos: 0,
         resultFiles: this.collectResultFiles(id, turn.entries, lang),
         startedAt: turn.createdAt,
         completedAt: turn.completedAt,
@@ -989,9 +978,36 @@ export class OpenCodeService {
     return { status, requests, questions, queued: queue.length, version }
   }
 
+  private assistantText(entry: SessionMessageAssistant): string {
+    return entry.content
+      .filter((part): part is Extract<SessionMessageAssistant["content"][number], { type: "text" }> =>
+        part.type === "text" && part.text.trim().length > 0)
+      .map((part) => part.text.trim())
+      .filter(Boolean)
+      .join("\n")
+  }
+
+  // ملفات النتيجة من محتوى v2: مرفقات file داخل الأدوات المكتملة، وملفات
+  // الـ snapshot للرسالة (بديل patch في v1). الـ uri بصيغة file:// يُحوَّل
+  // لمسار، وhttp(s) يُترك رابطًا.
+  private filePathFromUri(uri: string): { path: string; url: string } {
+    const trimmed = (uri || "").trim()
+    if (/^file:\/\//i.test(trimmed)) {
+      try {
+        return { path: resolve(decodeURIComponent(trimmed.replace(/^file:\/\/\/?/i, ""))), url: "" }
+      } catch {
+        return { path: "", url: "" }
+      }
+    }
+    if (/^https?:\/\//i.test(trimmed)) {
+      return { path: "", url: trimmed }
+    }
+    return { path: trimmed, url: "" }
+  }
+
   private collectResultFiles(
     sessionId: string,
-    messages: Array<{ info: Message; parts: Part[] }>,
+    messages: SessionMessageAssistant[],
     lang: ServerLang = "ar",
   ): ResultFile[] {
     const files = new Map<string, ResultFile>()
@@ -1027,59 +1043,35 @@ export class OpenCodeService {
     }
 
     for (const entry of messages) {
-      if (entry.info.role !== "assistant") {
-        continue
+      for (const part of entry.content) {
+        if (part.type !== "tool" || (part.state.status !== "completed" && part.state.status !== "error")) {
+          continue
+        }
+        const content = part.state.status === "completed" || part.state.status === "error"
+          ? part.state.content
+          : []
+        for (const item of content ?? []) {
+          if (item.type !== "file") {
+            continue
+          }
+          const { path, url } = this.filePathFromUri(item.uri)
+          const name = item.name || (path ? fileNameFromPath(path, fileFallback) : fileNameFromPath(url, fileFallback))
+          pushFile({ id: `${part.id}:${item.uri}`, name, mime: item.mime || mimeFromName(name), path, url, source: "attachment" })
+        }
       }
-      for (const part of entry.parts) {
-        if (part.type === "file") {
-          const sourcePath = part.source && "path" in part.source && typeof part.source.path === "string"
-            ? part.source.path
-            : ""
-          const name = part.filename || (sourcePath ? fileNameFromPath(sourcePath, fileFallback) : fileNameFromPath(part.url || "", fileFallback))
-          pushFile({
-            id: part.id,
-            name,
-            mime: part.mime || mimeFromName(name),
-            path: sourcePath,
-            url: part.url || "",
-            source: "attachment",
-          })
+      for (const filePath of entry.snapshot?.files ?? []) {
+        if (typeof filePath !== "string" || !filePath.trim()) {
+          continue
         }
-
-        if (part.type === "tool" && part.state.status === "completed" && Array.isArray(part.state.attachments)) {
-          for (const attachment of part.state.attachments) {
-            const sourcePath = attachment.source && "path" in attachment.source && typeof attachment.source.path === "string"
-              ? attachment.source.path
-              : ""
-            const name = attachment.filename
-              || (sourcePath ? fileNameFromPath(sourcePath, fileFallback) : fileNameFromPath(attachment.url || "", fileFallback))
-            pushFile({
-              id: attachment.id,
-              name,
-              mime: attachment.mime || mimeFromName(name),
-              path: sourcePath,
-              url: attachment.url || "",
-              source: "attachment",
-            })
-          }
-        }
-
-        if (part.type === "patch" && Array.isArray(part.files)) {
-          for (const filePath of part.files) {
-            if (typeof filePath !== "string" || !filePath.trim()) {
-              continue
-            }
-            const name = fileNameFromPath(filePath, fileFallback)
-            pushFile({
-              id: `${part.id}:${filePath}`,
-              name,
-              mime: mimeFromName(name),
-              path: filePath,
-              url: "",
-              source: "output",
-            })
-          }
-        }
+        const name = fileNameFromPath(filePath, fileFallback)
+        pushFile({
+          id: `${entry.id}:${filePath}`,
+          name,
+          mime: mimeFromName(name),
+          path: filePath,
+          url: "",
+          source: "output",
+        })
       }
     }
 
@@ -1166,31 +1158,28 @@ export class OpenCodeService {
     // سقف زمني بدل الانتظار الأبدي: لو OpenCode معلّق والـ HTTP ما استقرّش،
     // الـ catch في pumpQueue يعيد الطلب أو يسقطه بعد MAX_PROMPT_ATTEMPTS،
     // بدل ما runningSessions يتجمّد والكارت يفضل "شغّال" للأبد.
-    const result = await withTimeout(
-      this.clientFor().session.promptAsync({
-        path: { id },
-        body: {
-          parts: [{ type: "text", text: item.text }],
-          ...(item.agent ? { agent: item.agent } : {}),
-          ...(item.model?.providerID && item.model?.modelID
-            ? {
-              model: {
-                providerID: item.model.providerID,
-                modelID: item.model.modelID,
-                ...(item.model.variant ? { variant: item.model.variant } : {}),
-              } as { providerID: string; modelID: string },
-            }
-            : {}),
-        },
-        query: this.directoryQuery(),
-      }),
+    // v2 يقبل النص فقط في prompt — الوكيل والموديل يُضبطان على الجلسة
+    // أولًا (كما كان v1 يفعل ضمنيًا مع كل طلب).
+    await withTimeout(
+      (async () => {
+        if (item.agent) {
+          await this.requireClient().session.switchAgent({ sessionID: id, agent: item.agent })
+        }
+        if (item.model?.providerID && item.model?.modelID) {
+          await this.requireClient().session.switchModel({
+            sessionID: id,
+            model: {
+              id: item.model.modelID,
+              providerID: item.model.providerID,
+              ...(item.model.variant ? { variant: item.model.variant } : {}),
+            },
+          })
+        }
+        await this.requireClient().session.prompt({ sessionID: id, text: item.text })
+      })(),
       PROMPT_DISPATCH_TIMEOUT_MS,
       "Prompt dispatch",
     )
-
-    if (result.error) {
-      throw new Error(errorMessage(result.error))
-    }
 
     // Fallback auto-title like desktop: if the session still has a default
     // title after the first question, name it based on the message content.
@@ -1208,17 +1197,9 @@ export class OpenCodeService {
     }
 
     let currentTitle = ""
-    let sessionDirectory = this.selectedProjectDirectory
     try {
-      const sessions = await this.sessions()
-      const match = sessions.find((session) => session.id === sessionId)
-      if (!match) {
-        return
-      }
-      currentTitle = match.title || ""
-      if (match.directory) {
-        sessionDirectory = match.directory
-      }
+      const summary = await this.requireClient().session.get({ sessionID: sessionId })
+      currentTitle = summary.title || ""
     } catch {
       return
     }
@@ -1231,7 +1212,7 @@ export class OpenCodeService {
     // session based on the very first question).
     try {
       const history = await this.messages(sessionId)
-      const userCount = history.filter((entry) => entry.info.role === "user").length
+      const userCount = history.filter((entry) => entry.type === "user").length
       if (userCount > 1) {
         return
       }
@@ -1239,11 +1220,7 @@ export class OpenCodeService {
       // If history is unavailable, still apply the fallback title.
     }
 
-    await unwrap(await this.clientFor(sessionDirectory).session.update({
-      path: { id: sessionId },
-      body: { title: fallback },
-      query: { directory: sessionDirectory },
-    }))
+    await this.requireClient().session.update({ sessionID: sessionId, title: fallback })
   }
 
   // الإيقاف اليدوي بيوقف الطلب الشغّال وبيشيل كل الطلبات اللي مستنية في الطابور.
@@ -1252,8 +1229,8 @@ export class OpenCodeService {
     this.promptQueues.delete(id)
     this.runningSessions.delete(id)
     this.skippingSessions.delete(id)
-    const aborted = unwrap(await this.clientFor().session.abort({ path: { id }, query: this.directoryQuery() }))
-    return { aborted, cleared }
+    const { interrupted } = await this.requireClient().session.interrupt({ sessionID: id })
+    return { aborted: interrupted, cleared }
   }
 
   // تخطّي الطلب الشغّال: بيوقفه بس وبيسيب باقي الطابور يكمل عادي، يعني
@@ -1267,7 +1244,7 @@ export class OpenCodeService {
     this.skippingSessions.add(id)
     let skipped = false
     try {
-      skipped = unwrap(await this.clientFor().session.abort({ path: { id }, query: this.directoryQuery() }))
+      skipped = (await this.requireClient().session.interrupt({ sessionID: id })).interrupted
     } finally {
       this.skippingSessions.delete(id)
       this.pumpQueue(id)
@@ -1325,12 +1302,23 @@ export class OpenCodeService {
     this.skippingSessions.add(id)
     let started = false
     try {
-      unwrap(await this.clientFor().session.abort({ path: { id }, query: this.directoryQuery() }))
+      await this.requireClient().session.interrupt({ sessionID: id })
     } finally {
       this.skippingSessions.delete(id)
       started = this.pumpQueue(id)
     }
     return { started, remaining: left() }
+  }
+
+  // v2 بلا خريطة حالات: `session.active` يرجّع الشغال فعلًا فقط، والباقي
+  // خامل حكمًا. نبني نفس الخريطة من قائمة جلسات المجلد + النشطين.
+  private async runningSessionIds(): Promise<Set<string>> {
+    try {
+      const active = await this.requireClient().session.active()
+      return new Set(Object.keys(active))
+    } catch {
+      return new Set(this.busySessions)
+    }
   }
 
   async statuses(): Promise<Record<string, SessionStatus>> {
@@ -1347,7 +1335,15 @@ export class OpenCodeService {
   // الحالة الخام من OpenCode من غير تعديل الطابور — الـ watchdog محتاجها عشان
   // يفرّق بين "خلص فعلًا" و"خلص مؤقتًا وعندنا طلبات مستنية".
   private async rawStatuses(): Promise<Record<string, SessionStatus>> {
-    return unwrap(await this.clientFor().session.status({ query: this.directoryQuery() }))
+    const [sessions, running] = await Promise.all([
+      this.listDirectorySessions(this.selectedProjectDirectory).catch(() => [] as SessionInfo[]),
+      this.runningSessionIds(),
+    ])
+    const statuses: Record<string, SessionStatus> = {}
+    for (const session of sessions) {
+      statuses[session.id] = running.has(session.id) ? { type: "busy" } : { type: "idle" }
+    }
+    return statuses
   }
 
   async activity(lang: ServerLang = "ar"): Promise<ActiveSession[]> {
@@ -1366,86 +1362,49 @@ export class OpenCodeService {
   // المحادثات الشغالة حاليًا في كل المشاريع — عشان تظهر قدام المستخدم
   // من غير ما يفتح قائمة المشاريع ويدوّر بنفسه
   private async computeActivity(lang: ServerLang = "ar"): Promise<ActiveSession[]> {
-    const sessions = await this.globalClient.experimental.session
-      .list({ roots: true, limit: 1000 })
-      .then(unwrap)
-      .catch(() => [] as GlobalSession[])
-
-    // كل الجلسات من أي directory — سقف الـ 30 يمنع الانفجار مع تعدد المشاريع.
-    const relevant = sessions.filter((session) => Boolean(session.directory))
-    if (relevant.length === 0) {
+    // v2 يكشف الشغال مباشرة عبر session.active — بلا fan-out لكل directory
+    // كما في v1. القائمة الشاملة من النداء نفسه.
+    const [sessions, running] = await Promise.all([
+      this.listAllSessions().catch(() => [] as SessionInfo[]),
+      this.runningSessionIds(),
+    ])
+    if (sessions.length === 0) {
       return []
-    }
-
-    // حالات الجلسات scoped حسب الـ directory في OpenCode — لازم نسأل كل
-    // directory لوحده وندمج النتايج، وإلا /session/status بدون directory
-    // بيرجع فاضي والمحادثات النشطة مش بتظهر في أي حتة.
-    const directories = [...new Set(relevant.map((session) => session.directory as string))].slice(0, 30)
-    const settled = await Promise.allSettled(
-      directories.map(async (directory) => ({
-        directory,
-        values: unwrap(await this.clientFor(directory).session.status({ query: { directory } })),
-      })),
-    )
-    const statuses: Record<string, SessionStatus> = {}
-    // الـ directories اللي نجحنا نسألها فعلًا — غيرها سيبنا سجلّ الـ events هي
-    // المصدر الوحيد اللي متاح، فما ننضبطش عليه.
-    const polled = new Set<string>()
-    for (const entry of settled) {
-      if (entry.status === "fulfilled" && entry.value) {
-        Object.assign(statuses, entry.value.values)
-        polled.add(entry.value.directory)
-      }
-    }
-    // احتياطي أخير: حالة السيرفر الافتراضية (قد تنفع لمشروع واحد)
-    if (Object.keys(statuses).length === 0) {
-      try {
-        const fallback = unwrap(await this.baseClient.session.status())
-        Object.assign(statuses, fallback)
-      } catch {
-        // تجاهل — busySessions من الـ event stream يكفي كمصدر احتياطي
-      }
     }
 
     // This poll is the source of truth, so use it to reconcile busySessions: when
     // the event stream loses the idle event (dropped stream, locked screen), those
-    // sessions stay flagged working in every project forever. Sessions in a directory
-    // we could not poll are left alone: the event log is all we have for them.
-    for (const session of relevant) {
-      if (!polled.has(session.directory as string)) {
-        continue
-      }
-      const status = statuses[session.id]
-      if (status?.type !== "busy" && status?.type !== "retry") {
+    // sessions stay flagged working in every project forever.
+    for (const session of sessions) {
+      if (!running.has(session.id)) {
         this.busySessions.delete(session.id)
       }
     }
 
     const items: ActiveSession[] = []
-    for (const session of relevant) {
-      const raw = statuses[session.id]
+    for (const session of sessions) {
+      const directory = session.location.directory
+      if (!directory) {
+        continue
+      }
+      const raw: SessionStatus = running.has(session.id) ? { type: "busy" } : { type: "idle" }
       // نفس حكم /session/status: آخر ردّ خلص فعلًا = جاهزة، حتى لو OpenCode
       // واقف على busy والـ idle ضاع
-      const status = raw ? this.effectiveStatus(session.id, raw) : undefined
+      const status = this.effectiveStatus(session.id, raw)
       // الـ event stream كمصدر احتياطي: لو حالة الجلسة مش متاحة لسبب ما
       // لكن شفناها شغالة من الأحداث المباشرة
-      const busy = raw
-        ? status?.type === "busy" || status?.type === "retry"
-        : this.busySessions.has(session.id)
+      const busy = status.type === "busy" || status.type === "retry" || this.busySessions.has(session.id)
       if (!busy) {
         continue
       }
-      const project = sessionProject(session)
-      if (!project) {
-        continue
-      }
+      const projectName = folderName(directory)
       items.push({
         id: session.id,
-        title: stripMobileSuffix(session.title) || serverMessage("newConversation", lang),
-        directory: session.directory as string,
-        worktree: project.worktree,
-        projectName: project.projectName,
-        status: status || { type: "busy" },
+        title: stripMobileSuffix(session.title || "") || serverMessage("newConversation", lang),
+        directory,
+        worktree: directory,
+        projectName,
+        status,
         updatedAt: session.time.updated,
       })
     }
@@ -1461,50 +1420,76 @@ export class OpenCodeService {
     if (wanted.size === 0) {
       return found
     }
-    const sessions = await this.globalClient.experimental.session
-      .list({ roots: true, limit: 1000 })
-      .then(unwrap)
-      .catch(() => [] as GlobalSession[])
+    const sessions = await this.listAllSessions().catch(() => [] as SessionInfo[])
     for (const session of sessions) {
       if (!wanted.has(session.id)) {
         continue
       }
-      const project = sessionProject(session)
-      if (project) {
-        found.set(session.id, project)
+      const directory = session.location.directory
+      if (!directory) {
+        continue
       }
+      const projectName = folderName(directory)
+      found.set(session.id, { worktree: directory, projectName })
     }
     return found
   }
 
-  async todos(id: string): Promise<Todo[]> {
-    return unwrap(await this.clientFor().session.todo({ path: { id }, query: this.directoryQuery() }))
-  }
-
-  // خريطة variants لكل موديل — بتجيبها من كتالوج v2 كـ fallback بس
-  private async modelVariants(): Promise<Map<string, string[]>> {
+  // كتالوج الموديلات + خريطة variants من نداء واحد: القائمة بطيئة
+  // ومتتكررة، فالكاش المشترك يمنع الجلب المزدوج (كتالوج + variants).
+  private async modelCatalog(): Promise<{ map: Map<string, string[]>; items: Array<{
+    id: string
+    modelID: string
+    providerID: string
+    name: string
+    cost: Array<{ input: number; output: number; cache: { read: number; write: number } }>
+    enabled: boolean
+    status: string
+    variants: string[] | undefined
+  }> }> {
     const directory = this.selectedProjectDirectory
     const cached = this.variantsCache
     if (cached && cached.directory === directory && cached.expiresAt > Date.now()) {
-      return cached.map
+      return { map: cached.map, items: cached.items }
     }
     const map = new Map<string, string[]>()
+    const items: Array<{
+      id: string
+      modelID: string
+      providerID: string
+      name: string
+      cost: Array<{ input: number; output: number; cache: { read: number; write: number } }>
+      enabled: boolean
+      status: string
+      variants: string[] | undefined
+    }> = []
     try {
-      const response = unwrap(await this.globalClient.v2.model.list({ location: { directory } }))
-      const list = Array.isArray(response) ? response : response?.data
-      if (Array.isArray(list)) {
-        for (const model of list) {
-          const ids = variantIds(model.variants)
-          if (ids) {
-            map.set(`${model.providerID}/${model.id}`, ids)
-          }
+      const response = await this.requireClient().model.list({ location: this.location(directory) })
+      for (const model of response.data) {
+        const ids = variantIds(model.variants)
+        if (ids) {
+          map.set(`${model.providerID}/${model.modelID}`, ids)
         }
+        items.push({
+          id: model.modelID,
+          modelID: model.modelID,
+          providerID: model.providerID,
+          name: model.name || model.modelID,
+          cost: model.cost.map((tier) => ({
+            input: tier.input,
+            output: tier.output,
+            cache: { read: tier.cache.read, write: tier.cache.write },
+          })),
+          enabled: model.enabled,
+          status: model.status,
+          variants: variantIds(model.variants),
+        })
       }
-      this.variantsCache = { directory, expiresAt: Date.now() + VARIANTS_CACHE_MS, map }
+      this.variantsCache = { directory, expiresAt: Date.now() + VARIANTS_CACHE_MS, map, items }
     } catch (error) {
-      console.error("v2 model variants failed", errorMessage(error))
+      console.error("model catalog failed", errorMessage(error))
     }
-    return map
+    return { map, items }
   }
 
   async models(): Promise<ModelInfo[]> {
@@ -1521,96 +1506,48 @@ export class OpenCodeService {
   }
 
   private async computeModels(): Promise<ModelInfo[]> {
-    const variantMap = await this.modelVariants()
-    // OpenCode بيرجّع الـ variants بشكلين: object map في /config/providers
-    // ({ low: {...}, high: {...} }) و array في الكتالوج v2 ([{ id, ... }]).
-    // هنقبل الاتنين ونرتّبهم بترتيب معروف (من الأقل للأعلى) عشان العرض يبقى ثابت.
+    const { map: variantMap, items: catalog } = await this.modelCatalog()
+    // الـ variants تُرتَّب بترتيب معروف (من الأقل للأعلى) عشان العرض يبقى ثابت.
     const withVariants = (infos: ModelInfo[]): ModelInfo[] => infos.map((info) => {
       const fromProvider = info.variants && info.variants.length > 0 ? info.variants : variantMap.get(`${info.providerID}/${info.id}`)
       const variants = fromProvider && fromProvider.length > 0 ? sortVariants(fromProvider) : undefined
       return variants ? { ...info, variants } : info
     })
 
-    // المصدر الأساسي: settings opencode (/config/providers) — الموديلات المسموحة فعلًا
-    // عند المستخدم ده provider واحد (opencode) فيه ~8 موديلات مجانية، مش كتالوج models.dev الكامل.
+    // النشطة فقط من الـ providers (activation بدل disabled في v1)
+    let activeProviders: Set<string> | null = null
     try {
-      const providersResponse = unwrap(await this.globalClient.config.providers({ directory: this.selectedProjectDirectory }))
-      const providers = providersResponse?.providers || []
-      const infos: ModelInfo[] = []
-      for (const provider of providers) {
-        for (const [modelId, model] of Object.entries(provider.models || {})) {
-          const cost = model?.cost
-          const free = Boolean(cost) && isFreeCost(cost.input, cost.output, cost.cache?.read, cost.cache?.write)
-          infos.push({
-            id: modelId,
-            providerID: provider.id,
-            name: model?.name || modelId,
-            free,
-            enabled: true,
-            status: model?.status,
-            // هنا الـ variants موجودة فعلًا كـ object map: { low: { reasoningEffort }, ... }
-            variants: variantIds(model?.variants),
-          })
-        }
-      }
-      if (infos.length > 0) {
-        return withVariants(infos).sort((a, b) => a.providerID.localeCompare(b.providerID) || a.id.localeCompare(b.id))
-      }
+      const providers = await this.requireClient().provider.list({ location: this.location() })
+      activeProviders = new Set(
+        providers.data.filter((provider) => provider.activation !== "disabled").map((provider) => provider.id),
+      )
     } catch (error) {
-      console.error("config providers failed, falling back to model catalog", errorMessage(error))
+      console.error("provider list failed, showing catalog without provider filter", errorMessage(error))
     }
 
-    // Fallback: كتالوج الموديلات (v2) مقيدًا بالـ providers النشطة من الـ settings
-    let settingsProviders: Set<string> | null = null
-    try {
-      const providersResponse = unwrap(await this.globalClient.v2.provider.list({ location: { directory: this.selectedProjectDirectory } }))
-      const providers = Array.isArray(providersResponse) ? providersResponse : providersResponse?.data
-      if (Array.isArray(providers)) {
-        settingsProviders = new Set(
-          providers.filter((provider) => !provider.disabled).map((provider) => provider.id),
-        )
-      }
-    } catch (error) {
-      console.error("v2 provider list failed, showing catalog without settings filter", errorMessage(error))
-    }
-
-    // المصدر الأساسي: /api/model (v2) — فيه cost الحقيقي لكل موديل
-    try {
-      const response = unwrap(await this.globalClient.v2.model.list({ location: { directory: this.selectedProjectDirectory } }))
-      const list = Array.isArray(response) ? response : response?.data
-      if (Array.isArray(list)) {
-        return withVariants(
-          list
-            .filter((model) => !settingsProviders || settingsProviders.has(model.providerID))
-            .map((model) => {
-              const costs = Array.isArray(model.cost) ? model.cost : []
-              const free = costs.length > 0 && costs.every((tier: { input: number; output: number; cache?: { read: number; write: number } }) => isFreeCost(tier.input, tier.output, tier.cache?.read ?? 0, tier.cache?.write ?? 0))
-              return {
-                id: model.id,
-                providerID: model.providerID,
-                name: model.name || model.id,
-                free,
-                enabled: model.enabled !== false,
-                status: model.status,
-              } satisfies ModelInfo
-            })
-            .sort((a, b) => a.providerID.localeCompare(b.providerID) || a.id.localeCompare(b.id)),
-        )
-      }
-    } catch (error) {
-      console.error("v2 model list failed", errorMessage(error))
-    }
-
-    return []
+    return withVariants(
+      catalog
+        .filter((model) => !activeProviders || activeProviders.has(model.providerID))
+        .map((model) => ({
+          id: model.id,
+          providerID: model.providerID,
+          name: model.name,
+          free: model.cost.length > 0 && model.cost.every((tier) => isFreeCost(tier.input, tier.output, tier.cache.read, tier.cache.write)),
+          enabled: model.enabled,
+          status: model.status,
+          variants: model.variants,
+        }) satisfies ModelInfo)
+        .sort((a, b) => a.providerID.localeCompare(b.providerID) || a.id.localeCompare(b.id)),
+    )
   }
 
   async sessionModel(id: string): Promise<{ model: SessionModelRef | null; defaultModel: SessionModelRef | null }> {
     let model: SessionModelRef | null = null
     try {
-      const session = unwrap(await this.globalClient.session.get({ sessionID: id, directory: this.selectedProjectDirectory }))
-      const ref = session?.model as { id?: string; modelID?: string; providerID?: string; variant?: string } | undefined
-      if (ref?.providerID && (ref.id || ref.modelID)) {
-        model = { providerID: ref.providerID, modelID: ref.id || ref.modelID || "", ...(ref.variant ? { variant: ref.variant } : {}) }
+      const session = await this.requireClient().session.get({ sessionID: id })
+      const ref = session.model
+      if (ref) {
+        model = { providerID: ref.providerID, modelID: ref.id, ...(ref.variant ? { variant: ref.variant } : {}) }
       }
     } catch (error) {
       console.error("session get model failed", errorMessage(error))
@@ -1618,23 +1555,19 @@ export class OpenCodeService {
 
     let defaultModel: SessionModelRef | null = null
     try {
-      const config = unwrap(await this.globalClient.config.get({ directory: this.selectedProjectDirectory }))
-      defaultModel = parseModelString(config?.model)
+      const entries = await this.requireClient().config.get({ location: this.location() })
+      for (const entry of entries) {
+        if (entry.type !== "document") {
+          continue
+        }
+        const parsed = parseModelString(typeof entry.info.model === "string" ? entry.info.model : undefined)
+        if (parsed) {
+          defaultModel = parsed
+          break
+        }
+      }
     } catch {
       // تجاهل — الـ default اختياري
-    }
-    // لو مفيش model عام، استخدم default الـ providers من الـ settings (مثال: {opencode: "big-pickle"})
-    if (!defaultModel) {
-      try {
-        const providersResponse = unwrap(await this.globalClient.config.providers({ directory: this.selectedProjectDirectory }))
-        const entries = Object.entries(providersResponse?.default || {})
-        const first = entries.find(([providerID, modelID]) => Boolean(providerID) && Boolean(modelID))
-        if (first) {
-          defaultModel = { providerID: first[0], modelID: first[1] as string }
-        }
-      } catch {
-        // تجاهل — الـ default اختياري
-      }
     }
     return { model, defaultModel }
   }
@@ -1658,130 +1591,137 @@ export class OpenCodeService {
     if (cleanVariant && known && known.length > 0 && !known.includes(cleanVariant)) {
       throw new Error("Variant not found")
     }
-    const result = await this.globalClient.v2.session.switchModel({
+    await this.requireClient().session.switchModel({
       sessionID: id,
       model: { id: cleanModel, providerID: cleanProvider, ...(cleanVariant ? { variant: cleanVariant } : {}) },
     })
-    if (result.error) {
-      throw new Error(errorMessage(result.error))
-    }
     return { providerID: cleanProvider, modelID: cleanModel, ...(cleanVariant ? { variant: cleanVariant } : {}) }
   }
 
-  private mapQuestionRequest(request: QuestionRequest): ConversationQuestionRequest {
+  // v2 يستبدل الأسئلة باستمارات (forms): كل حقل سؤال، وخياراته options،
+  // والـ multiselect هو الـ multiple. العنوان title يُعرض فوق الحقول.
+  private mapFormRequest(form: FormInfo): ConversationQuestionRequest {
     return {
-      id: request.id,
-      sessionID: request.sessionID,
-      questions: request.questions.map((question) => ({
-        question: question.question,
-        header: question.header,
-        options: question.options.map((option) => ({ label: option.label, description: option.description })),
-        multiple: question.multiple ?? false,
-        custom: question.custom ?? false,
-      })),
+      id: form.id,
+      sessionID: form.sessionID,
+      questions: form.fields.map((field) => {
+        const kind = field as { title?: string; key: string; description?: string; options?: Array<{ value: string; label: string; description?: string }>; custom?: boolean }
+        return {
+          question: typeof kind.title === "string" && kind.title ? kind.title : form.title,
+          header: kind.key,
+          options: Array.isArray(kind.options)
+            ? kind.options.map((option) => ({ label: option.label || option.value, description: option.description || "" }))
+            : [],
+          multiple: field.type === "multiselect",
+          custom: kind.custom === true,
+        }
+      }),
     }
   }
 
-  private normalizeQuestionAnswers(request: QuestionRequest, answers: unknown): QuestionAnswer[] {
-    if (!Array.isArray(answers) || answers.length !== request.questions.length) {
+  private normalizeFormAnswers(form: FormInfo, answers: unknown): Record<string, string | number | boolean | string[]> {
+    if (!Array.isArray(answers) || answers.length !== form.fields.length) {
       throw new Error("Answers do not match questions")
     }
-    return request.questions.map((question, index) => {
+    const normalized: Record<string, string | number | boolean | string[]> = {}
+    form.fields.forEach((field, index) => {
       const selected = answers[index]
-      if (!Array.isArray(selected)) {
-        throw new Error("Answers do not match questions")
-      }
-      const values = [...new Set(selected.map((value) => typeof value === "string" ? value.trim() : "").filter(Boolean))]
-      if (question.multiple) {
+      const values = Array.isArray(selected)
+        ? [...new Set(selected.map((value) => typeof value === "string" ? value.trim() : "").filter(Boolean))]
+        : []
+      if (field.type === "multiselect") {
         if (values.length === 0) {
           throw new Error("Select at least one option")
         }
-        return values
+        normalized[field.key] = values
+        return
       }
-      if (values.length !== 1) {
+      if (field.type === "boolean") {
+        const raw = Array.isArray(selected) ? selected[0] : selected
+        normalized[field.key] = raw === true || raw === "true"
+        return
+      }
+      if (values.length !== 1 || !values[0]) {
         throw new Error("Select one option")
       }
-      return values
+      normalized[field.key] = values[0] as string
     })
+    return normalized
   }
 
-  // قوائم الأسئلة بتتقرأ مع كل poll للـ requests: كاش قصير لكل directory
-  // يمتص التكرار، وبيتبطل مع أحداث الأسئلة أو بعد الرد/الرفض مباشرة
-  private async listQuestions(): Promise<QuestionRequest[]> {
-    const directory = this.selectedProjectDirectory
-    const cached = this.questionsCache.get(directory)
+  // قوائم الأسئلة بتتقرأ مع كل poll للـ requests: كاش قصير لكل جلسة
+  // يمتص التكرار، وبيتبطل مع أحداث الاستمارات أو بعد الرد/الرفض مباشرة
+  private async listForms(sessionId: string): Promise<FormInfo[]> {
+    const cached = this.questionsCache.get(sessionId)
     if (cached && cached.expiresAt > Date.now()) {
       return cached.value
     }
-    return this.dedup(`questions:${directory}`, async () => {
-      const value = unwrap(await this.globalClient.question.list({ directory }))
-      this.questionsCache.set(directory, { expiresAt: Date.now() + QUESTIONS_CACHE_MS, value })
+    return this.dedup(`questions:${sessionId}`, async () => {
+      const value = await this.requireClient().session.form.list({ sessionID: sessionId })
+      this.questionsCache.set(sessionId, { expiresAt: Date.now() + QUESTIONS_CACHE_MS, value })
       return value
     })
   }
 
   async sessionQuestions(id: string): Promise<ConversationQuestionRequest[]> {
-    const requests = await this.listQuestions()
-    return requests.filter((request) => request.sessionID === id).map((request) => this.mapQuestionRequest(request))
+    const forms = await this.listForms(id)
+    return forms.map((form) => this.mapFormRequest(form))
   }
 
   async replyQuestion(sessionId: string, requestId: string, answers: unknown): Promise<boolean> {
-    const requests = await this.listQuestions()
-    const request = requests.find((candidate) => candidate.id === requestId)
-    if (!request || request.sessionID !== sessionId) {
+    const forms = await this.listForms(sessionId)
+    const form = forms.find((candidate) => candidate.id === requestId)
+    if (!form || form.sessionID !== sessionId) {
       throw new Error("Question not found")
     }
-    const normalized = this.normalizeQuestionAnswers(request, answers)
-    const result = await this.globalClient.question.reply({
-      requestID: requestId,
-      directory: this.selectedProjectDirectory,
-      answers: normalized,
-    })
-    if (result.error) {
-      throw new Error(errorMessage(result.error))
-    }
+    const answer = this.normalizeFormAnswers(form, answers)
+    await this.requireClient().session.form.reply({ sessionID: sessionId, formID: requestId, answer })
     // الرد غيّر حالة الأسئلة — ابطل الكاش فورًا عشان الـ poll الجاي يشوفها
-    this.questionsCache.delete(this.selectedProjectDirectory)
-    return result.data
+    this.questionsCache.delete(sessionId)
+    return true
   }
 
   async rejectQuestion(sessionId: string, requestId: string): Promise<boolean> {
-    const requests = await this.listQuestions()
-    const request = requests.find((candidate) => candidate.id === requestId)
-    if (!request || request.sessionID !== sessionId) {
+    const forms = await this.listForms(sessionId)
+    const form = forms.find((candidate) => candidate.id === requestId)
+    if (!form || form.sessionID !== sessionId) {
       throw new Error("Question not found")
     }
-    const result = await this.globalClient.question.reject({ requestID: requestId, directory: this.selectedProjectDirectory })
-    if (result.error) {
-      throw new Error(errorMessage(result.error))
-    }
-    this.questionsCache.delete(this.selectedProjectDirectory)
-    return result.data
+    await this.requireClient().session.form.cancel({ sessionID: sessionId, formID: requestId })
+    this.questionsCache.delete(sessionId)
+    return true
   }
 
-  async diff(id: string): Promise<FileDiff[]> {
-    return unwrap(await this.clientFor().session.diff({ path: { id }, query: this.directoryQuery() }))
+  async diff(id: string): Promise<FileDiffInfo[]> {
+    const files = await this.requireClient().session.diff({ sessionID: id })
+    return files.map((file) => ({
+      file: file.file,
+      patch: file.patch,
+      additions: file.additions,
+      deletions: file.deletions,
+      status: file.status,
+    }))
   }
 
   // حالة git للمشروع الحالي: الملفات المتغيّرة + اسم الفرع.
-  // لازم v2 هنا: endpoint "/file/status" في v1 بيرجع [] دايمًا (حتى لمشاريع
-  // عندها ملفات متغيّرة فعلًا)، بينما "/vcs/status" في v2 بيرجّع القائمة صح.
   // لو المشروع مش مستودع git، بنرجّع available=false بدل ما نرمي خطأ.
   async gitChanges(): Promise<GitChanges> {
-    const query = { directory: this.selectedProjectDirectory }
+    const location = this.location()
 
-    let statusFiles: VcsFileStatus[]
+    let statusFiles: Array<{ file: string; additions: number; deletions: number; status: "added" | "deleted" | "modified" }>
     try {
-      statusFiles = unwrap(await this.globalClient.vcs.status({ directory: query.directory }))
+      const response = await this.requireClient().vcs.status({ location })
+      statusFiles = response.data
     } catch {
       return { branch: "", available: false, files: [] }
     }
 
     let branch = ""
     try {
-      const info = await this.globalClient.vcs.get({ directory: query.directory })
-      if (!info.error && typeof info.data?.branch === "string") {
-        branch = info.data.branch
+      const info = await this.requireClient().vcs.get({ location })
+      const current = info.data.branch.current
+      if (typeof current === "string") {
+        branch = current
       }
     } catch {
       branch = ""
@@ -1803,21 +1743,13 @@ export class OpenCodeService {
   }
 
   async replyPermission(id: string, permissionId: string, response: "once" | "always" | "reject"): Promise<boolean> {
-    const result = await this.clientFor().postSessionIdPermissionsPermissionId({
-      path: { id, permissionID: permissionId },
-      body: { response },
-      query: this.directoryQuery(),
-    })
-
-    if (result.error) {
-      throw new Error(errorMessage(result.error))
-    }
+    await this.requireClient().permission.reply({ sessionID: id, requestID: permissionId, decision: response })
 
     this.pendingPermissions.delete(permissionId)
-    return result.data
+    return true
   }
 
-  permissions(): Permission[] {
+  permissions(): EnginePermission[] {
     return [...this.pendingPermissions.values()]
   }
 
@@ -1838,8 +1770,7 @@ export class OpenCodeService {
     this.pendingPermissions.clear()
     this.busySessions.clear()
     this.finishedRuns.clear()
-    this.closeServer?.()
+    this.client = null
     this.listeners.clear()
-    this.clients.clear()
   }
 }

@@ -1,76 +1,107 @@
-import type { Event, Message, Part, SessionStatus } from "@opencode-ai/sdk"
+import type { OpenCodeEvent } from "@opencode/client"
 import { mkdir, unlink, writeFile } from "node:fs/promises"
-import { homedir } from "node:os"
 import { resolve } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import { OpenCodeService } from "./opencode.js"
 
-vi.mock("./desktop-projects.js", () => ({
-  collectDesktopProjectDirectories: (): string[] => [],
-  desktopDatabasePath: (): string => "",
-}))
-
 const SESSION = "ses_test"
+const DIRECTORY = process.cwd()
 
 interface FakeClient {
   dispatched: string[]
   abortCalls: number
-  messages: Array<{ info: Message; parts: Part[] }>
+  messages: Array<Record<string, unknown>>
+  sessions: Array<Record<string, unknown>>
+  switchCalls: Array<Record<string, unknown>>
   session: Record<string, unknown>
+  message: Record<string, unknown>
+  permission: Record<string, unknown>
 }
 
-function createFakeClient(raw: { status: SessionStatus }): FakeClient {
+function sessionSummary(id: string, directory: string): Record<string, unknown> {
+  return {
+    id,
+    title: "",
+    projectID: "prj_test",
+    location: { directory },
+    time: { created: 1, updated: 2 },
+  }
+}
+
+function createFakeClient(raw: { running: boolean }): FakeClient {
   const fake: FakeClient = {
     dispatched: [],
     abortCalls: 0,
     messages: [],
-    session: {
-      promptAsync: (options: { body: { parts?: Array<{ text?: string }> } }) => {
-        fake.dispatched.push(options.body.parts?.[0]?.text ?? "")
-        return Promise.resolve({ data: {} })
-      },
-      abort: () => {
-        fake.abortCalls += 1
-        return Promise.resolve({ data: true })
-      },
-      status: () => Promise.resolve({ data: { [SESSION]: raw.status } }),
-      messages: () => Promise.resolve({ data: fake.messages }),
-      todo: () => Promise.resolve({ data: [] }),
-      list: () => Promise.resolve({ data: [] }),
-      update: () => Promise.resolve({ data: {} }),
-      delete: () => Promise.resolve({ data: true }),
+    sessions: [sessionSummary(SESSION, DIRECTORY)],
+    switchCalls: [],
+    session: {},
+    message: {},
+    permission: {},
+  }
+  fake.session = {
+    prompt: (options: { text?: string }) => {
+      fake.dispatched.push(options.text ?? "")
+      return Promise.resolve({ id: "inbox_1", sessionID: SESSION })
     },
+    interrupt: () => {
+      fake.abortCalls += 1
+      return Promise.resolve({ interrupted: true })
+    },
+    active: () => Promise.resolve(raw.running ? { [SESSION]: { type: "running" } } : {}),
+    list: (options?: { directory?: string }) => Promise.resolve({
+      data: options?.directory ? fake.sessions : [...fake.sessions],
+      cursor: {},
+    }),
+    remove: () => Promise.resolve(undefined),
+    get: () => Promise.resolve(sessionSummary(SESSION, DIRECTORY)),
+    update: () => Promise.resolve(undefined),
+    switchAgent: (options: { agent?: string }) => {
+      fake.switchCalls.push({ agent: options.agent })
+      return Promise.resolve(undefined)
+    },
+    switchModel: (options: { model?: Record<string, unknown> }) => {
+      fake.switchCalls.push(options.model ?? {})
+      return Promise.resolve(undefined)
+    },
+    form: {
+      list: () => Promise.resolve([]),
+      reply: () => Promise.resolve(undefined),
+      cancel: () => Promise.resolve(undefined),
+    },
+  }
+  fake.message = {
+    list: () => Promise.resolve({ data: fake.messages, cursor: {} }),
+  }
+  fake.permission = {
+    reply: () => Promise.resolve(undefined),
+    list: () => Promise.resolve([]),
   }
   return fake
 }
 
-function textPart(text: string): Part {
-  return { id: `prt_${text}`, type: "text", text } as unknown as Part
+function textPart(text: string): Record<string, unknown> {
+  return { type: "text", text }
 }
 
-function userMessage(id: string, text: string, created: number): { info: Message; parts: Part[] } {
-  return {
-    info: { id, role: "user", sessionID: SESSION, time: { created } } as unknown as Message,
-    parts: [textPart(text)],
-  }
+function userMessage(id: string, text: string, created: number): Record<string, unknown> {
+  return { id, type: "user", time: { created }, text }
 }
 
-function assistantMessage(id: string, text: string, created: number, completed?: number): { info: Message; parts: Part[] } {
+function assistantMessage(id: string, text: string, created: number, completed?: number): Record<string, unknown> {
   return {
-    info: {
-      id,
-      role: "assistant",
-      sessionID: SESSION,
-      time: { created, ...(completed === undefined ? {} : { completed }) },
-    } as unknown as Message,
-    parts: [textPart(text)],
+    id,
+    type: "assistant",
+    agent: "build",
+    model: { id: "space-bunny-free", providerID: "opencode" },
+    time: { created, ...(completed === undefined ? {} : { completed }) },
+    content: text ? [textPart(text)] : [],
   }
 }
 
 interface Internals {
-  clientFor: (directory?: string) => unknown
-  globalClient: unknown
-  trackEvent: (event: Event) => void
+  client: unknown
+  trackEvent: (event: OpenCodeEvent) => void
   busySessions: Set<string>
   runningSessions: Set<string>
   idlePolls: Map<string, number>
@@ -79,12 +110,11 @@ interface Internals {
 }
 
 function createService() {
-  const raw = { status: { type: "idle" } as SessionStatus }
+  const raw = { running: false }
   const fake = createFakeClient(raw)
-  const service = new OpenCodeService({ projectDirectory: process.cwd(), username: "test", port: 0 })
+  const service = new OpenCodeService({ projectDirectory: DIRECTORY })
   const internals = service as unknown as Internals
-  internals.clientFor = () => fake
-  internals.globalClient = { question: { list: () => Promise.resolve({ data: [] }) } }
+  internals.client = fake
 
   return {
     service,
@@ -93,20 +123,20 @@ function createService() {
     busySessions: internals.busySessions,
     runningSessions: internals.runningSessions,
     internals,
-    emit: (event: Event) => internals.trackEvent(event),
+    emit: (event: OpenCodeEvent) => internals.trackEvent(event),
   }
 }
 
-function idleEvent(): Event {
-  return { type: "session.idle", properties: { sessionID: SESSION } } as unknown as Event
+function idleEvent(): OpenCodeEvent {
+  return { type: "session.idle", data: { sessionID: SESSION } } as unknown as OpenCodeEvent
 }
 
-function busyEvent(): Event {
-  return { type: "session.status", properties: { sessionID: SESSION, status: { type: "busy" } } } as unknown as Event
+function busyEvent(): OpenCodeEvent {
+  return { type: "session.status", data: { sessionID: SESSION, status: { type: "busy" } } } as unknown as OpenCodeEvent
 }
 
-function errorEvent(): Event {
-  return { type: "session.error", properties: { sessionID: SESSION, error: { name: "UnknownError" } } } as unknown as Event
+function errorEvent(): OpenCodeEvent {
+  return { type: "session.execution.failed", data: { sessionID: SESSION } } as unknown as OpenCodeEvent
 }
 
 describe("parallel request queue", () => {
@@ -146,11 +176,11 @@ describe("parallel request queue", () => {
     await service.prompt(SESSION, "التاني")
 
     // OpenCode بيبعت idle مؤقت بين الطلبين — الواجهة لازم تفضل تشوف "شغّال"
-    raw.status = { type: "idle" }
+    raw.running = false
     await expect(service.statuses()).resolves.toMatchObject({ [SESSION]: { type: "busy" } })
 
     emit(idleEvent())
-    raw.status = { type: "idle" }
+    raw.running = false
     await expect(service.statuses()).resolves.toMatchObject({ [SESSION]: { type: "busy" } })
   })
 
@@ -284,7 +314,7 @@ describe("stale busy status", () => {
       assistantMessage("msg_a1", "النتيجة", 1_100, 1_200),
     ]
     // OpenCode لسه بيقول "شغّال" والـ idle ضاع — الكارت لازم يخلص مش يفضل يدور
-    raw.status = { type: "busy" }
+    raw.running = true
 
     const result = await service.requests(SESSION)
     expect(result.status).toEqual({ type: "idle" })
@@ -300,7 +330,7 @@ describe("stale busy status", () => {
       userMessage("msg_u1", "الأول", 1_000),
       assistantMessage("msg_a1", "نتيجة الأول", 1_100, 1_200),
     ]
-    raw.status = { type: "busy" }
+    raw.running = true
     await service.prompt(SESSION, "التاني")
     await service.prompt(SESSION, "التالت")
 
@@ -317,7 +347,7 @@ describe("stale busy status", () => {
       userMessage("msg_u1", "الطلب", 1_000),
       assistantMessage("msg_a1", "شغال", 1_100),
     ]
-    raw.status = { type: "busy" }
+    raw.running = true
 
     const result = await service.requests(SESSION)
     expect(result.status).toEqual({ type: "busy" })
@@ -333,7 +363,7 @@ describe("stale busy status", () => {
       assistantMessage("msg_a1", "خطوة أولى", 1_100, 1_200),
       assistantMessage("msg_a2", "شغال في التانية", 1_300),
     ]
-    raw.status = { type: "busy" }
+    raw.running = true
 
     const result = await service.requests(SESSION)
     expect(result.status).toEqual({ type: "busy" })
@@ -349,7 +379,7 @@ describe("stale busy status", () => {
       userMessage("msg_u1", "الطلب", now - 2_000),
       assistantMessage("msg_a1", "خطوة", now - 1_000, now - 500),
     ]
-    raw.status = { type: "busy" }
+    raw.running = true
 
     const result = await service.requests(SESSION)
     expect(result.status).toEqual({ type: "busy" })
@@ -377,7 +407,7 @@ describe("stale busy status", () => {
     await service.prompt(SESSION, "الطلب")
     expect(runningSessions.has(SESSION)).toBe(true)
     // Task خلصت على الديسكتوب، بس OpenCode واقف على busy والـ idle ضاع
-    raw.status = { type: "busy" }
+    raw.running = true
 
     const result = await service.requests(SESSION)
     expect(runningSessions.has(SESSION)).toBe(false)
@@ -393,7 +423,7 @@ describe("stale busy status", () => {
       // الطلب اتبعث قبل ما السيرفر يقفل (فلج "شغّال" اتسيب وراه) وسيرفر OpenCode
       // بيقوله idle — من غير حد يوصّلنا حدث الـ idle
       internals.runningSessions.add(SESSION)
-      raw.status = { type: "idle" }
+      raw.running = false
 
       internals.startQueueWatchdog()
       // أول poll مش كفاية — طلب لسه بيلفّ حالته لـ busy مينفعش يتحرّك من أول مرة
@@ -411,35 +441,38 @@ describe("stale busy status", () => {
 })
 
 describe("model variety levels", () => {
-  // OpenCode بيرجّع الـ variants في /config/providers كـ object map:
-  // { low: { reasoningEffort: "low" }, high: { ... } }
-  function variantService(variants: unknown, switchCalls: Array<Record<string, unknown>> = []) {
-    const service = new OpenCodeService({ projectDirectory: process.cwd(), username: "test", port: 0 })
-    const internals = service as unknown as Internals
-    internals.globalClient = {
-      config: {
-        providers: () => Promise.resolve({
-          data: {
-            providers: [{
-              id: "opencode",
-              models: {
-                "space-bunny-free": {
-                  name: "Space Bunny Free",
-                  cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
-                  variants,
-                },
-              },
-            }],
-          },
+  // v2 يرجّع الـ variants array [{ id, ... }] في كتالوج الموديلات مباشرة.
+  function variantService(variantIds: string[] | undefined, switchCalls: Array<Record<string, unknown>> = []) {
+    const service = new OpenCodeService({ projectDirectory: DIRECTORY })
+    const internals = service as unknown as Internals & {
+      client: {
+        model: { list: () => Promise<unknown> }
+        provider: { list: () => Promise<unknown> }
+        session: { switchModel: (options: { model: Record<string, unknown> }) => Promise<unknown> }
+      }
+    }
+    internals.client = {
+      model: {
+        list: () => Promise.resolve({
+          data: [{
+            id: "opencode/space-bunny-free",
+            modelID: "space-bunny-free",
+            providerID: "opencode",
+            name: "Space Bunny Free",
+            cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+            enabled: true,
+            status: "active",
+            variants: (variantIds ?? []).map((id) => ({ id })),
+          }],
         }),
       },
-      v2: {
-        model: { list: () => Promise.resolve({ data: [] }) },
-        session: {
-          switchModel: (options: { model: Record<string, unknown> }) => {
-            switchCalls.push(options.model)
-            return Promise.resolve({ data: {} })
-          },
+      provider: {
+        list: () => Promise.resolve({ data: [{ id: "opencode", activation: "enabled" }] }),
+      },
+      session: {
+        switchModel: (options: { model: Record<string, unknown> }) => {
+          switchCalls.push(options.model)
+          return Promise.resolve(undefined)
         },
       },
     }
@@ -448,8 +481,8 @@ describe("model variety levels", () => {
     return { service, switchCalls }
   }
 
-  it("reads variants from the config providers object map", async () => {
-    const { service } = variantService({ high: { reasoningEffort: "high" }, low: { reasoningEffort: "low" } })
+  it("reads variants from the model catalog array", async () => {
+    const { service } = variantService(["high", "low"])
 
     const models = await service.models()
 
@@ -457,7 +490,7 @@ describe("model variety levels", () => {
   })
 
   it("orders the levels from lowest to highest", async () => {
-    const { service } = variantService({ max: {}, xhigh: {}, high: {}, medium: {}, low: {} })
+    const { service } = variantService(["max", "xhigh", "high", "medium", "low"])
 
     const models = await service.models()
 
@@ -465,7 +498,7 @@ describe("model variety levels", () => {
   })
 
   it("switches the session model to the chosen level", async () => {
-    const { service, switchCalls } = variantService({ low: {}, high: {}, max: {} })
+    const { service, switchCalls } = variantService(["low", "high", "max"])
 
     await expect(service.switchSessionModel(SESSION, "opencode", "space-bunny-free", "max")).resolves.toEqual({
       providerID: "opencode",
@@ -476,7 +509,7 @@ describe("model variety levels", () => {
   })
 
   it("clears the level when the default chip is picked", async () => {
-    const { service, switchCalls } = variantService({ low: {}, high: {} })
+    const { service, switchCalls } = variantService(["low", "high"])
 
     await expect(service.switchSessionModel(SESSION, "opencode", "space-bunny-free", "")).resolves.toEqual({
       providerID: "opencode",
@@ -486,7 +519,7 @@ describe("model variety levels", () => {
   })
 
   it("rejects a level the model does not declare", async () => {
-    const { service } = variantService({ low: {}, high: {} })
+    const { service } = variantService(["low", "high"])
 
     await expect(service.switchSessionModel(SESSION, "opencode", "space-bunny-free", "ultra")).rejects.toThrow(/variant not found/i)
   })
@@ -501,33 +534,33 @@ describe("model variety levels", () => {
 })
 
 describe("response caching and dedup", () => {
-  function activityService(counts: { list: number; status: number }) {
-    const service = new OpenCodeService({ projectDirectory: process.cwd(), username: "test", port: 0 })
-    const internals = service as unknown as Internals
-    internals.globalClient = {
-      experimental: {
+  function activityService(counts: { list: number; active: number }) {
+    const service = new OpenCodeService({ projectDirectory: DIRECTORY })
+    const internals = service as unknown as Internals & {
+      client: {
         session: {
-          list: () => {
-            counts.list += 1
-            return Promise.resolve({ data: [] })
-          },
-        },
-      },
-      question: { list: () => Promise.resolve({ data: [] }) },
+          list: () => Promise<unknown>
+          active: () => Promise<unknown>
+        }
+      }
     }
-    internals.clientFor = () => ({
+    internals.client = {
       session: {
-        status: () => {
-          counts.status += 1
-          return Promise.resolve({ data: {} })
+        list: () => {
+          counts.list += 1
+          return Promise.resolve({ data: [], cursor: {} })
+        },
+        active: () => {
+          counts.active += 1
+          return Promise.resolve({})
         },
       },
-    })
+    }
     return { service, internals }
   }
 
   it("serves activity from the short cache and dedups concurrent calls", async () => {
-    const counts = { list: 0, status: 0 }
+    const counts = { list: 0, active: 0 }
     const { service } = activityService(counts)
 
     // طلبان متزامنان = حساب واحد فقط (in-flight dedup)
@@ -542,42 +575,47 @@ describe("response caching and dedup", () => {
   })
 
   it("invalidates the activity cache on session lifecycle events", async () => {
-    const counts = { list: 0, status: 0 }
+    const counts = { list: 0, active: 0 }
     const { service, internals } = activityService(counts)
 
     await service.activity("ar")
     expect(counts.list).toBe(1)
 
-    internals.trackEvent({ type: "session.status", properties: { sessionID: SESSION, status: { type: "busy" } } } as unknown as Event)
+    internals.trackEvent({ type: "session.status", data: { sessionID: SESSION, status: { type: "busy" } } } as unknown as OpenCodeEvent)
     await service.activity("ar")
     expect(counts.list).toBe(2)
   })
 
   it("caches the model catalog between calls", async () => {
-    let providerCalls = 0
-    const service = new OpenCodeService({ projectDirectory: process.cwd(), username: "test", port: 0 })
-    const internals = service as unknown as Internals
-    internals.globalClient = {
-      config: {
-        providers: () => {
-          providerCalls += 1
+    let modelCalls = 0
+    const service = new OpenCodeService({ projectDirectory: DIRECTORY })
+    const internals = service as unknown as Internals & {
+      client: {
+        model: { list: () => Promise<unknown> }
+        provider: { list: () => Promise<unknown> }
+      }
+    }
+    internals.client = {
+      model: {
+        list: () => {
+          modelCalls += 1
           return Promise.resolve({
-            data: {
-              providers: [{
-                id: "opencode",
-                models: {
-                  "space-bunny-free": {
-                    name: "Space Bunny Free",
-                    cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
-                    variants: { low: {} },
-                  },
-                },
-              }],
-            },
+            data: [{
+              id: "opencode/space-bunny-free",
+              modelID: "space-bunny-free",
+              providerID: "opencode",
+              name: "Space Bunny Free",
+              cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+              enabled: true,
+              status: "active",
+              variants: [{ id: "low" }],
+            }],
           })
         },
       },
-      v2: { model: { list: () => Promise.resolve({ data: [] }) } },
+      provider: {
+        list: () => Promise.resolve({ data: [{ id: "opencode", activation: "enabled" }] }),
+      },
     }
     internals.variantsCache = null
 
@@ -585,18 +623,22 @@ describe("response caching and dedup", () => {
     const second = await service.models()
     expect(first).toHaveLength(1)
     expect(second).toEqual(first)
-    expect(providerCalls).toBe(1)
+    expect(modelCalls).toBe(1)
   })
 
-  it("caches question lists and invalidates them on question events", async () => {
+  it("caches question lists and invalidates them on form events", async () => {
     let listCalls = 0
-    const service = new OpenCodeService({ projectDirectory: process.cwd(), username: "test", port: 0 })
-    const internals = service as unknown as Internals
-    internals.globalClient = {
-      question: {
-        list: () => {
-          listCalls += 1
-          return Promise.resolve({ data: [] })
+    const service = new OpenCodeService({ projectDirectory: DIRECTORY })
+    const internals = service as unknown as Internals & {
+      client: { session: { form: { list: () => Promise<unknown> } } }
+    }
+    internals.client = {
+      session: {
+        form: {
+          list: () => {
+            listCalls += 1
+            return Promise.resolve([])
+          },
         },
       },
     }
@@ -605,7 +647,7 @@ describe("response caching and dedup", () => {
     await service.sessionQuestions(SESSION)
     expect(listCalls).toBe(1)
 
-    internals.trackEvent({ type: "question.asked", properties: { sessionID: SESSION } } as unknown as Event)
+    internals.trackEvent({ type: "form.created", data: { sessionID: SESSION } } as unknown as OpenCodeEvent)
     await service.sessionQuestions(SESSION)
     expect(listCalls).toBe(2)
   })
@@ -679,38 +721,183 @@ describe("session cleanup and state version", () => {
 
 describe("project list filtering", () => {
   it("يخفي الجذور والنسبي ويبقي المشاريع الحقيقية", async () => {
-    // الاستيراد موك أعلى الملف حتى لا يقرأ التست قاعدة الديسكتوب الحقيقية
-    const service = new OpenCodeService({ projectDirectory: "E:/mSales/app", username: "test", port: 0 })
+    const service = new OpenCodeService({ projectDirectory: "E:/mSales/app" })
     const internals = service as unknown as {
-      baseClient: { project: { list: () => Promise<{ data: unknown[] }> } }
-      globalClient: { experimental: { session: { list: () => Promise<{ data: unknown[] }> } } }
+      client: {
+        project: { list: () => Promise<unknown[]> }
+        session: { list: () => Promise<{ data: unknown[]; cursor: object }> }
+      }
     }
-    internals.baseClient = {
+    internals.client = {
       project: {
+        list: () => Promise.resolve([
+          { id: "p1", name: "app" },
+          { id: "junk", name: "junk" },
+        ]),
+      },
+      session: {
         list: () => Promise.resolve({
           data: [
-            { id: "p1", worktree: "E:/mSales/app", time: { created: 1 } },
-            { id: "junk-root", worktree: "/", time: { created: 1 } },
-            { id: "junk-drive", worktree: "E:\\", time: { created: 1 } },
-            { id: "junk-relative", worktree: "Workshop", time: { created: 1 } },
-            { id: "junk-home", worktree: homedir(), time: { created: 1 } },
+            {
+              id: "ses_1",
+              title: "app",
+              projectID: "p1",
+              location: { directory: "E:/mSales/app2" },
+              time: { created: 2, updated: 3 },
+            },
+            {
+              id: "ses_2",
+              title: "junk",
+              projectID: "junk",
+              location: { directory: "E:" },
+              time: { created: 2, updated: 3 },
+            },
           ],
+          cursor: {},
         }),
-      },
-    }
-    internals.globalClient = {
-      experimental: {
-        session: {
-          list: () => Promise.resolve({
-            data: [
-              { directory: "E:/mSales/app2", time: { created: 2 } },
-              { directory: "E:", time: { created: 2 } },
-            ],
-          }),
-        },
       },
     }
     const projects = await service.projects()
     expect(projects.map((project) => project.worktree).sort()).toEqual(["E:/mSales/app", "E:/mSales/app2"])
+  })
+})
+
+describe("v2 session shapes", () => {
+  it("maps session list items to the stable wire format", async () => {
+    const { service } = createService()
+
+    const sessions = await service.sessions()
+    expect(sessions).toEqual([{
+      id: SESSION,
+      title: "",
+      directory: DIRECTORY,
+      time: { created: 1, updated: 2 },
+    } satisfies { id: string; title: string; directory: string; time: { created: number; updated: number } }])
+  })
+
+  it("creates sessions with a location and renames through get", async () => {
+    const created: Array<Record<string, unknown>> = []
+    const service = new OpenCodeService({ projectDirectory: DIRECTORY })
+    const internals = service as unknown as Internals & {
+      client: {
+        session: {
+          create: (input: Record<string, unknown>) => Promise<Record<string, unknown>>
+          update: (input: Record<string, unknown>) => Promise<unknown>
+          get: () => Promise<Record<string, unknown>>
+        }
+      }
+    }
+    internals.client = {
+      session: {
+        create: (input: Record<string, unknown>) => {
+          created.push(input)
+          return Promise.resolve({ ...sessionSummary("ses_new", DIRECTORY), title: input["title"] ?? "" })
+        },
+        update: () => Promise.resolve(undefined),
+        get: () => Promise.resolve({ ...sessionSummary("ses_new", DIRECTORY), title: "اسم جديد" }),
+      },
+    }
+
+    const session = await service.createSession("اسم جديد")
+    expect(session.title).toBe("اسم جديد")
+    expect(created[0]).toMatchObject({ title: "اسم جديد", location: { directory: DIRECTORY } })
+
+    const renamed = await service.updateSession("ses_new", "اسم أحدث")
+    expect(renamed.title).toBe("اسم جديد")
+  })
+
+  it("replies to a form with keyed answers", async () => {
+    const replied: Array<Record<string, unknown>> = []
+    const service = new OpenCodeService({ projectDirectory: DIRECTORY })
+    const internals = service as unknown as Internals & {
+      client: { session: { form: {
+        list: () => Promise<unknown[]>
+        reply: (input: Record<string, unknown>) => Promise<unknown>
+        cancel: (input: Record<string, unknown>) => Promise<unknown>
+      } } }
+    }
+    internals.client = {
+      session: {
+        form: {
+          list: () => Promise.resolve([{
+            id: "form_1",
+            sessionID: SESSION,
+            title: "اختر",
+            fields: [
+              { key: "color", type: "string", title: "اللون", options: [{ value: "red", label: "أحمر", description: "" }] },
+              {
+                key: "extras",
+                type: "multiselect",
+                title: "إضافات",
+                options: [{ value: "a", label: "أ", description: "" }, { value: "b", label: "ب", description: "" }],
+              },
+            ],
+          }]),
+          reply: (input: Record<string, unknown>) => {
+            replied.push(input)
+            return Promise.resolve(undefined)
+          },
+          cancel: () => Promise.resolve(undefined),
+        },
+      },
+    }
+
+    const questions = await service.sessionQuestions(SESSION)
+    expect(questions[0]?.questions.map((question) => question.question)).toEqual(["اللون", "إضافات"])
+    expect(questions[0]?.questions[1]?.multiple).toBe(true)
+
+    await expect(service.replyQuestion(SESSION, "form_1", [["red"], ["a", "b"]])).resolves.toBe(true)
+    expect(replied[0]).toEqual({ sessionID: SESSION, formID: "form_1", answer: { color: "red", extras: ["a", "b"] } })
+  })
+
+  it("tracks permission requests from v2 events", async () => {
+    const { service, emit } = createService()
+
+    emit({
+      type: "permission.asked",
+      data: { id: "perm_1", sessionID: SESSION, action: "shell", resources: ["rm -rf"], message: "" },
+    } as unknown as OpenCodeEvent)
+    expect(service.permissions()).toEqual([{
+      id: "perm_1",
+      sessionID: SESSION,
+      title: "shell",
+      pattern: "rm -rf",
+    }])
+
+    emit({ type: "permission.replied", data: { sessionID: SESSION, requestID: "perm_1" } } as unknown as OpenCodeEvent)
+    expect(service.permissions()).toEqual([])
+  })
+
+  it("collects tool file outputs from v2 message content", async () => {
+    const { service, fake } = createService()
+
+    fake.messages = [
+      userMessage("msg_u1", "ابنِ التقرير", 1_000),
+      {
+        id: "msg_a1",
+        type: "assistant",
+        agent: "build",
+        model: { id: "m", providerID: "opencode" },
+        time: { created: 1_100, completed: 1_200 },
+        content: [
+          { type: "text", text: "تم" },
+          {
+            type: "tool",
+            id: "call_1",
+            name: "write",
+            state: {
+              status: "completed",
+              input: {},
+              content: [{ type: "file", uri: "file:///tmp/report.pdf", mime: "application/pdf", name: "report.pdf" }],
+            },
+            time: { created: 1_150, completed: 1_200 },
+          },
+        ],
+      },
+    ]
+
+    const history = await service.history(SESSION)
+    expect(history[0]?.files.map((file) => file.name)).toEqual(["report.pdf"])
+    expect(history[0]?.finalResult).toBe("تم")
   })
 })

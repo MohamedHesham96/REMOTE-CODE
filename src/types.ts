@@ -1,6 +1,94 @@
-import type { Event, Permission, Project, Session, SessionStatus, Todo } from "@opencode-ai/sdk"
+// أنواع الواجهة مفصولة عن محرك OpenCode: عقد `/api/*` السلكي ثابت،
+// فهذه الأشكال المحلية هي المرجع الوحيد هنا بدل أنواع SDK الخام.
+export interface Session {
+  id: string
+  title: string
+  directory: string
+  time: { created: number; updated: number }
+}
 
-export type { Event, Permission, Project, Session, SessionStatus, Todo }
+export interface Project {
+  id: string
+  worktree: string
+  name?: string
+  time: { created: number; updated: number }
+}
+
+export interface SessionStatus {
+  type: "idle" | "busy" | "retry"
+}
+
+export interface Todo {
+  id: string
+  content: string
+  status: string
+}
+
+export interface Permission {
+  id: string
+  sessionID: string
+  title: string
+  pattern?: string | string[]
+}
+
+export interface ServerEventBase {
+  properties: {
+    sessionID: string
+    [key: string]: unknown
+  }
+}
+
+// أحداث السيرفر على السلك — نفس الأسماء منذ v1، والمحتوى مترجَم في
+// server/sse/filter.ts من أحداث v2. الأعضاء الميتة (todo.updated مثلًا)
+// باقية للتوافق مع معالجات الواجهة، حتى لو لم يعُد السيرفر يبثّها.
+export interface StatusServerEvent extends ServerEventBase {
+  type: "session.status"
+  properties: { sessionID: string; status: SessionStatus; [key: string]: unknown }
+}
+
+export interface IdleServerEvent extends ServerEventBase {
+  type: "session.idle"
+}
+
+export interface ErrorServerEvent extends ServerEventBase {
+  type: "session.error"
+}
+
+export interface TodoServerEvent extends ServerEventBase {
+  type: "todo.updated"
+  properties: { sessionID: string; todos: Todo[]; [key: string]: unknown }
+}
+
+export interface MessageRefreshServerEvent {
+  type: "message.updated" | "message.part.updated" | "message.part.removed" | "message.removed" | "session.diff" | "session.compacted"
+  properties: { sessionID?: string; [key: string]: unknown }
+}
+
+export interface PermissionUpdatedServerEvent {
+  type: "permission.updated"
+  properties: Permission
+}
+
+export interface PermissionRepliedServerEvent {
+  type: "permission.replied"
+  properties: { sessionID: string; permissionID: string }
+}
+
+export interface SessionListServerEvent extends ServerEventBase {
+  type: "session.created" | "session.updated" | "session.deleted"
+}
+
+export type ServerEvent =
+  | StatusServerEvent
+  | IdleServerEvent
+  | ErrorServerEvent
+  | TodoServerEvent
+  | MessageRefreshServerEvent
+  | PermissionUpdatedServerEvent
+  | PermissionRepliedServerEvent
+  | SessionListServerEvent
+
+export type Event = ServerEvent
 
 export type AuthState = "loading" | "signedOut" | "signedIn"
 
@@ -54,7 +142,7 @@ export interface QuestionClientEvent {
   }
 }
 
-export type ClientEvent = Event | QuestionClientEvent
+export type ClientEvent = ServerEvent | QuestionClientEvent
 
 // حالة كل طلب داخل الجلسة: مستخبي في الطابور، شغّال دلوقتي، خلص، أو اتوقف.
 export type RequestState = "queued" | "running" | "done" | "stopped"

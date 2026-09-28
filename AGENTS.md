@@ -16,7 +16,7 @@
 | العميل | React 19.3, Vite 8, TypeScript 5.9, CSS عادي في `src/styles.css` |
 | السيرفر | Express 5.2, Node ESM (`module: NodeNext`), يُصرَّف بـ `tsc` |
 | الاختبارات | Vitest 4 — بيئة Node، **مش** jsdom |
-| الـ SDK | `@opencode-ai/sdk` مثبّت **pinned** على `1.18.32` |
+| الـ SDK | `@opencode/client` مثبّت **pinned** على `2.0.18` (عميل v2 + `Service.ensure()` للخدمة المحلية) |
 | Push | `web-push` 3.6.7 |
 
 مفيش أي runtime dependency تانية. **متضيفش package جديد من غير سؤال** — الموجود يكفي لأي شغل UI.
@@ -127,10 +127,10 @@ fix: <what broke>
 
 ## Gotchas
 
-- `OPENCODE_DB` معزولة في `server/index.ts` على `data/projects-database.db`: قاعدة المحرك الوحيدة لكل الجلسات — تطبيق الديسكتوب (v2) يهاجر القاعدة المشتركة لصيغة بلا جدول `session` فيموت CLI v1 بـ "Database is not empty and has no session table". مجلدات مشاريع الديسكتوب تُستورد تلقائيًا (`server/desktop-projects.ts`، قراءة فقط: مطلقة وموجودة فقط — بلا جذور أقراص ولا مسارات نسبية ولا مقاطع مخفية ولا مجلد البيت) كمجلدات لجلسات جديدة — المحادثات القديمة لا تُنقل لاختلاف الصيغة. نفس البوابة (`isListableProjectDirectory` في `server/opencode/utils.ts`) ترشّح قائمة `/api/project` كلها. تجاوز بـ `OPENCODE_DB` صريح.
-- `src/App.tsx` = **2034 سطر**، `server/opencode.ts` = **1705**. معروفين. **ماتزوّدهمش** — استخرج الجزء الجديد لملف مستقل يسجّل في الـ barrel المناسب.
+- قاعدة المحرك v2 مشتركة مع تطبيق الديسكتوب (`~/.local/share/opencode/opencode.db`) — نفس الجلسات في المكانين دون عزل أو استيراد. `server/index.ts` لا يضبط `OPENCODE_DB` إطلاقًا. الخدمة المحلية تُدار عبر `Service.ensure()` من `@opencode/client/service` (تثبيت الإصدار `2.`) بدل توليد `opencode serve` يدويًا، فلا `OPENCODE_PORT` ولا مصادقة أساسية. v2 بلا `project.current` (الاختيار حالة محلية فقط في `OpenCodeService`)، وبلا `session.status` (الحالة من `session.active()` + الأحداث)، وبلا todos أو أسئلة v1 (استُبدلت باستمارات `session.form.*` وأذونات `permission.*`). أسماء أحداث SSE على السلك (`question.asked`، `permission.updated`، `message.part.updated`…) ثابتة منذ v1 — الترجمة في `server/sse/filter.ts` فقط، فالواجهة لا تتغير مع تبديل المحرك. نفس البوابة (`isListableProjectDirectory` في `server/opencode/utils.ts`) ترشّح قائمة `/api/project` كلها.
+- `src/App.tsx` = **2063 سطر**، `server/opencode.ts` = **1776**. معروفين. **ماتزوّدهمش** — استخرج الجزء الجديد لملف مستقل يسجّل في الـ barrel المناسب.
 - `server/i18n.ts` بيستخدم semicolons والملف التاني لأ — **استثناء تاريخي مقصود**، سيبه.
-- `@opencode-ai/sdk` pinned بالظبط. أي bump = مراجعة breaking changes من الـ release notes، مش تخمين.
+- `@opencode/client` pinned بالظبط. أي bump = مراجعة breaking changes من الـ release notes، مش تخمين.
 - `express.json({ limit: "2mb" })` — طلبات أكبر بترمي 413. لو feature محتاج رفع ملفات، ده السقف الحالي.
 - `compression` موجود لـ gzip على شبكات Wi-Fi الضعيفة. `/api/events` عليه `no-transform` — متشيلش ولا تغيّره.
 - `data/` gitignored وبيخزّن `pins.json` — حالته محلية. متقتارشش.

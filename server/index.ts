@@ -4,7 +4,6 @@ import { createServer as createHttpServer } from "node:http"
 import { createServer as createHttpsServer } from "node:https"
 import { readFileSync } from "node:fs"
 import { networkInterfaces } from "node:os"
-import { resolve } from "node:path"
 import { config } from "./config.js"
 import { requireAuthentication } from "./auth.js"
 import { OpenCodeService } from "./opencode.js"
@@ -30,19 +29,13 @@ import { registerFileRoutes } from "./routes/files.js"
 import { registerPushRoutes } from "./routes/push.js"
 import { registerEventRoutes } from "./routes/events.js"
 import type { RouteContext } from "./routes/context.js"
-import type { Event } from "@opencode-ai/sdk"
+import type { OpenCodeEvent } from "@opencode/client"
 
 // ── تركيب السيرفر (composition root): إنشاء الخدمات وحقنها في المسارات ──
 // كل منطق الـ routes والـ SSE والاتصال انتقل لوحداته الخاصة؛ هنا التوصيل فقط.
 
-// قاعدة واحدة باسم projects-database للمحرك: تطبيق الديسكتوب (v2) يهاجر
-// ملف القاعدة المشترك لصيغة بلا جدول `session`، وCLI v1 الذي يشغّله هذا
-// السيرفر يموت عندها بـ "Database is not empty and has no session table".
-// مسار مطلق لازم — المسار النسبي يرجع لمجلد البيانات المشترك نفسه.
-// تجاوز صريح بـ OPENCODE_DB ما زال ممكنًا (مثال: ":memory:").
-if (!process.env.OPENCODE_DB) {
-  process.env.OPENCODE_DB = resolve(process.cwd(), "data", "projects-database.db")
-}
+// v2 يستخدم قاعدة البيانات المشتركة مع تطبيق الديسكتوب — نفس الجلسات
+// في المكانين دون عزل أو استيراد. لا تضبط OPENCODE_DB إطلاقًا.
 
 const app = express()
 const openCode = new OpenCodeService(config.openCode)
@@ -106,7 +99,7 @@ registerEventRoutes(app, routeContext)
 // جسر الأحداث: OpenCode → ترشيح → (push + بثّ SSE)
 // "خلص" بس في طلبات تانية مستنية في الطابور — متعملش لا إشعار ولا تحديث
 // للموبايل، عشان المستخدم ما يشوفش إن الجلسة وقفت وهي في الحقيقة شغالة.
-openCode.onEvent((event: Event) => {
+openCode.onEvent((event: OpenCodeEvent) => {
   const visibleEvent = clientEvent(event)
   const queueContinues = visibleEvent
     ? isIdleEvent(visibleEvent) && openCode.hasPendingWork(eventSessionId(visibleEvent))
@@ -184,7 +177,7 @@ async function start(): Promise<void> {
   server.listen(config.port, config.host, () => {
     console.log(`OpenCode Mobile listening on ${config.host}:${config.port}`)
     console.log(`OpenCode project: ${config.openCode.projectDirectory}`)
-    console.log(`OpenCode database: ${process.env.OPENCODE_DB || "(shared default)"}`)
+    console.log("OpenCode database: shared with the desktop app (v2)")
     printLanAddresses(config.port)
     if (!config.tlsCertificatePath) {
       console.log("TLS is disabled; Web Push and PWA installation require HTTPS or localhost")

@@ -1,4 +1,4 @@
-import type { Event } from "@opencode-ai/sdk"
+import type { OpenCodeEvent } from "@opencode/client"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import webpush, { type PushSubscription } from "web-push"
@@ -42,23 +42,23 @@ function isPushSubscription(value: unknown): value is PushSubscription {
   )
 }
 
-function questionNotification(event: Event, lang: ServerLang): PushPayload | null {
-  const candidate = event as unknown as { type?: unknown; properties?: unknown; data?: unknown }
-  if (candidate.type !== "question.asked" && candidate.type !== "question.v2.asked") {
+function questionNotification(event: OpenCodeEvent, lang: ServerLang): PushPayload | null {
+  // v2 يستبدل الأسئلة باستمارات — عنوان الاستمارة هو نص السؤال.
+  if ((event.type as string) !== "form.created") {
     return null
   }
-  const source = (candidate.properties ?? candidate.data) as { sessionID?: unknown; id?: unknown; requestID?: unknown; questions?: unknown } | undefined
-  if (!source || typeof source.sessionID !== "string") {
+  const form = (event.data as unknown as { form?: { id?: unknown; sessionID?: unknown; title?: unknown } }).form
+  const sessionID = typeof form?.sessionID === "string" ? form.sessionID : undefined
+  if (!sessionID) {
     return null
   }
-  const requestID = typeof source.id === "string" ? source.id : typeof source.requestID === "string" ? source.requestID : undefined
-  const first = Array.isArray(source.questions) ? source.questions.find((value): value is { question?: unknown } => typeof value === "object" && value !== null) : undefined
-  const body = first && typeof first.question === "string" && first.question.trim() ? first.question.trim() : serverMessage("pushQuestionFallback", lang)
+  const requestID = typeof form?.id === "string" ? form.id : undefined
+  const title = typeof form?.title === "string" ? form.title.trim() : ""
   return {
     title: serverMessage("pushQuestionTitle", lang),
-    body,
-    sessionId: source.sessionID,
-    tag: requestID ? `question-${requestID}` : `question-${source.sessionID}`,
+    body: title || serverMessage("pushQuestionFallback", lang),
+    sessionId: sessionID,
+    tag: requestID ? `question-${requestID}` : `question-${sessionID}`,
   }
 }
 
@@ -137,22 +137,31 @@ export class PushService {
     })
   }
 
-  handleEvent(event: Event): void {
+  handleEvent(event: OpenCodeEvent): void {
     if (!this.enabled) {
       return
     }
+    // الاتحاد اللفظي المغلق يُنسخ لنص حر — نفس علة server/sse/filter.ts.
+    const eventType: string = event.type
 
-    if (event.type === "session.status" && event.properties.status.type === "busy") {
-      this.busySessions.add(event.properties.sessionID)
+    if (eventType === "session.status") {
+      const withStatus = event.data as unknown as { sessionID: string; status: { type: string } }
+      if (withStatus.status.type === "busy") {
+        this.busySessions.add(withStatus.sessionID)
+      }
     }
 
-    if (event.type === "session.idle" && this.busySessions.delete(event.properties.sessionID)) {
-      void this.broadcast((lang) => ({
-        title: serverMessage("pushDoneTitle", lang),
-        body: serverMessage("pushDoneBody", lang),
-        sessionId: event.properties.sessionID,
-        tag: `opencode-${event.properties.sessionID}`,
-      }))
+    if (eventType === "session.idle") {
+      const idle = event.data as unknown as { sessionID: string }
+      if (this.busySessions.delete(idle.sessionID)) {
+        const sessionId = idle.sessionID
+        void this.broadcast((lang) => ({
+          title: serverMessage("pushDoneTitle", lang),
+          body: serverMessage("pushDoneBody", lang),
+          sessionId,
+          tag: `opencode-${sessionId}`,
+        }))
+      }
     }
 
     const questionAr = questionNotification(event, "ar")
@@ -161,21 +170,25 @@ export class PushService {
       void this.broadcast((lang) => (lang === "en" ? questionEn : questionAr))
     }
 
-    if (event.type === "permission.updated") {
+    if (eventType === "permission.asked") {
+      const asked = event.data as unknown as { id: string; sessionID: string; action: string }
+      const { id, sessionID, action } = asked
       void this.broadcast((lang) => ({
         title: serverMessage("pushPermissionTitle", lang),
-        body: event.properties.title,
-        sessionId: event.properties.sessionID,
-        tag: `permission-${event.properties.id}`,
+        body: action,
+        sessionId: sessionID,
+        tag: `permission-${id}`,
       }))
     }
 
-    if (event.type === "session.error") {
+    if (eventType === "session.execution.failed") {
+      const failed = event.data as unknown as { sessionID: string }
+      const sessionId = failed.sessionID
       void this.broadcast((lang) => ({
         title: serverMessage("pushErrorTitle", lang),
         body: serverMessage("pushErrorBody", lang),
-        sessionId: event.properties.sessionID,
-        tag: `error-${event.properties.sessionID ?? "unknown"}`,
+        sessionId,
+        tag: `error-${sessionId ?? "unknown"}`,
       }))
     }
   }

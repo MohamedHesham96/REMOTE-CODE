@@ -957,8 +957,8 @@ function App() {
       // جلسة جديدة من اللاب تبان في النشطة — مدمجًا مع أي أحداث متتابعة
       requestActivityRefresh()
       // لو الجلسة النشطة اتحدثت (ممكن الموديل اتغير من الديسكتوب) حدّث الموديل المعروض
-      if (event.type === "session.updated" && event.properties.info.id === activeIdRef.current) {
-        const id = event.properties.info.id
+      if (event.type === "session.updated" && event.properties.sessionID === activeIdRef.current) {
+        const id = event.properties.sessionID
         void getSessionModel(id)
           .then((state) => {
             if (activeIdRef.current !== id) {
