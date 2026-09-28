@@ -35,6 +35,7 @@ import {
   ACTIVITY_CACHE_MS,
   BUSY_STALL_MS,
   directoryKey,
+  errorDetail,
   errorMessage,
   fileNameFromPath,
   folderName,
@@ -240,6 +241,28 @@ export class OpenCodeService {
     return { directory }
   }
 
+  // فحص مسبق لنسخة CLI قبل محاولة تشغيل الخدمة — v1 لا يدعم `serve --service`
+  // ويخرج بـ code 1 بدون رسالة واضحة، فهذا الفحص يعطي خطأً فوريًا قابلًا للحل.
+  private async checkCliVersion(): Promise<string> {
+    const { execFile } = await import("node:child_process")
+    return new Promise((resolve, reject) => {
+      const command = process.platform === "win32" ? "cmd" : "opencode"
+      const args = process.platform === "win32" ? ["/c", "opencode", "--version"] : ["--version"]
+      execFile(command, args, { timeout: 10_000 }, (error, stdout) => {
+        if (error) {
+          reject(new Error(`تعذّر تشغيل opencode CLI: ${error.message}. تأكد من تثبيته أو اضبط OPENCODE_SERVER_URL`))
+          return
+        }
+        const version = stdout.trim()
+        if (!version.startsWith("2.")) {
+          reject(new Error(`OpenCode CLI المثبّت نسخة ${version} — المطلوب الإصدار 2 أو أحدث. ثبّته بـ: npm install -g @opencode/cli`))
+          return
+        }
+        resolve(version)
+      })
+    })
+  }
+
   async connect(): Promise<void> {
     if (this.options.serverUrl) {
       this.client = OpenCode.make({ baseUrl: this.options.serverUrl })
@@ -247,9 +270,25 @@ export class OpenCodeService {
       // خدمة v2 المحلية: تُكتشف أو تُشغَّل تلقائيًا مع تثبيت الإصدار 2،
       // وتستخدم قاعدة البيانات المشتركة مع تطبيق الديسكتوب — فالجلسات
       // القديمة والجديدة من مصدر واحد دون عزل أو استيراد.
-      const endpoint = await Service.ensure({
-        version: (version: string) => version.startsWith("2."),
-      })
+      await this.checkCliVersion()
+      let endpoint: Awaited<ReturnType<typeof Service.ensure>>
+      try {
+        endpoint = await Service.ensure({
+          version: (version: string) => version.startsWith("2."),
+          // على ويندوز spawn("opencode") يفشل بـ ENOENT لأن opencode ملف
+          // .cmd و Node لا ينفّذ ملفات .cmd بدون shell — نمرّر cmd /c كحل.
+          command: process.platform === "win32" ? ["cmd", "/c", "opencode", "serve", "--service"] : undefined,
+        })
+      } catch (error) {
+        // Service.ensure يرمي "Failed to start server" ويخفي السبب الحقيقي في
+        // cause (مثل ENOENT عندما لا يُنفَّذ أمر opencode بدون shell على ويندوز،
+        // أو CLI قديم بلا `serve --service`)، فنحفظ السلسلة كاملة مع تلميح عملي —
+        // وإلا بقي سجل البدء يكرر رسالة مبهمة كل 5 ثوانٍ بلا طريق للحل.
+        throw new Error(
+          `تعذّر تشغيل خدمة OpenCode المحلية (${errorDetail(error)}). تأكد من تثبيت CLI بالإصدار 2 (opencode --version) أو اضبط OPENCODE_SERVER_URL لخادم خارجي`,
+          { cause: error },
+        )
+      }
       this.client = OpenCode.make({
         baseUrl: endpoint.url,
         headers: Service.headers(endpoint),

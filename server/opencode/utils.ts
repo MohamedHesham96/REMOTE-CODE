@@ -21,6 +21,26 @@ export function errorMessage(error: unknown): string {
   return "OpenCode request failed"
 }
 
+// السلسلة الكاملة للخطأ مع أسبابه: أخطاء بدء الخدمة المحلية (مثل Service.ensure)
+// تضع السبب الحقيقي (ENOENT ونحوه) في خاصية cause، فالرسالة الخارجية وحدها
+// ("Failed to start server") لا تكفي للتشخيص وتخفي الحل عن سجل البدء.
+export function errorDetail(error: unknown): string {
+  const parts: string[] = []
+  const seen = new Set<unknown>()
+  let current: unknown = error
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current)
+    if (current.message) {
+      parts.push(current.message)
+    }
+    current = current.cause
+  }
+  if (parts.length === 0) {
+    return errorMessage(error)
+  }
+  return parts.join(": ")
+}
+
 export function unwrap<T>(result: { data?: T; error?: unknown }): T {
   if (result.error) {
     throw new Error(errorMessage(result.error))

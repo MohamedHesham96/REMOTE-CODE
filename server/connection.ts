@@ -94,6 +94,9 @@ export class OpenCodeConnection {
         this.ready = false
         this.lastError = error instanceof Error ? error.message : String(error)
         console.error(`OpenCode connect failed: ${this.lastError} — الخادم على :${port} يعمل ويعيد المحاولة بعد 5 ثوانٍ…`)
+        if (/ENOENT|spawn/i.test(this.lastError)) {
+          console.error("  السبب: تعذّر تشغيل أمر opencode — تأكد من تثبيت CLI بالإصدار 2 أو اضبط OPENCODE_SERVER_URL")
+        }
         await sleep(CONNECT_RETRY_MS)
       }
     }

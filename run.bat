@@ -10,15 +10,15 @@ if /i "%1"=="prod" goto :prod
 goto :dev
 
 :prod
-set "PORT=7171"
+set "APP_PORT=7171"
 set "OPENCODE_SERVER_URL="
 if exist ".env" (
   for /f "usebackq tokens=1,2 delims==" %%a in (".env") do (
-    if "%%a"=="APP_PORT" set "PORT=%%b"
+    if "%%a"=="APP_PORT" set "APP_PORT=%%b"
     if "%%a"=="OPENCODE_SERVER_URL" set "OPENCODE_SERVER_URL=%%b"
   )
 )
-title OpenCode Mobile PWA - Prod :%PORT%
+title OpenCode Mobile PWA - Prod :%APP_PORT%
 
 where node >nul 2>&1
 if errorlevel 1 (
@@ -34,27 +34,17 @@ if errorlevel 1 (
 )
 
 REM The backend starts the OpenCode CLI locally - skip this when using an external server.
-if not defined OPENCODE_SERVER_URL (
-  where opencode >nul 2>&1
-  if errorlevel 1 (
-    echo [ERROR] OpenCode CLI not found in PATH. The backend needs it to answer.
-    echo Install it, then restart run.bat:
-    echo   npm install -g @opencode/cli
-    echo NOTE: v2 CLI is required - the old opencode-ai v1 package is incompatible.
-    pause
-    exit /b 1
-  )
-)
+if not defined OPENCODE_SERVER_URL call :ensure-opencode-cli
 
 REM Clean up obsolete firewall rules from previous setup (silent, best effort).
 netsh advfirewall firewall delete rule name="PWA Backend 8787" >nul 2>&1
 netsh advfirewall firewall delete rule name="PWA Backend 7171" >nul 2>&1
 
 REM Ensure firewall rule for the prod port (needs Admin; warn and continue if it fails).
-netsh advfirewall firewall show rule name="PWA Prod %PORT%" >nul 2>&1
+netsh advfirewall firewall show rule name="PWA Prod %APP_PORT%" >nul 2>&1
 if errorlevel 1 (
-  netsh advfirewall firewall add rule name="PWA Prod %PORT%" dir=in action=allow protocol=TCP localport=%PORT% >nul 2>&1
-  if errorlevel 1 echo [NOTE] Could not add firewall rule for port %PORT% automatically - if the phone cannot connect, open it manually or run as Administrator.
+  netsh advfirewall firewall add rule name="PWA Prod %APP_PORT%" dir=in action=allow protocol=TCP localport=%APP_PORT% >nul 2>&1
+  if errorlevel 1 echo [NOTE] Could not add firewall rule for port %APP_PORT% automatically - if the phone cannot connect, open it manually or run as Administrator.
 )
 
 if not exist "node_modules" (
@@ -76,7 +66,7 @@ if not exist ".env" (
     exit /b 1
   )
   for /f "usebackq tokens=1,2 delims==" %%a in (".env") do (
-    if "%%a"=="APP_PORT" set "PORT=%%b"
+    if "%%a"=="APP_PORT" set "APP_PORT=%%b"
   )
 )
 
@@ -89,20 +79,20 @@ if errorlevel 1 (
 )
 
 echo.
-echo Production server will listen on port %PORT%.
-echo NOTE: prod mode serves everything on %PORT% only - port 5173 is dev-only
-echo and stays closed here. This is normal. Open %PORT%, not 5173.
+echo Production server will listen on port %APP_PORT%.
+echo NOTE: prod mode serves everything on %APP_PORT% only - port 5173 is dev-only
+echo and stays closed here. This is normal. Open %APP_PORT%, not 5173.
 echo From your phone (same Wi-Fi), open one of:
 for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
-  for /f "tokens=* delims= " %%b in ("%%a") do echo   - http://%%b:%PORT%
+  for /f "tokens=* delims= " %%b in ("%%a") do echo   - http://%%b:%APP_PORT%
 )
-echo Local: http://localhost:%PORT%
+echo Local: http://localhost:%APP_PORT%
 echo Requirements: same Wi-Fi, no VPN, firewall rule open.
 echo The backend prints the exact addresses after start.
 echo.
 echo Starting prod server (Ctrl+C to stop)...
-echo Opening http://localhost:%PORT% in your browser...
-start "" "http://localhost:%PORT%"
+echo Opening http://localhost:%APP_PORT% in your browser...
+start "" "http://localhost:%APP_PORT%"
 call npm start
 pause
 exit /b %ERRORLEVEL%
@@ -133,17 +123,7 @@ if errorlevel 1 (
 )
 
 REM The backend starts the OpenCode CLI locally - skip this when using an external server.
-if not defined OPENCODE_SERVER_URL (
-  where opencode >nul 2>&1
-  if errorlevel 1 (
-    echo [ERROR] OpenCode CLI not found in PATH. The backend needs it to answer.
-    echo Install it, then restart run.bat:
-    echo   npm install -g @opencode/cli
-    echo NOTE: v2 CLI is required - the old opencode-ai v1 package is incompatible.
-    pause
-    exit /b 1
-  )
-)
+if not defined OPENCODE_SERVER_URL call :ensure-opencode-cli
 
 netsh advfirewall firewall show rule name="PWA Dev %DEV_PORT%" >nul 2>&1
 if errorlevel 1 (
@@ -192,3 +172,34 @@ start "" "http://localhost:%DEV_PORT%"
 call npm run dev
 pause
 exit /b %ERRORLEVEL%
+
+REM ── فحص وتثبيت OpenCode CLI ──
+REM يتحقق من وجود opencode في PATH وإن لم يكن موجودًا أو كان أقدم من v2
+REM يقوم بتثبيته تلقائيًا. يُستدعى من قسمي prod و dev.
+:ensure-opencode-cli
+where opencode >nul 2>&1
+if errorlevel 1 (
+  echo OpenCode CLI not found — installing...
+  call npm install -g @opencode/cli
+  if errorlevel 1 (
+    echo [ERROR] Failed to install OpenCode CLI. Install manually:
+    echo   npm install -g @opencode/cli
+    pause
+    exit /b 1
+  )
+  goto :eof
+)
+REM التحقق من النسخة — v1 لا يدعم serve --service
+for /f "tokens=*" %%v in ('opencode --version 2^>^&1') do set "OC_VERSION=%%v"
+echo %OC_VERSION% | findstr /b "2." >nul 2>&1
+if errorlevel 1 (
+  echo OpenCode CLI %OC_VERSION% is installed but v2 is required — upgrading...
+  call npm install -g @opencode/cli@latest
+  if errorlevel 1 (
+    echo [ERROR] Failed to upgrade OpenCode CLI. Upgrade manually:
+    echo   npm install -g @opencode/cli@latest
+    pause
+    exit /b 1
+  )
+)
+goto :eof
