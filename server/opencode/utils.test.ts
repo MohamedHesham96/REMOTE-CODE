@@ -5,6 +5,7 @@ import {
   isAbsoluteProjectPath,
   isFilesystemRoot,
   isListableProjectDirectory,
+  parseCliVersion,
 } from "./utils.js"
 
 // فحص الشكل نصّي خالص: يعمل بثبات على وندوز ولينكس لأنه لا يعتمد IO ولا
@@ -63,5 +64,20 @@ describe("isListableProjectDirectory", () => {
   it("يقبل المجلد المطلق العادي", () => {
     expect(isListableProjectDirectory("E:/mSales/app", homedir())).toBe(true)
     expect(isListableProjectDirectory("/srv/one", homedir())).toBe(true)
+  })
+})
+
+// صيغة `opencode --version` اختلفت بين v1 (رقم مجرّد) و v2 (اسم + v) — والمقارنة
+// الحرفية كانت ترفض تثبيتًا صحيحًا، فالدالة لازم تتعامل مع الصيغتين.
+describe("parseCliVersion", () => {
+  it("يلتقط الرقم من صيغة v2 و v1", () => {
+    expect(parseCliVersion("opencode v2.0.18")).toBe("2.0.18")
+    expect(parseCliVersion("1.18.32")).toBe("1.18.32")
+    expect(parseCliVersion("v2.1.0\n")).toBe("2.1.0")
+  })
+
+  it("يعيد نصًا فارغًا بلا رقم إصدار", () => {
+    expect(parseCliVersion("")).toBe("")
+    expect(parseCliVersion("command not found")).toBe("")
   })
 })

@@ -173,33 +173,33 @@ call npm run dev
 pause
 exit /b %ERRORLEVEL%
 
-REM ── فحص وتثبيت OpenCode CLI ──
-REM يتحقق من وجود opencode في PATH وإن لم يكن موجودًا أو كان أقدم من v2
-REM يقوم بتثبيته تلقائيًا. يُستدعى من قسمي prod و dev.
+REM ---------------------------------------------------------------------------
+REM ensure-opencode-cli: install or upgrade the OpenCode CLI to v2.
+REM v2 is required because the backend runs "opencode serve --service" and
+REM v1 has no such flag (it exits with code 1 and no useful message).
+REM The v1 CLI ships as the "opencode-ai" package and owns the same "opencode"
+REM binary name, so npm refuses to overwrite it (EEXIST) until that old
+REM package is removed first.
 :ensure-opencode-cli
-where opencode >nul 2>&1
+setlocal EnableDelayedExpansion
+set "OC_VERSION="
+for /f "delims=" %%v in ('opencode --version 2^>^&1') do if not defined OC_VERSION set "OC_VERSION=%%v"
+REM v2 prints "opencode v2.0.18" while v1 printed a bare "1.18.32" - strip the
+REM prefixes instead of assuming one fixed format, or a good v2 looks broken.
+set "OC_VERSION=!OC_VERSION:opencode v=!"
+set "OC_VERSION=!OC_VERSION:OpenCode v=!"
+set "OC_VERSION=!OC_VERSION:v=!"
+if not defined OC_VERSION set "OC_VERSION=(not found)"
+if "!OC_VERSION:~0,2!"=="2." goto :eof
+echo OpenCode CLI !OC_VERSION! found, but v2 is required - reinstalling...
+call npm uninstall -g opencode-ai
+call npm install -g @opencode/cli@latest
 if errorlevel 1 (
-  echo OpenCode CLI not found — installing...
-  call npm install -g @opencode/cli
-  if errorlevel 1 (
-    echo [ERROR] Failed to install OpenCode CLI. Install manually:
-    echo   npm install -g @opencode/cli
-    pause
-    exit /b 1
-  )
-  goto :eof
+  echo [ERROR] Failed to install the OpenCode CLI. Fix it manually, then retry:
+  echo   npm uninstall -g opencode-ai
+  echo   npm install -g @opencode/cli@latest
+  endlocal
+  pause
+  exit /b 1
 )
-REM التحقق من النسخة — v1 لا يدعم serve --service
-for /f "tokens=*" %%v in ('opencode --version 2^>^&1') do set "OC_VERSION=%%v"
-echo %OC_VERSION% | findstr /b "2." >nul 2>&1
-if errorlevel 1 (
-  echo OpenCode CLI %OC_VERSION% is installed but v2 is required — upgrading...
-  call npm install -g @opencode/cli@latest
-  if errorlevel 1 (
-    echo [ERROR] Failed to upgrade OpenCode CLI. Upgrade manually:
-    echo   npm install -g @opencode/cli@latest
-    pause
-    exit /b 1
-  )
-)
-goto :eof
+endlocal & goto :eof

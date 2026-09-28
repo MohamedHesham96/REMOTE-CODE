@@ -48,6 +48,7 @@ import {
   mimeFromName,
   MODELS_CACHE_MS,
   parseModelString,
+  parseCliVersion,
   PROMPT_DISPATCH_TIMEOUT_MS,
   QUEUED_ID_PREFIX,
   queuedItemId,
@@ -253,9 +254,12 @@ export class OpenCodeService {
           reject(new Error(`تعذّر تشغيل opencode CLI: ${error.message}. تأكد من تثبيته أو اضبط OPENCODE_SERVER_URL`))
           return
         }
-        const version = stdout.trim()
+        // v2 تطبع "opencode v2.0.18" لا الرقم مجرّدًا، فبنمطّع الصيغة قبل الحكم.
+        const version = parseCliVersion(stdout)
         if (!version.startsWith("2.")) {
-          reject(new Error(`OpenCode CLI المثبّت نسخة ${version} — المطلوب الإصدار 2 أو أحدث. ثبّته بـ: npm install -g @opencode/cli`))
+          reject(new Error(
+            `نسخة OpenCode CLI المثبّتة ${version || stdout.trim() || "غير معروفة"} — المطلوب الإصدار 2 أو أحدث. ثبّته بـ: npm uninstall -g opencode-ai && npm install -g @opencode/cli`,
+          ))
           return
         }
         resolve(version)

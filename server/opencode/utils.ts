@@ -41,6 +41,15 @@ export function errorDetail(error: unknown): string {
   return parts.join(": ")
 }
 
+// نسخة CLI كما يطبعها `opencode --version` غير ثابتة الشكل: v2 تطبع
+// "opencode v2.0.18" بينما v1 كانت تطبع "1.18.32" مجرّدة. فالمقارنة الحرفية
+// بـ startsWith("2.") كانت ترفض تثبيتًا صحيحًا، فنلتقط أول رقم إصدار من
+// النص بدل افتراض صيغة واحدة.
+export function parseCliVersion(output: string): string {
+  const match = /\d+\.\d+\.\d+/.exec(output)
+  return match ? match[0] : ""
+}
+
 export function unwrap<T>(result: { data?: T; error?: unknown }): T {
   if (result.error) {
     throw new Error(errorMessage(result.error))
