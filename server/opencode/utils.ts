@@ -1,6 +1,4 @@
 import { extname, basename as pathBasename } from "node:path"
-import type { Part, Project } from "@opencode-ai/sdk"
-import type { GlobalSession } from "@opencode-ai/sdk/v2"
 import type { SessionModelRef } from "./types.js"
 
 // ── دوال خالصة (pure) مستخرجة من opencode.ts — بلا حالة ولا IO ──
@@ -33,14 +31,6 @@ export function unwrap<T>(result: { data?: T; error?: unknown }): T {
   }
 
   return result.data
-}
-
-export function textFromParts(parts: Part[]): string {
-  return parts
-    .filter((part): part is Extract<Part, { type: "text" }> => part.type === "text" && !part.synthetic)
-    .map((part) => part.text.trim())
-    .filter(Boolean)
-    .join("\n")
 }
 
 export function stripMobileSuffix(title: string): string {
@@ -76,11 +66,6 @@ export function titleFromUserText(text: string): string {
   const lastSpace = sliced.lastIndexOf(" ")
   const cut = lastSpace > 30 ? sliced.slice(0, lastSpace) : sliced
   return `${cut}…`
-}
-
-export function projectUpdatedAt(project: Project): number {
-  const time = project.time as Project["time"] & { updated?: number }
-  return time.updated || time.initialized || time.created
 }
 
 export function directoryKey(directory: string): string {
@@ -142,22 +127,9 @@ export function isListableProjectDirectory(value: unknown, home: string): boolea
   return directoryKey(trimmed) !== directoryKey(home)
 }
 
-// مشروع المحادثة = الـ worktree اللي بيفتحها فعلاً. أحيانًا project.worktree
-// بيكون قديم أو الجلسة جواه، فاعتمد session.directory في الحالة دي عشان الفتح
-// ما يوديكش لمشروع غلط. نفس القاعدة للمحادثات النشطة (شريط "شغال الآن")
-// وللمثبّتات من غير مسار محفوظ — مصدر واحد للاثنين.
-export function sessionProject(session: GlobalSession): { worktree: string; projectName: string } | null {
-  const sessionDir = typeof session.directory === "string" ? session.directory.trim() : ""
-  if (!sessionDir) {
-    return null
-  }
-  const declared = typeof session.project?.worktree === "string" ? session.project.worktree : ""
-  const projectWorktree = declared && declared !== "/" ? declared : sessionDir
-  const insideProject = directoryKey(sessionDir) === directoryKey(projectWorktree)
-    || isChildDirectory(sessionDir, projectWorktree)
-  const worktree = insideProject ? projectWorktree : sessionDir
-  const name = worktree.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean).pop() || worktree
-  return { worktree, projectName: name }
+// اسم المجلد الأخير كاسم مشروع افتراضي — يُستخدم حيث لا اسم مسجّل.
+export function folderName(directory: string): string {
+  return directory.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean).pop() || directory
 }
 
 export function isFreeCost(input: number, output: number, cacheRead: number, cacheWrite: number): boolean {
@@ -171,11 +143,21 @@ export function parseModelString(value: string | undefined | null): SessionModel
   }
   const slash = clean.indexOf("/")
   const providerID = clean.slice(0, slash).trim()
-  const modelID = clean.slice(slash + 1).trim()
+  let modelID = clean.slice(slash + 1).trim()
   if (!providerID || !modelID) {
     return null
   }
-  return { providerID, modelID }
+  // صيغة v2 تلحق الـ variant بـ `#` (مثال: `opencode/gpt-5#high`)
+  let variant: string | undefined
+  const hash = modelID.indexOf("#")
+  if (hash >= 0) {
+    variant = modelID.slice(hash + 1).trim() || undefined
+    modelID = modelID.slice(0, hash).trim()
+    if (!modelID) {
+      return null
+    }
+  }
+  return variant ? { providerID, modelID, variant } : { providerID, modelID }
 }
 
 export const MAX_FILE_DOWNLOAD_BYTES = 25 * 1024 * 1024

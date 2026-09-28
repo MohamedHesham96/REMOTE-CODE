@@ -1,13 +1,49 @@
-import type { Project, Session, SessionStatus, Todo } from "@opencode-ai/sdk"
+import type {
+  FormInfo,
+  OpenCodeClient,
+  OpenCodeEvent,
+  SessionInfo,
+  SessionMessageInfo,
+} from "@opencode/client"
 
-export type { Project, Session, SessionStatus, Todo }
+// الأشكال السلكية (wire) التي يتكلم بها `/api/*` مع الواجهة ثابتة منذ v1،
+// فطبقة المحرك تترجم إليها بدل كشف أنواع المحرك الخام. بهذا لا تتغير
+// الواجهة ولا الاختبارات السلوكية مع تبديل المحرك تحتها.
+export interface Session {
+  id: string
+  title: string
+  directory: string
+  time: { created: number; updated: number }
+}
+
+export interface Project {
+  id: string
+  worktree: string
+  name?: string
+  time: { created: number; updated: number }
+}
+
+export type SessionStatus = { type: "idle" } | { type: "busy" } | { type: "retry" }
+
+// v2 بلا قائمة مهام — الحقل باقٍ في العقد فارغًا حتى لا تتغير الواجهة.
+export interface Todo {
+  id: string
+  content: string
+  status: "pending" | "in_progress" | "completed" | "cancelled"
+}
+
+export interface EnginePermission {
+  id: string
+  sessionID: string
+  title: string
+  pattern?: string
+}
+
+export type { FormInfo, OpenCodeClient, OpenCodeEvent, SessionInfo, SessionMessageInfo }
 
 export interface ServiceOptions {
   projectDirectory: string
   serverUrl?: string
-  username: string
-  password?: string
-  port: number
 }
 
 export interface GitChangeFile {
@@ -94,7 +130,7 @@ export interface SessionRequests {
   queued: number
   // بصمة خفيفة للحالة الكاملة: السيرفر بيحسب ETag منها، والعميل يوفّر
   // إعادة التحميل لما مفيش تغيير (304). أي تغيير في النص الحي، الحالة،
-  // الطابور، الأسئلة أو الـ todos لازم يغيّرها — وإلا يحصل stale.
+  // الطابور أو الأسئلة لازم يغيّرها — وإلا يحصل stale.
   version: string
 }
 

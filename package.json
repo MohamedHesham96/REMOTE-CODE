@@ -14,7 +14,7 @@
     "check": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "1.18.32",
+    "@opencode/client": "2.0.18",
     "compression": "^1.8.2",
     "express": "5.2.1",
     "react": "19.3.0",

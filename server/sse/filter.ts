@@ -1,76 +1,91 @@
-import type { Event } from "@opencode-ai/sdk"
+import type { OpenCodeEvent } from "@opencode/client"
 
-export function questionEvent(event: Event): { type: string; properties: { sessionID: string; requestID?: string } } | null {
-  const candidate = event as unknown as { type?: unknown; properties?: unknown; data?: unknown }
-  if (typeof candidate.type !== "string") {
-    return null
+export function questionEvent(event: OpenCodeEvent): { type: string; properties: { sessionID: string; requestID?: string } } | null {
+  const eventType: string = event.type
+  // v2 يستبدل الأسئلة باستمارات — نُبقي أسماء v1 على السلك حتى لا تتغير الواجهة.
+  if (eventType === "form.created" || eventType === "form.replied" || eventType === "form.cancelled") {
+    const data = event.data as { sessionID?: unknown; form?: { id?: unknown; sessionID?: unknown }; id?: unknown } | undefined
+    const sessionID = typeof data?.sessionID === "string"
+      ? data.sessionID
+      : typeof data?.form?.sessionID === "string"
+        ? data.form.sessionID
+        : undefined
+    if (!sessionID) {
+      return null
+    }
+    const requestID = typeof data?.form?.id === "string" ? data.form.id : typeof data?.id === "string" ? data.id : undefined
+    const renamed = eventType === "form.created" ? "question.asked" : eventType === "form.replied" ? "question.replied" : "question.rejected"
+    return { type: renamed, properties: requestID ? { sessionID, requestID } : { sessionID } }
   }
-  if (
-    candidate.type !== "question.asked"
-    && candidate.type !== "question.replied"
-    && candidate.type !== "question.rejected"
-    && candidate.type !== "question.v2.asked"
-    && candidate.type !== "question.v2.replied"
-    && candidate.type !== "question.v2.rejected"
-  ) {
-    return null
-  }
-  const source = (candidate.properties ?? candidate.data) as { sessionID?: unknown; id?: unknown; requestID?: unknown } | undefined
-  if (!source || typeof source.sessionID !== "string") {
-    return null
-  }
-  const requestID = typeof source.id === "string" ? source.id : typeof source.requestID === "string" ? source.requestID : undefined
-  return { type: candidate.type, properties: requestID ? { sessionID: source.sessionID, requestID } : { sessionID: source.sessionID } }
+  return null
 }
 
-export function clientEvent(event: Event): Record<string, unknown> | null {
+export function clientEvent(event: OpenCodeEvent): Record<string, unknown> | null {
   const question = questionEvent(event)
   if (question) {
     return question
   }
-  if (event.type === "session.status" || event.type === "session.idle" || event.type === "session.error") {
-    return { type: event.type, properties: event.properties }
+  // نوع الحدث اتحاد لفظي مغلق — ننسخه لنص حر حتى لا يتكسر كل اسم جديد
+  // يضيفه المحرك، والمقارنات التالية أسماء سلكية معروفة فقط.
+  const eventType: string = event.type
+  if (eventType === "session.status" || eventType === "session.idle") {
+    return { type: eventType, properties: event.data }
   }
-  if (event.type === "todo.updated") {
-    return { type: event.type, properties: { sessionID: event.properties.sessionID, todos: event.properties.todos } }
+  // v2 يبلّغ الفشل عبر session.execution.failed — يُترجَم لاسم v1 على السلك.
+  if (eventType === "session.execution.failed") {
+    return { type: "session.error", properties: { sessionID: (event.data as { sessionID?: unknown }).sessionID } }
   }
-  if (event.type === "permission.updated") {
-    return { type: event.type, properties: event.properties }
-  }
-  if (event.type === "permission.replied") {
-    return { type: event.type, properties: event.properties }
-  }
-  if (event.type === "session.created" || event.type === "session.updated" || event.type === "session.deleted") {
-    return { type: event.type, properties: event.properties }
-  }
-  if (event.type === "message.updated") {
-    const sessionID = (event.properties.info as { sessionID?: unknown } | undefined)?.sessionID
+  if (eventType === "permission.asked") {
+    const data = event.data as unknown as { id: string; sessionID: string; action: string; resources: string[]; message?: unknown }
     return {
-      type: event.type,
-      properties: typeof sessionID === "string"
-        ? { sessionID, info: event.properties.info }
-        : { info: event.properties.info },
+      type: "permission.updated",
+      properties: {
+        id: data.id,
+        sessionID: data.sessionID,
+        title: typeof data.message === "string" && data.message.trim() ? data.message : data.action,
+        pattern: data.resources,
+      },
     }
   }
-  if (event.type === "message.removed") {
-    return { type: event.type, properties: event.properties }
+  if (eventType === "permission.replied") {
+    const data = event.data as unknown as { sessionID: string; requestID: string }
+    return { type: eventType, properties: { sessionID: data.sessionID, permissionID: data.requestID } }
   }
-  if (event.type === "message.part.updated") {
-    const part = event.properties.part as { sessionID?: unknown } | undefined
-    const sessionID = typeof part?.sessionID === "string" ? part.sessionID : undefined
-    return {
-      type: event.type,
-      properties: sessionID ? { sessionID, ...event.properties } : event.properties,
-    }
+  if (eventType === "session.created" || eventType === "session.deleted") {
+    return { type: eventType, properties: event.data }
   }
-  if (event.type === "message.part.removed") {
-    return { type: event.type, properties: event.properties }
+  // v2 يفرّق التحديث (renamed/moved) — الواجهة تعرف session.updated فقط.
+  // تغيير الموديل/الوكيل من الديسكتوب تحديث أيضًا (يحدّث الموديل المعروض).
+  if (
+    eventType === "session.renamed"
+    || eventType === "session.moved"
+    || eventType === "session.model.selected"
+    || eventType === "session.agent.selected"
+  ) {
+    return { type: "session.updated", properties: event.data }
   }
-  if (event.type === "session.diff") {
-    return { type: event.type, properties: event.properties }
+  // عائلة البثّ الحي (نص/أدوات/خطوات/ضغط/تنفيذ): محفّز تحديث فقط،
+  // فيُترجَم لاسم v1 الذي تتعرف عليه الواجهة — دون أي معنى إضافي.
+  if (
+    eventType.startsWith("session.text.")
+    || eventType.startsWith("session.reasoning.")
+    || eventType.startsWith("session.tool.")
+    || eventType.startsWith("session.step.")
+    || eventType.startsWith("session.compaction.")
+    || eventType === "session.message.content.updated"
+    || eventType === "session.execution.started"
+    || eventType === "session.execution.succeeded"
+    || eventType === "session.execution.interrupted"
+    || eventType === "session.retry.scheduled"
+  ) {
+    return { type: "message.part.updated", properties: { sessionID: (event.data as { sessionID?: unknown }).sessionID } }
   }
-  if (event.type === "session.compacted") {
-    return { type: event.type, properties: event.properties }
+  if (
+    eventType.startsWith("session.revert.")
+    || eventType === "session.permissions"
+    || eventType === "session.metadata.updated"
+  ) {
+    return { type: "session.diff", properties: { sessionID: (event.data as { sessionID?: unknown }).sessionID } }
   }
   return null
 }

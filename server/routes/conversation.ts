@@ -107,12 +107,9 @@ export function registerConversationRoutes(app: Express, ctx: RouteContext): voi
     }
   })
 
-  app.get("/api/session/:id/todo", async (request, response) => {
-    try {
-      response.json(await ctx.openCode.todos(request.params.id))
-    } catch (error) {
-      ctx.connection.handleError(error, response, request)
-    }
+  // v2 بلا قائمة مهام — العقد باقٍ (قائمة فارغة) حتى لا تتغير الواجهة.
+  app.get("/api/session/:id/todo", (_request, response) => {
+    response.json([])
   })
 
   app.get("/api/session/:id/diff", async (request, response) => {
