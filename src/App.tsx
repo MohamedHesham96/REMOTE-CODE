@@ -58,6 +58,7 @@ import { useActivityGrace } from "./hooks/useActivityGrace"
 import { useGitRequests } from "./hooks/useGitRequests"
 import { usePinnedConversations } from "./hooks/usePinnedConversations"
 import { useSettledStatuses } from "./hooks/useSettledStatuses"
+import { mergeActiveSessions } from "./utils/active-sessions"
 import { isTouchComposer } from "./utils/device"
 import { normalizeProjectPath } from "./utils/paths"
 import { forgetLastSession, isRequestsEmpty, loadDefaultModel, loadLastSessions, loadRecentProjects, saveDefaultModel, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
@@ -223,11 +224,35 @@ function App() {
     selectedProject?.worktree ?? null,
     selectedProject ? projectName(selectedProject) : "",
   )
-  const sidebarActiveSessions = useMemo(() => sessions.filter((session) => isSessionWorking(session.id)), [sessions, isSessionWorking])
-  const sidebarInactiveSessions = useMemo(() => sessions.filter((session) => !isSessionWorking(session.id)), [sessions, isSessionWorking])
+  // نفس القاعدة بتتكرر في العدّاد على أيقونة النشاط وفي القائمة الجانبية، فبنحسب
+  // الـ ids مرة واحدة ونتشاركها. متستعملش isSessionWorking هنا — هيتلخبط في الحفظ
+  // لو call-backs بتتغير كل render.
+  const workingSessionIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const session of sessions) {
+      if (isSessionWorking(session.id)) {
+        ids.add(session.id)
+      }
+    }
+    return ids
+  }, [sessions, isSessionWorking])
+  const sidebarActiveSessions = useMemo(() => sessions.filter((session) => workingSessionIds.has(session.id)), [sessions, workingSessionIds])
+  const sidebarInactiveSessions = useMemo(() => sessions.filter((session) => !workingSessionIds.has(session.id)), [sessions, workingSessionIds])
+  // العدّاد على ⚡ واللوحة بياخدوا الرقم من القائمة دي مش من /api/activity
+  // لوحدها: الشريط الجانبي بيحكم بـ statuses والطلبات المعلّقة، فلو اعتمدنا
+  // على السيرفر بس العدّاد كان هيضيع محادثات شغالة لحد ما الجولة الجاية تجيبها.
+  const activeSessions = useMemo(() => mergeActiveSessions(
+    activity,
+    sessions,
+    workingSessionIds,
+    statuses,
+    selectedProject ? { worktree: selectedProject.worktree, name: projectName(selectedProject) } : null,
+  ), [activity, sessions, workingSessionIds, statuses, selectedProject])
 
-  // في لوحة "المحادثات النشطة": اللي شغالة دلوقتي، واللي كانت نشطة في آخر ٥ دقايق
-  const { track: trackActivity, recent: activityRecent, graceLeft: activityGraceLeft } = useActivityGrace(activity, ACTIVE_GRACE_MS, showActivity)
+  // في لوحة "المحادثات النشطة": اللي شغالة دلوقتي، واللي كانت نشطة في آخر ٥ دقايق.
+  // لازم يتدّال القائمة المدمجة مش activity: القائمة المدمجة هي اللي بتتعرض تحت
+  // "نشط دلوقتي"، فلو الـ live اتحسب من غيرها جلسة هتبان في القسمين مع بعض.
+  const { track: trackActivity, recent: activityRecent, graceLeft: activityGraceLeft } = useActivityGrace(activeSessions, ACTIVE_GRACE_MS, showActivity)
 
   // سياسة الـ toast: أضيق الحدود — أخطاء + تنبيه خلفية محتاج تدخّل بس.
   // أي نجاح شايفه بعينك (اتنقل، اتمسح، اتنسخ، اتبدّل الموديل) مبيطلعلوش toast.
@@ -1841,7 +1866,7 @@ function App() {
             <button className="icon-button mobile-only" onClick={() => setShowSessions(true)} aria-label={t.openSessions}>☰</button>
             <span className="topbar-rail-divider mobile-only" aria-hidden />
             <div className="topbar-actions">
-              <button className="icon-button activity-button icon-activity" onClick={() => setShowActivity(true)} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activity.length > 0 ? <span className="count-badge">{activity.length}</span> : null}</button>
+              <button className="icon-button activity-button icon-activity" onClick={() => setShowActivity(true)} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activeSessions.length > 0 ? <span className="count-badge">{activeSessions.length}</span> : null}</button>
               <button
                 className="icon-button icon-pinned"
                 onClick={() => setShowPinned(true)}
@@ -1929,7 +1954,7 @@ function App() {
       {showActivity ? (
         <Suspense fallback={<PanelFallback />}>
           <ActiveSessionsPanel
-            items={activity}
+            items={activeSessions}
             recent={activityRecent}
             graceLeft={activityGraceLeft}
             activeId={activeId}
