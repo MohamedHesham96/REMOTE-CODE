@@ -1,8 +1,14 @@
 import type { Event, Message, Part, SessionStatus } from "@opencode-ai/sdk"
 import { mkdir, unlink, writeFile } from "node:fs/promises"
+import { homedir } from "node:os"
 import { resolve } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import { OpenCodeService } from "./opencode.js"
+
+vi.mock("./desktop-projects.js", () => ({
+  collectDesktopProjectDirectories: (): string[] => [],
+  desktopDatabasePath: (): string => "",
+}))
 
 const SESSION = "ses_test"
 
@@ -668,5 +674,43 @@ describe("session cleanup and state version", () => {
     } finally {
       await unlink(absolute)
     }
+  })
+})
+
+describe("project list filtering", () => {
+  it("يخفي الجذور والنسبي ويبقي المشاريع الحقيقية", async () => {
+    // الاستيراد موك أعلى الملف حتى لا يقرأ التست قاعدة الديسكتوب الحقيقية
+    const service = new OpenCodeService({ projectDirectory: "E:/mSales/app", username: "test", port: 0 })
+    const internals = service as unknown as {
+      baseClient: { project: { list: () => Promise<{ data: unknown[] }> } }
+      globalClient: { experimental: { session: { list: () => Promise<{ data: unknown[] }> } } }
+    }
+    internals.baseClient = {
+      project: {
+        list: () => Promise.resolve({
+          data: [
+            { id: "p1", worktree: "E:/mSales/app", time: { created: 1 } },
+            { id: "junk-root", worktree: "/", time: { created: 1 } },
+            { id: "junk-drive", worktree: "E:\\", time: { created: 1 } },
+            { id: "junk-relative", worktree: "Workshop", time: { created: 1 } },
+            { id: "junk-home", worktree: homedir(), time: { created: 1 } },
+          ],
+        }),
+      },
+    }
+    internals.globalClient = {
+      experimental: {
+        session: {
+          list: () => Promise.resolve({
+            data: [
+              { directory: "E:/mSales/app2", time: { created: 2 } },
+              { directory: "E:", time: { created: 2 } },
+            ],
+          }),
+        },
+      },
+    }
+    const projects = await service.projects()
+    expect(projects.map((project) => project.worktree).sort()).toEqual(["E:/mSales/app", "E:/mSales/app2"])
   })
 })

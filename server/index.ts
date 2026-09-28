@@ -4,6 +4,7 @@ import { createServer as createHttpServer } from "node:http"
 import { createServer as createHttpsServer } from "node:https"
 import { readFileSync } from "node:fs"
 import { networkInterfaces } from "node:os"
+import { resolve } from "node:path"
 import { config } from "./config.js"
 import { requireAuthentication } from "./auth.js"
 import { OpenCodeService } from "./opencode.js"
@@ -33,6 +34,15 @@ import type { Event } from "@opencode-ai/sdk"
 
 // ── تركيب السيرفر (composition root): إنشاء الخدمات وحقنها في المسارات ──
 // كل منطق الـ routes والـ SSE والاتصال انتقل لوحداته الخاصة؛ هنا التوصيل فقط.
+
+// قاعدة واحدة باسم projects-database للمحرك: تطبيق الديسكتوب (v2) يهاجر
+// ملف القاعدة المشترك لصيغة بلا جدول `session`، وCLI v1 الذي يشغّله هذا
+// السيرفر يموت عندها بـ "Database is not empty and has no session table".
+// مسار مطلق لازم — المسار النسبي يرجع لمجلد البيانات المشترك نفسه.
+// تجاوز صريح بـ OPENCODE_DB ما زال ممكنًا (مثال: ":memory:").
+if (!process.env.OPENCODE_DB) {
+  process.env.OPENCODE_DB = resolve(process.cwd(), "data", "projects-database.db")
+}
 
 const app = express()
 const openCode = new OpenCodeService(config.openCode)
@@ -174,6 +184,7 @@ async function start(): Promise<void> {
   server.listen(config.port, config.host, () => {
     console.log(`OpenCode Mobile listening on ${config.host}:${config.port}`)
     console.log(`OpenCode project: ${config.openCode.projectDirectory}`)
+    console.log(`OpenCode database: ${process.env.OPENCODE_DB || "(shared default)"}`)
     printLanAddresses(config.port)
     if (!config.tlsCertificatePath) {
       console.log("TLS is disabled; Web Push and PWA installation require HTTPS or localhost")

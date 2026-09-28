@@ -40,6 +40,8 @@ if not defined OPENCODE_SERVER_URL (
     echo [ERROR] OpenCode CLI not found in PATH. The backend needs it to answer.
     echo Install it, then restart run.bat:
     echo   npm install -g opencode-ai
+    echo NOTE: the OpenCode desktop app v2 is not enough - its database
+    echo format is incompatible with the CLI v1 this backend drives.
     pause
     exit /b 1
   )
@@ -138,6 +140,8 @@ if not defined OPENCODE_SERVER_URL (
     echo [ERROR] OpenCode CLI not found in PATH. The backend needs it to answer.
     echo Install it, then restart run.bat:
     echo   npm install -g opencode-ai
+    echo NOTE: the OpenCode desktop app v2 is not enough - its database
+    echo format is incompatible with the CLI v1 this backend drives.
     pause
     exit /b 1
   )

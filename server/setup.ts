@@ -25,7 +25,7 @@ const defaults: Record<string, string> = {
   APP_PORT: "7171",
   APP_TLS_CERT_PATH: "",
   APP_TLS_KEY_PATH: "",
-  OPENCODE_PROJECT_DIR: "..",
+  OPENCODE_PROJECT_DIR: ".",
   OPENCODE_SERVER_URL: "",
   OPENCODE_SERVER_USERNAME: "opencode",
   OPENCODE_SERVER_PASSWORD: "",

@@ -127,6 +127,7 @@ fix: <what broke>
 
 ## Gotchas
 
+- `OPENCODE_DB` معزولة في `server/index.ts` على `data/projects-database.db`: قاعدة المحرك الوحيدة لكل الجلسات — تطبيق الديسكتوب (v2) يهاجر القاعدة المشتركة لصيغة بلا جدول `session` فيموت CLI v1 بـ "Database is not empty and has no session table". مجلدات مشاريع الديسكتوب تُستورد تلقائيًا (`server/desktop-projects.ts`، قراءة فقط: مطلقة وموجودة فقط — بلا جذور أقراص ولا مسارات نسبية ولا مقاطع مخفية ولا مجلد البيت) كمجلدات لجلسات جديدة — المحادثات القديمة لا تُنقل لاختلاف الصيغة. نفس البوابة (`isListableProjectDirectory` في `server/opencode/utils.ts`) ترشّح قائمة `/api/project` كلها. تجاوز بـ `OPENCODE_DB` صريح.
 - `src/App.tsx` = **2034 سطر**، `server/opencode.ts` = **1705**. معروفين. **ماتزوّدهمش** — استخرج الجزء الجديد لملف مستقل يسجّل في الـ barrel المناسب.
 - `server/i18n.ts` بيستخدم semicolons والملف التاني لأ — **استثناء تاريخي مقصود**، سيبه.
 - `@opencode-ai/sdk` pinned بالظبط. أي bump = مراجعة breaking changes من الـ release notes، مش تخمين.

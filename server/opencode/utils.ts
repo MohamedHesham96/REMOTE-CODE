@@ -93,6 +93,55 @@ export function isChildDirectory(directory: string, parent: string): boolean {
   return child !== root && child.startsWith(`${root}/`)
 }
 
+// شكل المسار وحده يحدد صلاحيته للعرض: القائمة تجمع من ثلاث مصادر (المُعدّ
+// والمسجّل والجلسات) مع استيراد الديسكتوب، وأي مصدر قد يحمل قمامة — جذر
+// قرص مثل `E:\` أو مسار نسبي مثل `Workshop` أو عشّ worktree مؤقت مثل
+// `.claude/worktrees`. الفحص نصّي خالص بلا IO حتى يصلح للاستيراد وللقائمة
+// معًا، ويعمل بثبات على وندوز ولينكس معًا.
+export function isAbsoluteProjectPath(value: string): boolean {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return false
+  }
+  if (trimmed.startsWith("/")) {
+    return true
+  }
+  if (/^[A-Za-z]:[\\/]/.test(trimmed)) {
+    return true
+  }
+  return trimmed.startsWith("\\\\")
+}
+
+// جذر نظام الملفات ليس مشروعًا: `/` على يونكس أو جذر قرص وندوز مثل `E:\`.
+// القيمة `E:` وحدها مسار نسبي للقرص لا مطلق، فيرفضها فحص الإطلاق أعلاه.
+export function isFilesystemRoot(value: string): boolean {
+  const trimmed = value.trim()
+  if (trimmed === "/") {
+    return true
+  }
+  return /^[A-Za-z]:[\\/]?$/.test(trimmed)
+}
+
+// مقطع مخفي في المنتصف يعني مسارًا داخليًا لا مشروعًا مستقلًا: عشّ worktree
+// مؤقت أو مجلد أدوات. المشروع المخفي نفسه بجذره نادر ولا يُقصد فتحه من الهاتف.
+export function hasHiddenSegment(value: string): boolean {
+  return /(^|[\\/])\.[^\\/]+([\\/]|$)/.test(value.trim())
+}
+
+// البوابة الوحيدة المقبولة لقائمة المشاريع: مطلق، ليس جذرًا، بلا مقطع مخفي،
+// وليس مجلد البيت نفسه. مقارنة البيت عبر directoryKey حتى تتساوى الشرطتان
+// (`C:\x` و`C:/x`) على وندوز، وإلا تسرّب البيت للقائمة.
+export function isListableProjectDirectory(value: unknown, home: string): boolean {
+  if (typeof value !== "string") {
+    return false
+  }
+  const trimmed = value.trim()
+  if (!trimmed || !isAbsoluteProjectPath(trimmed) || isFilesystemRoot(trimmed) || hasHiddenSegment(trimmed)) {
+    return false
+  }
+  return directoryKey(trimmed) !== directoryKey(home)
+}
+
 // مشروع المحادثة = الـ worktree اللي بيفتحها فعلاً. أحيانًا project.worktree
 // بيكون قديم أو الجلسة جواه، فاعتمد session.directory في الحالة دي عشان الفتح
 // ما يوديكش لمشروع غلط. نفس القاعدة للمحادثات النشطة (شريط "شغال الآن")

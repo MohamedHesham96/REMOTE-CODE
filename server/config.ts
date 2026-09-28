@@ -52,7 +52,7 @@ function optionalPath(name: string): string | undefined {
   return value ? resolve(process.cwd(), value) : undefined
 }
 
-const projectDirectory = resolve(process.cwd(), process.env.OPENCODE_PROJECT_DIR?.trim() || "..")
+const projectDirectory = resolve(process.cwd(), process.env.OPENCODE_PROJECT_DIR?.trim() || ".")
 
 if (!existsSync(projectDirectory) || !statSync(projectDirectory).isDirectory()) {
   throw new Error(`OpenCode project directory does not exist: ${projectDirectory}`)

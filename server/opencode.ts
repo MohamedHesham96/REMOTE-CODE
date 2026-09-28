@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs"
 import { stat } from "node:fs/promises"
+import { homedir } from "node:os"
 import { basename as pathBasename, isAbsolute, resolve } from "node:path"
 import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk"
 import { createOpencodeClient as createOpencodeV2Client } from "@opencode-ai/sdk/v2"
@@ -17,6 +18,7 @@ import type {
 } from "@opencode-ai/sdk"
 import type { GlobalSession, OpencodeClient as OpencodeV2Client, QuestionAnswer, QuestionRequest, VcsFileStatus } from "@opencode-ai/sdk/v2"
 import { setTimeout as sleep } from "node:timers/promises"
+import { collectDesktopProjectDirectories } from "./desktop-projects.js"
 import { serverMessage, type ServerLang } from "./i18n.js"
 import type {
   ActiveSession,
@@ -37,9 +39,9 @@ import {
   directoryKey,
   errorMessage,
   fileNameFromPath,
-  isChildDirectory,
   isDefaultTitle,
   isFreeCost,
+  isListableProjectDirectory,
   MAX_CACHED_CLIENTS,
   MAX_FILE_DOWNLOAD_BYTES,
   MAX_PROMPT_ATTEMPTS,
@@ -152,6 +154,9 @@ export class OpenCodeService {
   private readonly pendingPermissions = new Map<string, Permission>()
   private readonly mobileSessions = new Set<string>()
   private readonly mobileSessionsPath = resolve(process.cwd(), "data", "mobile-sessions.json")
+  // مجلدات الديسكتوب المسجلة في قاعدتنا — مرة واحدة لكل تشغيل حتى لا يتكرر
+  // project.current مع كل فتح لقائمة المشاريع.
+  private readonly desktopSynced = new Set<string>()
   private eventsStarted = false
   // كاش Variants:endpoint واحد بس وبطيء، والقائمة مش بتتغير كتير
   private variantsCache: { directory: string; expiresAt: number; map: Map<string, string[]> } | null = null
@@ -574,37 +579,86 @@ export class OpenCodeService {
     return { healthy: true, version: "connected" }
   }
 
+  // تسجيل مجلدات الديسكتوب في قاعدتنا من غير تغيير المشروع المختار.
+  // project.current يسجّل المجلد (git أو عادي) بصمت؛ المجلد المرفوض من
+  // سيرفر v1 يُعلَّم متزامنًا أيضًا حتى لا يُحاوَل مع كل طلب.
+  async syncDesktopProjects(directories: string[]): Promise<number> {
+    let added = 0
+    for (const directory of directories) {
+      const key = directoryKey(directory)
+      if (this.desktopSynced.has(key)) {
+        continue
+      }
+      this.desktopSynced.add(key)
+      try {
+        await unwrap(await this.clientFor(directory).project.current({ query: { directory } }))
+        added += 1
+      } catch {
+        // مجلد لا يقبله السيرفر — يُتجاهل بصمت
+      }
+    }
+    return added
+  }
+
   async projects(): Promise<Project[]> {
-    const registered = unwrap(await this.baseClient.project.list({ query: { directory: this.options.projectDirectory } }))
+    // مجلدات الديسكتوب تُستورد لقاعدتنا أولًا — بعدها القائمة كلها من
+    // مصدر واحد هو projects-database. المحادثات القديمة لا تُنقل (الصيغتان
+    // مختلفتان)، فالمجلد يظهر لبدء جلسات جديدة عليه من الهاتف.
+    try {
+      await this.syncDesktopProjects(collectDesktopProjectDirectories())
+    } catch {
+      // الاستيراد اختياري — الفشل يُبقي مشاريع الـ PWA الخاصة فقط
+    }
+    // بلا فلتر directory: كل المشاريع المسجلة في OpenCode تظهر مهما كان
+    // المجلد الذي فُتحت منه، ومعها مشاريع أي جلسة موجودة. جهاز جديد يبدأ
+    // فارغًا، والمشاريع تنضاف مع أول جلسة تُنشأ من الـ PWA أو من CLI v1
+    // على نفس القاعدة، مع مجلدات الديسكتوب المستوردة. الجذور والمسارات
+    // النسبية والأعشاش المؤقتة تُخفى من كل مصدر.
+    const registered = unwrap(await this.baseClient.project.list({}))
     const sessions = await this.globalClient.experimental.session
       .list({ roots: true, limit: 1000 })
       .then(unwrap)
       .catch(() => [] as GlobalSession[])
-    const sessionDirectories = new Set(
-      sessions
-        .map((session) => session.directory)
-        .filter((directory) => directory && isChildDirectory(directory, this.options.projectDirectory)),
-    )
     const projectsByDirectory = new Map<string, Project>()
-    const hasScopedSessions = sessionDirectories.size > 0
+    const registeredKeys = new Set<string>()
+    const home = homedir()
+
+    // المجلد المُعدّ يظهر دائمًا — حتى قبل أول جلسة — فشاشة الاختيار لا
+    // تُسدّ أبدًا. أي بيانات حقيقية عنه من OpenCode تتجاوزه تحت. إعداد خاطئ
+    // بجذر قرص (الافتراضي القديم `..` من داخل `E:\REMOTE-CODE` يساوي `E:\`)
+    // يُتجاهل هنا بدل عرضه كمشروع، فسطر بدء السيرفر يكشف الخطأ لا القائمة.
+    const configured = this.options.projectDirectory
+    if (isListableProjectDirectory(configured, home)) {
+      projectsByDirectory.set(directoryKey(configured), {
+        id: configured,
+        worktree: configured,
+        time: { created: 0 },
+      })
+    }
 
     for (const project of registered) {
-      const key = directoryKey(project.worktree)
-      if (project.worktree !== "/" && isChildDirectory(project.worktree, this.options.projectDirectory) && (!hasScopedSessions || sessionDirectories.has(key))) {
-        projectsByDirectory.set(key, project)
+      // القمامة تُخفى دائمًا: الجذر الشامل `/` وجذور أقراص وندوز والمسارات
+      // النسبية وأعشاش الـ worktree المؤقتة ليست مشاريع حقيقية.
+      if (!isListableProjectDirectory(project.worktree, home)) {
+        continue
       }
+      const key = directoryKey(project.worktree)
+      registeredKeys.add(key)
+      projectsByDirectory.set(key, project)
     }
 
     for (const session of sessions) {
-      if (!session.directory || !isChildDirectory(session.directory, this.options.projectDirectory)) {
+      if (!isListableProjectDirectory(session.directory, home)) {
         continue
       }
       const key = directoryKey(session.directory)
-      if (projectsByDirectory.has(key)) {
+      // المسجّل في OpenCode هو المرجع — مدخل المجلد المُعدّ المؤقت فقط هو
+      // ما يُستبدل ببيانات الجلسة الحقيقية.
+      if (registeredKeys.has(key)) {
         continue
       }
       const project = session.project
-      const hasProject = Boolean(project && project.worktree !== "/")
+      const hasProject = Boolean(project && isListableProjectDirectory(project.worktree, home))
       projectsByDirectory.set(key, {
         id: hasProject ? project!.id : session.directory,
         worktree: session.directory,
@@ -633,7 +687,7 @@ export class OpenCodeService {
     const normalizedWorktree = directoryKey(worktree)
     const project = projects.find((item) => directoryKey(item.worktree) === normalizedWorktree)
       || projects.find((item) => item.id === worktree)
-    if (!project || project.worktree === "/") {
+    if (!project || !isListableProjectDirectory(project.worktree, homedir())) {
       throw new Error("Project not found")
     }
 
@@ -1055,7 +1109,9 @@ export class OpenCodeService {
 
     const sessionDir = await this.sessionDirectory(sessionId)
     const absolutePath = isAbsolute(trimmed) ? resolve(trimmed) : resolve(sessionDir, trimmed)
-    const workspaceRoot = resolve(this.options.projectDirectory)
+    // حد التنزيل هو مجلد الجلسة نفسها بدل جذر عام واحد — يدعم تعدد
+    // المشاريع ويمنع الخروج منه.
+    const workspaceRoot = resolve(sessionDir)
     const relativeToRoot = absolutePath.toLowerCase().startsWith(workspaceRoot.toLowerCase())
       ? absolutePath
       : null
@@ -1315,9 +1371,8 @@ export class OpenCodeService {
       .then(unwrap)
       .catch(() => [] as GlobalSession[])
 
-    const relevant = sessions.filter(
-      (session) => session.directory && isChildDirectory(session.directory, this.options.projectDirectory),
-    )
+    // كل الجلسات من أي directory — سقف الـ 30 يمنع الانفجار مع تعدد المشاريع.
+    const relevant = sessions.filter((session) => Boolean(session.directory))
     if (relevant.length === 0) {
       return []
     }
