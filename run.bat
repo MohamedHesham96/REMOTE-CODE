@@ -11,9 +11,11 @@ goto :dev
 
 :prod
 set "PORT=7171"
+set "OPENCODE_SERVER_URL="
 if exist ".env" (
   for /f "usebackq tokens=1,2 delims==" %%a in (".env") do (
     if "%%a"=="APP_PORT" set "PORT=%%b"
+    if "%%a"=="OPENCODE_SERVER_URL" set "OPENCODE_SERVER_URL=%%b"
   )
 )
 title OpenCode Mobile PWA - Prod :%PORT%
@@ -29,6 +31,18 @@ if errorlevel 1 (
   echo [ERROR] npm not found in PATH. Install Node 20+ and retry.
   pause
   exit /b 1
+)
+
+REM The backend starts the OpenCode CLI locally - skip this when using an external server.
+if not defined OPENCODE_SERVER_URL (
+  where opencode >nul 2>&1
+  if errorlevel 1 (
+    echo [ERROR] OpenCode CLI not found in PATH. The backend needs it to answer.
+    echo Install it, then restart run.bat:
+    echo   npm install -g opencode-ai
+    pause
+    exit /b 1
+  )
 )
 
 REM Clean up obsolete firewall rules from previous setup (silent, best effort).
@@ -95,9 +109,11 @@ exit /b %ERRORLEVEL%
 :dev
 set "DEV_PORT=5173"
 set "BACKEND_PORT=7171"
+set "OPENCODE_SERVER_URL="
 if exist ".env" (
   for /f "usebackq tokens=1,2 delims==" %%a in (".env") do (
     if "%%a"=="APP_PORT" set "BACKEND_PORT=%%b"
+    if "%%a"=="OPENCODE_SERVER_URL" set "OPENCODE_SERVER_URL=%%b"
   )
 )
 title OpenCode Mobile PWA - Dev
@@ -113,6 +129,18 @@ if errorlevel 1 (
   echo [ERROR] npm not found in PATH. Install Node 20+ and retry.
   pause
   exit /b 1
+)
+
+REM The backend starts the OpenCode CLI locally - skip this when using an external server.
+if not defined OPENCODE_SERVER_URL (
+  where opencode >nul 2>&1
+  if errorlevel 1 (
+    echo [ERROR] OpenCode CLI not found in PATH. The backend needs it to answer.
+    echo Install it, then restart run.bat:
+    echo   npm install -g opencode-ai
+    pause
+    exit /b 1
+  )
 )
 
 netsh advfirewall firewall show rule name="PWA Dev %DEV_PORT%" >nul 2>&1
