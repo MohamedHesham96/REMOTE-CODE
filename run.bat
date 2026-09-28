@@ -102,6 +102,19 @@ if exist ".env" (
 )
 title OpenCode Mobile PWA - Dev
 
+where node >nul 2>&1
+if errorlevel 1 (
+  echo [ERROR] Node.js not found in PATH. Install Node 20+ and retry.
+  pause
+  exit /b 1
+)
+where npm >nul 2>&1
+if errorlevel 1 (
+  echo [ERROR] npm not found in PATH. Install Node 20+ and retry.
+  pause
+  exit /b 1
+)
+
 netsh advfirewall firewall show rule name="PWA Dev %DEV_PORT%" >nul 2>&1
 if errorlevel 1 (
   netsh advfirewall firewall add rule name="PWA Dev %DEV_PORT%" dir=in action=allow protocol=TCP localport=%DEV_PORT% >nul 2>&1
@@ -129,6 +142,19 @@ if not exist "node_modules" (
     echo [ERROR] npm install failed.
     pause
     exit /b 1
+  )
+)
+
+if not exist ".env" (
+  echo Creating .env...
+  call npm run setup
+  if errorlevel 1 (
+    echo [ERROR] npm run setup failed.
+    pause
+    exit /b 1
+  )
+  for /f "usebackq tokens=1,2 delims==" %%a in (".env") do (
+    if "%%a"=="APP_PORT" set "BACKEND_PORT=%%b"
   )
 )
 echo Opening http://localhost:%DEV_PORT% in your browser...
