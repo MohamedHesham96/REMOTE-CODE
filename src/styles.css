@@ -1433,7 +1433,11 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .live-time { color: var(--live-time-text); border-color: rgba(245, 199, 108, 0.3); background: rgba(245, 199, 108, 0.08); font-variant-numeric: tabular-nums; }
 .live-stats.finished .live-stat { color: var(--green-text); border-color: var(--green-border); background: var(--green-bg); }
 .final-result { position: relative; margin-top: 22px; padding: 15px; border: 1px solid var(--green-border); border-radius: 5px; background: var(--final-result-bg); }
-.final-result-text { margin-top: 8px; max-height: 42vh; overflow-y: auto; overscroll-behavior: auto; color: var(--final-result-text); font-size: 13px; line-height: 1.95; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* النتيجة (أو البث المباشر) جوّه صندوق بسكول مستقل. `display: block` مش
+   تجميل: العنصر span جواه، والـ max-height والـ overflow على صندوق inline
+   المتصفح بيتجاهلهم، فالنص كان يتمدّد جوه قائمة الطلبات وزرار "عرض أقل"
+   بيقع تحت آخر سطر ، المستخد مطلوب ينزل له. */
+.final-result-text { display: block; margin-top: 8px; max-height: 42vh; overflow-y: auto; overscroll-behavior: auto; color: var(--final-result-text); font-size: 13px; line-height: 1.95; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* النص المطوي (نتيجة نهائية/مباشرة/سؤال) يقف عند ٦ أسطر بصرية بالظبط —
    القصّ بعدد `\n` في الجافاسكربت لا يكفي مع الفقرات الطويلة بلا فواصل،
    فالـ clamp البصري هو الضمانة. الموسّع يشيل القيد ويرجع النص كاملًا. */
@@ -1443,6 +1447,12 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .expand-toggle { display: flex; align-items: center; justify-content: center; width: fit-content; margin-top: 8px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; color: var(--accent-strong); background: var(--accent-soft-bg2); font-size: 10px; font-weight: 700; cursor: pointer; transition: 0.18s ease; }
 .expand-toggle:hover { color: var(--accent); border-color: var(--accent-border); background: var(--accent-soft-bg3); }
 .expand-toggle:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(139, 124, 255, 0.25); }
+/* زر الفتح/الطيّ جوّه صندوق النتيجة لاصق بقاعه: يفضل في المتناول طول ما
+   النص مفتوح، فما تضطرش تنزل لآخر سطر عشان ترجّعه. الخلفية مصمتة بالظبط عشان
+   النص اللي بيعبر وراه ما يبيّنش من فواقه. جوه صندوق قصير (زي نص السؤال في
+   صف الطلب) الزرار جنب النص عادي وبيفضل مكانه. */
+.final-result-text .expand-toggle { position: sticky; bottom: 0; z-index: 1; background: var(--surface-card); box-shadow: 0 -10px 12px -10px rgba(0, 0, 0, 0.55); }
+.final-result-text .expand-toggle:hover { background: var(--surface-raised); }
 /* زر نسخ موحّد لكل رسالة في الطلب: أيقونة بس، وبت expanding transiently
   |label "تم النسخ" أول ما تنسخ. */
 .copy-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 1px solid transparent; border-radius: 4px; color: var(--copy-result); background: transparent; font: inherit; font-size: 10px; font-weight: 700; white-space: nowrap; cursor: pointer; transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease; }
