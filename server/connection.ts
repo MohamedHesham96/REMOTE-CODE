@@ -4,6 +4,17 @@ import type { OpenCodeService } from "./opencode.js"
 import { consoleLang, getServerLang, serverMessage } from "./i18n.js"
 
 const CONNECT_RETRY_MS = 5000
+const BANNER_WIDTH = 58
+
+// بانر بعرض ثابت بيتطبع مرة واحدة. الحروف والخطوط كلها ASCII عشان
+// تتطبع زي ما هي على أي كونسول، من غير محارف زخرفية تبقى ؟
+function logBanner(message: string): void {
+  const rule = "-".repeat(BANNER_WIDTH)
+  console.log("")
+  console.log(rule)
+  console.log(`  ${message}`)
+  console.log(rule)
+}
 
 export class OpenCodeConnection {
   private ready = false
@@ -82,7 +93,10 @@ export class OpenCodeConnection {
         await this.openCode.startEvents()
         this.ready = true
         this.lastError = ""
-        console.log("OpenCode connected ✓")
+        // بانر الاتصال. الحروف كلها من ASCII عدا "√" لأنها داخل خط
+        // الكونسول: "√" موجود في خطوط الكونسول الافتراضية و"✓" بتطلع
+        // علامة استفهام على كتير منها.
+        logBanner("OpenCode connected √")
         for (const listener of [...this.readyListeners]) {
           try {
             listener()
