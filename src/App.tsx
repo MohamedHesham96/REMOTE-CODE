@@ -1867,6 +1867,10 @@ function App() {
             <span className="topbar-rail-divider mobile-only" aria-hidden />
             <div className="topbar-actions">
               <button className="icon-button activity-button icon-activity" onClick={() => setShowActivity(true)} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activeSessions.length > 0 ? <span className="count-badge">{activeSessions.length}</span> : null}</button>
+              {/* ترتيب الأزرار مقصود: زر الـ git جنب زر "النشطة" عشان متابعة الملفات
+                  والرجوع لأقوى محادثة شغّالة يبقوا في نفس السطر من الذهن، والمثبّتة
+                  تاني وراهم عشان الشريط يفضل مقسوم: حالة ← ملفات ← مرجع. */}
+              <button className="icon-button activity-button git-button icon-git" onClick={openGitChanges} aria-label={t.gitChangesAria} title={`${t.gitChangesAria} ⑂`}><GitBranchIcon />{gitChangedCount > 0 ? <span className="count-badge">{gitChangedCount}</span> : null}</button>
               <button
                 className="icon-button icon-pinned"
                 onClick={() => setShowPinned(true)}
@@ -1876,7 +1880,6 @@ function App() {
                 <span aria-hidden>📌</span>
                 {projectPins.length > 0 ? <span className="count-badge">{projectPins.length}</span> : null}
               </button>
-              <button className="icon-button activity-button git-button icon-git" onClick={openGitChanges} aria-label={t.gitChangesAria} title={`${t.gitChangesAria} ⑂`}><GitBranchIcon />{gitChangedCount > 0 ? <span className="count-badge">{gitChangedCount}</span> : null}</button>
               <button className="icon-button icon-history" onClick={() => setShowHistory(true)} aria-label={t.historyAria} title={`${t.historyAria} 🕘`}>🕘</button>
               <span className="topbar-rail-divider" aria-hidden />
               <button className="icon-button icon-theme" onClick={toggleTheme} aria-label={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`} title={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`}><span aria-hidden>{THEME_META[theme].icon}</span></button>
