@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "setup": "tsx server/setup.ts",
-    "dev": "concurrently -k -n backend,frontend -c green.cyan \"tsx watch server/index.ts\" \"vite --host 0.0.0.0 --port 5173\"",
+    "dev": "concurrently -k --prefix none \"tsx watch server/index.ts\" \"vite --host 0.0.0.0 --port 5173\"",
     "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json",
     "start": "node dist-server/server/index.js",
     "lint": "eslint .",

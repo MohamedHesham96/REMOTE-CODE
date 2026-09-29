@@ -825,7 +825,6 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .model-bar { flex: 0 1 auto; min-width: 0; max-width: 100%; display: flex; }
 .icon-button { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 4px; color: var(--text-dimmer); background: var(--surface-card); font-size: 19px; }
 .icon-button:hover:not(:disabled) { color: var(--text); border-color: var(--accent-border); }
-/* Header option icons — each with its own vivid tint like the ⚡ active icon */
 .topbar-actions .icon-button { transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease, filter 0.18s ease; }
 .topbar-actions .icon-button:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.12) saturate(1.15); }
 .icon-activity { color: #f5c76c; background: rgba(245, 199, 108, 0.13); border-color: rgba(245, 199, 108, 0.45); text-shadow: 0 0 12px rgba(245, 199, 108, 0.55); }
@@ -836,8 +835,10 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .icon-theme:hover:not(:disabled) { color: #fda4af; border-color: rgba(251, 113, 133, 0.7); background: rgba(251, 113, 133, 0.2); box-shadow: 0 4px 16px rgba(251, 113, 133, 0.25); }
 .icon-lang { color: #5aa9ff; background: rgba(82, 127, 244, 0.13); border-color: rgba(82, 127, 244, 0.45); text-shadow: 0 0 12px rgba(90, 169, 255, 0.5); }
 .icon-lang:hover:not(:disabled) { color: #8fc4ff; border-color: rgba(82, 127, 244, 0.7); background: rgba(82, 127, 244, 0.2); box-shadow: 0 4px 16px rgba(82, 127, 244, 0.28); }
-.icon-history { color: #a3e635; background: rgba(163, 230, 53, 0.12); border-color: rgba(163, 230, 53, 0.42); text-shadow: 0 0 12px rgba(163, 230, 53, 0.5); }
-.icon-history:hover:not(:disabled) { color: #bef264; border-color: rgba(163, 230, 53, 0.7); background: rgba(163, 230, 53, 0.19); box-shadow: 0 4px 16px rgba(163, 230, 53, 0.25); }
+/* السجل رمادي مطفي مثل زرار كتم الصوت: القراءة بتستهلكه كتير، والألوان الزاهية
+   بتتعب العين وكمان كانت قريبة من أخضر زرار الـ git، فبقي محايد يتقري بصمت */
+.icon-history { color: #cbd5e1; background: rgba(148, 163, 184, 0.14); border-color: rgba(148, 163, 184, 0.4); text-shadow: 0 0 12px rgba(148, 163, 184, 0.4); }
+.icon-history:hover:not(:disabled) { color: #e2e8f0; border-color: rgba(148, 163, 184, 0.7); background: rgba(148, 163, 184, 0.22); box-shadow: 0 4px 16px rgba(148, 163, 184, 0.25); }
 .icon-pinned { position: relative; overflow: visible; color: var(--accent-strong); background: var(--accent-soft-bg3); border-color: var(--accent-border); }
 .icon-pinned:hover:not(:disabled) { color: var(--accent-strong); background: var(--accent-soft-bg2); border-color: var(--accent-border); box-shadow: 0 4px 16px rgba(139, 124, 255, 0.25); }
 .icon-settings { color: #c084fc; background: rgba(192, 132, 252, 0.12); border-color: rgba(192, 132, 252, 0.42); text-shadow: 0 0 12px rgba(192, 132, 252, 0.5); }
@@ -865,8 +866,8 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 [data-theme="glass"] .icon-theme span { filter: saturate(1.4); }
 [data-theme="glass"] .icon-lang { color: #1d4ed8; background: rgba(37, 99, 235, 0.09); border-color: rgba(37, 99, 235, 0.32); text-shadow: none; }
 [data-theme="glass"] .icon-lang:hover:not(:disabled) { color: #1e40af; background: rgba(37, 99, 235, 0.15); border-color: rgba(37, 99, 235, 0.55); box-shadow: 0 4px 14px rgba(37, 99, 235, 0.22); }
-[data-theme="glass"] .icon-history { color: #4d7c0f; background: rgba(101, 163, 13, 0.1); border-color: rgba(101, 163, 13, 0.35); text-shadow: none; }
-[data-theme="glass"] .icon-history:hover:not(:disabled) { color: #3f6212; background: rgba(101, 163, 13, 0.16); border-color: rgba(101, 163, 13, 0.55); box-shadow: 0 4px 14px rgba(101, 163, 13, 0.22); }
+[data-theme="glass"] .icon-history { color: #475569; background: rgba(100, 116, 139, 0.1); border-color: rgba(100, 116, 139, 0.32); text-shadow: none; }
+[data-theme="glass"] .icon-history:hover:not(:disabled) { color: #334155; background: rgba(100, 116, 139, 0.16); border-color: rgba(100, 116, 139, 0.55); box-shadow: 0 4px 14px rgba(100, 116, 139, 0.2); }
 [data-theme="glass"] .icon-settings { color: #6d28d9; background: rgba(124, 58, 237, 0.09); border-color: rgba(124, 58, 237, 0.32); text-shadow: none; }
 [data-theme="glass"] .icon-settings:hover:not(:disabled) { color: #5b21b6; background: rgba(124, 58, 237, 0.15); border-color: rgba(124, 58, 237, 0.55); box-shadow: 0 4px 14px rgba(124, 58, 237, 0.22); }
 [data-theme="glass"] .icon-logout { color: #b91c1c; background: rgba(220, 38, 38, 0.09); border-color: rgba(220, 38, 38, 0.32); text-shadow: none; }
@@ -1432,7 +1433,11 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .live-time { color: var(--live-time-text); border-color: rgba(245, 199, 108, 0.3); background: rgba(245, 199, 108, 0.08); font-variant-numeric: tabular-nums; }
 .live-stats.finished .live-stat { color: var(--green-text); border-color: var(--green-border); background: var(--green-bg); }
 .final-result { position: relative; margin-top: 22px; padding: 15px; border: 1px solid var(--green-border); border-radius: 5px; background: var(--final-result-bg); }
-.final-result-text { margin-top: 8px; max-height: 42vh; overflow-y: auto; overscroll-behavior: auto; color: var(--final-result-text); font-size: 13px; line-height: 1.95; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* النتيجة (أو البث المباشر) جوّه صندوق بسكول مستقل. `display: block` مش
+   تجميل: العنصر span جواه، والـ max-height والـ overflow على صندوق inline
+   المتصفح بيتجاهلهم، فالنص كان يتمدّد جوه قائمة الطلبات وزرار "عرض أقل"
+   بيقع تحت آخر سطر ، المستخد مطلوب ينزل له. */
+.final-result-text { display: block; margin-top: 8px; max-height: 42vh; overflow-y: auto; overscroll-behavior: auto; color: var(--final-result-text); font-size: 13px; line-height: 1.95; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* النص المطوي (نتيجة نهائية/مباشرة/سؤال) يقف عند ٦ أسطر بصرية بالظبط —
    القصّ بعدد `\n` في الجافاسكربت لا يكفي مع الفقرات الطويلة بلا فواصل،
    فالـ clamp البصري هو الضمانة. الموسّع يشيل القيد ويرجع النص كاملًا. */
@@ -1442,6 +1447,12 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .expand-toggle { display: flex; align-items: center; justify-content: center; width: fit-content; margin-top: 8px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; color: var(--accent-strong); background: var(--accent-soft-bg2); font-size: 10px; font-weight: 700; cursor: pointer; transition: 0.18s ease; }
 .expand-toggle:hover { color: var(--accent); border-color: var(--accent-border); background: var(--accent-soft-bg3); }
 .expand-toggle:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(139, 124, 255, 0.25); }
+/* زر الفتح/الطيّ جوّه صندوق النتيجة لاصق بقاعه: يفضل في المتناول طول ما
+   النص مفتوح، فما تضطرش تنزل لآخر سطر عشان ترجّعه. الخلفية مصمتة بالظبط عشان
+   النص اللي بيعبر وراه ما يبيّنش من فواقه. جوه صندوق قصير (زي نص السؤال في
+   صف الطلب) الزرار جنب النص عادي وبيفضل مكانه. */
+.final-result-text .expand-toggle { position: sticky; bottom: 0; z-index: 1; background: var(--surface-card); box-shadow: 0 -10px 12px -10px rgba(0, 0, 0, 0.55); }
+.final-result-text .expand-toggle:hover { background: var(--surface-raised); }
 /* زر نسخ موحّد لكل رسالة في الطلب: أيقونة بس، وبت expanding transiently
   |label "تم النسخ" أول ما تنسخ. */
 .copy-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 1px solid transparent; border-radius: 4px; color: var(--copy-result); background: transparent; font: inherit; font-size: 10px; font-weight: 700; white-space: nowrap; cursor: pointer; transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease; }

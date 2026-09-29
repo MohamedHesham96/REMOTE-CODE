@@ -41,6 +41,27 @@ set "ICON_GO=%C_CYAN%→"
 set "ICON_WARN=%C_YELLOW%!"
 set "ICON_ERR=%C_RED%×"
 
+REM Detail-line decoration for screens with no step tree (:check keeps its
+REM own √-prefixed look): TP = tree spine prefix, TI = leading item icon,
+REM TM = trailing item marker. :steps_begin re-points all three, so every
+REM :env_check echo can stay one line for both layouts.
+REM MARK_COL is the single column where EVERY status marker starts, so the
+REM [√] rows, the one-line steps and the closing Done/Failed all line up.
+REM ROW_TEXT is the visible width of a padded detail row (TP 5 + label 19 +
+REM value 19), which is what the marker padding is measured against.
+set "TP="
+set "TI=%ICON_OK%%C_RESET%  "
+set "TM="
+REM MARK_COL must be >= the widest step_now line (dev Step 2/Step 4 are 68
+REM visible chars + the 2-space gap = 70). If it is any smaller, that line's
+REM padding clamps to zero and its marker lands past the column instead of on
+REM it, which is exactly the ragged edge this constant exists to prevent.
+set "MARK_COL=70"
+set "ROW_TEXT=43"
+REM Width of the longest step name ("Ensure OpenCode CLI" = 19) plus one
+REM space, so every "->" in a one-line step starts in the same place.
+set "ST_NAMECOL=20"
+
 if /i "%1"=="waitopen" goto :waitopen
 if /i "%1"=="prod" goto :prod
 if /i "%1"=="menu" goto :menu
@@ -61,10 +82,18 @@ echo.
 goto :eof
 
 REM Thin section header: call :section "TITLE"
+REM Inside a step tree the header hangs off the spine ("|--- TITLE ---")
+REM so it reads as part of that step; check mode keeps the plain header.
 :section
-echo %C_BLUE%  --- %~1 ---%C_RESET%
-echo.
-goto :eof
+setlocal EnableDelayedExpansion
+if not defined TP (
+  echo %C_BLUE%  --- %~1 ---%C_RESET%
+  echo.
+  endlocal & goto :eof
+)
+echo %C_DIM%  ^|---%C_RESET%%C_BLUE% %~1 ---%C_RESET%
+echo %C_DIM%  ^|%C_RESET%
+endlocal & goto :eof
 
 REM Footer shown under every major screen.
 :footer
@@ -92,25 +121,201 @@ echo.
 pause
 exit /b 1
 
-REM Real step progress with no fake delays: call :step_bar <done> <total> <label>
-REM after a launcher step actually finishes. Labels must avoid % and ! chars.
-:step_bar
+REM Vertical step tree (append-only history: no cls, no cursor moves,
+REM no percentages, no fake delays). Steps print progressively - each one
+REM keeps its final status in the scrollback, so nothing is ever redrawn.
+REM Caller sets STEP_NAME_1..N, then:
+REM   call :steps_begin "Title"  - title line; steps print below it as they start
+REM   call :step_start <i>       - branch + ● Step <i> - <name>
+REM   call :step_info "text"     - detail line under the running step
+REM   call :step_done <i>        - standalone [√] Done line (multi-line steps)
+REM   call :step_end            - "  [√] Done" suffix closing a set /p detail
+REM                              line, so single-detail steps read
+REM                              "|  <info>  [√] Done" on one line
+REM   call :step_fail <i>        - [x] result line (caller adds :fatal + exit /b 1)
+REM Step names and info text must avoid % and ! chars.
+REM Step icons are ● running, [√] done, [x] failed, and the tree uses
+REM ASCII branches (|-- |). ● is reused from ICON_RUN - the same glyph the
+REM READY panels already print - so it renders wherever the rest of this
+REM launcher does.
+REM Title + spine opener so the first branch connects to the tree.
+REM It also switches the detail decoration: TI empties the leading item icon
+REM and TM adds a trailing [√], so status reads at the end of the line.
+:steps_begin
+echo %C_BOLD%  %~1%C_RESET%
+echo %C_DIM%  ^|%C_RESET%
+set "TP=%C_DIM%  |%C_RESET%  "
+set "TI="
+call :tree_marker
+goto :eof
+
+REM Builds TM = padding + the green [√], padded so the marker lands at
+REM MARK_COL. :row prints ROW_TEXT visible chars, then TM contributes its
+REM own 2-space gap, so the pad needed is MARK_COL - ROW_TEXT - 2.
+REM Deriving it keeps :row, :step_now and :mark_pad in one column.
+REM The result is exported with %-expansion, not !: a !-value read on the
+REM same line as endlocal expands after the scope is gone and comes back
+REM as the literal "!<name>!".
+:tree_marker
 setlocal EnableDelayedExpansion
-set /a "pct=(%~1*100)/%~2"
-set /a "fill=(%~1*10)/%~2"
-set "bar="
-for /L %%i in (1,1,10) do (
-  if %%i leq !fill! ( set "bar=!bar!█" ) else ( set "bar=!bar!░" )
+set /a "TM_GAP=MARK_COL - ROW_TEXT - 2"
+call :pad " " !TM_GAP! TM_S
+set "TMV=!TM_S!  %C_GREEN%[√]%C_RESET%"
+endlocal & set "TM=%TMV%" & goto :eof
+
+REM Bare spine connector between step blocks. It replaces the blank echo.
+REM lines there used to sit, so the branches stay joined in one tree.
+REM Outside a tree there is no spine, so it degrades to a plain blank line
+REM - which also resets errorlevel exactly like echo. did, leaving the
+REM surrounding errorlevel checks unaffected.
+:spine
+setlocal EnableDelayedExpansion
+if not defined TP goto :sp_blank
+echo %C_DIM%  ^|%C_RESET%
+endlocal & goto :eof
+:sp_blank
+echo.
+endlocal & goto :eof
+
+REM Announce step <i> as running. Every step uses the same |-- branch,
+REM so the spine stays connected from the title to the last Done.
+:step_start
+setlocal EnableDelayedExpansion
+echo %C_DIM%  ^|--%C_RESET% %C_CYAN%%ICON_RUN%%C_RESET% Step %~1 - !STEP_NAME_%~1!
+endlocal
+goto :eof
+
+REM Announce step <i> with its result inline and finish it in one call:
+REM   call :step_now <i> "<detail>"
+REM Steps whose only outcome is a single fact (ports, CLI version) use this
+REM instead of :step_start + a detail row, so no empty tree branch is left
+REM hanging under the step. The line is padded to the marker column and the
+REM closing [√] Done is appended, matching :rowj + :step_end.
+:step_now
+REM Two columns, both measured with :strlen rather than hand-counted:
+REM   ST_NAMECOL - width of the step-name field, so every "->" lines up
+REM   MARK_COL   - where [√] Done starts, so every marker lines up
+REM The width reference uses a plain "x" for the ● glyph: :strlen counts
+REM characters, and ● is multi-byte, so its width has to be faked as one.
+setlocal EnableDelayedExpansion
+call :strlen "!STEP_NAME_%~1!" ST_NL
+set /a "ST_NGAP=!ST_NAMECOL! - !ST_NL!"
+if !ST_NGAP! lss 1 set "ST_NGAP=0"
+call :pad " " !ST_NGAP! ST_NP
+REM The reference must mirror the visible line EXACTLY, padded name
+REM included - measuring the bare name under-counts and pushes the marker
+REM right by the padding width.
+call :strlen "  |-- x Step %~1 - !STEP_NAME_%~1!!ST_NP!-> [%~2]" ST_W
+REM The 2 subtracted is the gap the echo adds before [√] Done, same
+REM correction :tree_marker makes for :row.
+set /a "ST_GAP=!MARK_COL! - !ST_W! - 2"
+if !ST_GAP! lss 1 set "ST_GAP=0"
+call :pad " " !ST_GAP! ST_GP
+echo %C_DIM%  ^|--%C_RESET% %C_CYAN%%ICON_RUN%%C_RESET% Step %~1 - !STEP_NAME_%~1!!ST_NP!-^> %C_BLUE%[%~2]%C_RESET%!ST_GP!  %C_GREEN%[√]%C_RESET% Done
+endlocal & goto :eof
+
+REM Detail line under the running step: call :step_info "text"
+:step_info
+echo %C_DIM%  ^|%C_RESET%    %~1
+goto :eof
+
+REM Close step <i> as done with a standalone line (multi-line steps only;
+REM single-detail steps merge it via set /p + :step_end instead).
+REM The marker is indented with :pad so it lands in the same column as the
+REM one :step_end prints - see :mark_pad for the column arithmetic.
+:step_done
+call :mark_pad
+echo %C_DIM%  ^|%C_RESET%  %MARK%  %C_GREEN%[√]%C_RESET% Done
+goto :eof
+
+REM Suffix closing a detail line printed without newline via set /p:
+REM <nul set /p "=...detail..." + call :step_end yields one joined line.
+REM :rowj already padded the value to the marker column, so the suffix
+REM needs no extra indent - just the closing words.
+REM Note: the pipe needs NO caret escape inside set /p - that text is taken
+REM literally, so "^|" would print the caret itself.
+:step_end
+echo   %C_GREEN%[√]%C_RESET% Done
+goto :eof
+
+REM Close step <i> as failed. Caller must follow with :fatal + exit /b 1.
+REM Shares the marker column with :step_done so the two never interleave.
+:step_fail
+call :mark_pad
+echo %C_DIM%  ^|%C_RESET%  %MARK%  %C_RED%[x]%C_RESET% Failed
+goto :eof
+
+REM Exports MARK = the run of spaces that puts a status marker at MARK_COL,
+REM the same column :row and :step_now use. Derived from MARK_COL rather
+REM than hardcoded, so all three kinds of marker stay in one column:
+REM   own prefix "  |  " (5) + MARK + gap "  " (2) = MARK_COL -> 62.
+:mark_pad
+REM Seeded with a real space, not "": an empty first argument makes the
+REM length test in :pad misfire, so it would return nothing at all.
+set /a "MARK_GAP=MARK_COL - 7"
+call :pad " " %MARK_GAP% MARK
+goto :eof
+
+REM Exports %~2 = visible length of %~1. Used to pad a line out to the
+REM marker column, so the column math never has to be done by hand.
+REM The string must be free of ! and the loop counts characters, not bytes.
+:strlen
+setlocal EnableDelayedExpansion
+set "SL_S=%~1"
+set /a "SL_N=0"
+:strlen_loop
+if not "!SL_S:~%SL_N%!"=="" goto :strlen_more
+endlocal & set "%~2=%SL_N%" & goto :eof
+:strlen_more
+set /a "SL_N+=1"
+goto :strlen_loop
+
+REM Right-pad %~1 with spaces up to %~2 chars and export as %~3.
+REM Detail values differ in length (Node v24.21.0 vs npm 11.12.1), so
+REM padding is what keeps every [√] marker in one vertical column.
+REM Longer input is left untouched - padding never truncates data.
+:pad
+setlocal EnableDelayedExpansion
+set "PD=%~1"
+REM Skip padding when the value is already at or past the target width, so
+REM the trim below can never cut real characters off the end.
+if not "!PD:~%~2!"=="" goto :pd_keep
+for /L %%k in (1,1,%~2) do set "PD=!PD! "
+set "PD=!PD:~0,%~2!"
+:pd_keep
+endlocal & set "%~3=%PD%" & goto :eof
+
+REM One aligned detail line: call :row "<label>" "<value>".
+REM Label literals already carry the fixed column width, so only the value
+REM gets padded. Without a tree (check mode) TM is empty and the row is
+REM printed unpadded with its leading icon, exactly as before.
+:row
+setlocal EnableDelayedExpansion
+if not defined TM (
+  echo !TP!!TI!%~1%~2
+  endlocal & goto :eof
 )
-echo %C_CYAN%  [!bar!] !pct!%%  %~3%C_RESET%
+call :pad "%~2" 19 PDV
+echo !TP!!TI!%~1!PDV!!TM!
+endlocal & goto :eof
+
+REM Same as :row but leaves the line open (no newline) so :step_end can
+REM append the "  [√] Done" suffix on that same line.
+:rowj
+setlocal EnableDelayedExpansion
+call :pad "%~2" 19 PDV
+<nul set /p "=!TP!!TI!%~1!PDV!"
 endlocal & goto :eof
 
 REM ==========================================================================
 REM  ENVIRONMENT CHECK (every check is real - nothing is faked)
 REM ==========================================================================
 :env_check
+REM Delayed scope so the !TP! spine prefix (set by :steps_begin, empty in
+REM check mode) expands safely: pipes from !-expansion are never parsed
+REM as operators, unlike %-expansion. NODE_V/NPM_V are display-only here.
+setlocal EnableDelayedExpansion
 call :section "SYSTEM CHECK"
-
 where node >nul 2>&1
 if errorlevel 1 (
   call :fatal "Node.js was not found in PATH." "Install Node.js 20 or newer, then retry."
@@ -118,7 +323,7 @@ if errorlevel 1 (
 )
 set "NODE_V="
 for /f "delims=" %%v in ('node --version 2^>nul') do if not defined NODE_V set "NODE_V=%%v"
-echo %ICON_OK%%C_RESET%  Node.js            %NODE_V%
+call :row "Node.js            " "%NODE_V%"
 
 where npm >nul 2>&1
 if errorlevel 1 (
@@ -127,7 +332,7 @@ if errorlevel 1 (
 )
 set "NPM_V="
 for /f "delims=" %%v in ('call npm --version 2^>nul') do if not defined NPM_V set "NPM_V=%%v"
-echo %ICON_OK%%C_RESET%  npm                %NPM_V%
+call :row "npm                " "%NPM_V%"
 
 if not exist "package.json" (
   call :fatal "package.json not found." "Run this launcher from the project folder."
@@ -137,33 +342,35 @@ if not exist "server\index.ts" (
   call :fatal "server\index.ts not found." "Run this launcher from the project folder."
   exit /b 1
 )
-echo %ICON_OK%%C_RESET%  Project            found
+call :row "Project            " "found"
 
 if exist "node_modules" (
-  echo %ICON_OK%%C_RESET%  Dependencies       ready
+  call :row "Dependencies       " "ready"
 ) else (
-  echo %ICON_GO%%C_RESET%  Dependencies       installing...
+  call :row "Dependencies       " "installing..."
   call npm install
   if errorlevel 1 (
     call :fatal "npm install failed." "Fix the errors above and retry."
     exit /b 1
   )
-  echo %ICON_OK%%C_RESET%  Dependencies       installed
+  call :row "Dependencies       " "installed"
 )
 
 if exist ".env" (
-  echo %ICON_OK%%C_RESET%  Configuration      .env found
+  call :row "Configuration      " ".env found"
 ) else (
-  echo %ICON_GO%%C_RESET%  Configuration      creating .env...
+  call :row "Configuration      " "creating .env..."
   call npm run setup
   if errorlevel 1 (
     call :fatal "npm run setup failed." "Fix the errors above and retry."
     exit /b 1
   )
-  echo %ICON_OK%%C_RESET%  Configuration      .env created
+  call :row "Configuration      " ".env created"
 )
-echo.
-goto :eof
+REM :spine prints the blank line here when no tree is active, so the
+REM step block still gets its original breathing room in check mode.
+call :spine
+endlocal & goto :eof
 
 REM Read APP_PORT and OPENCODE_SERVER_URL from .env into BACKEND_PORT / OC_URL.
 :read_env
@@ -245,11 +452,26 @@ title RemoteCode - Prod
 echo %C_BOLD%  PRODUCTION MODE%C_RESET%
 echo.
 
+REM Vertical steps mirror the commands below in the same order:
+REM 1 = :env_check, 2 = firewall + port check,
+REM 3 = :ensure_opencode_cli, 4 = npm run build.
+set "STEP_NAME_1=Check environment"
+set "STEP_NAME_2=Configure network"
+set "STEP_NAME_3=Ensure OpenCode CLI"
+set "STEP_NAME_4=Build for production"
+call :steps_begin "Build Project"
+
+call :step_start 1
 call :env_check
+REM No :step_done here - every check row already carries its own [√], so a
+REM closing Done line would only repeat the status in a column of its own.
+if errorlevel 1 call :step_fail 1
 call :read_env
 title RemoteCode - Prod :%BACKEND_PORT%
-call :step_bar 1 3 Environment
+call :spine
 
+REM No :step_start here - :step_now announces step 2 itself, and printing
+REM both would show the same branch twice.
 REM Clean up obsolete firewall rules from previous setup (silent, best effort).
 netsh advfirewall firewall delete rule name="PWA Backend 8787" >nul 2>&1
 netsh advfirewall firewall delete rule name="PWA Backend 7171" >nul 2>&1
@@ -258,21 +480,39 @@ REM Ensure firewall rule for the prod port (needs Admin; failure stays silent).
 netsh advfirewall firewall show rule name="PWA Prod %BACKEND_PORT%" >nul 2>&1
 if errorlevel 1 netsh advfirewall firewall add rule name="PWA Prod %BACKEND_PORT%" dir=in action=allow protocol=TCP localport=%BACKEND_PORT% >nul 2>&1
 
-if not defined OC_URL call :ensure_opencode_cli
-if not defined OC_URL echo %ICON_OK%%C_RESET%  OpenCode CLI        %OPENCODE_CLI_V%
-if not defined OC_URL echo.
 call :port_check %BACKEND_PORT%
-call :step_bar 2 3 "OpenCode CLI"
+call :step_now 2 "Firewall rules     checked"
+call :spine
 
-echo %ICON_GO%%C_RESET%  Building for production...
+REM Decide the outcome before printing anything: the check is fast, and a
+REM branch printed up front would either be duplicated by :step_now or
+REM leave a dangling Done/Failed line with no step above it.
+set "OC_FAIL="
+if not defined OC_URL call :ensure_opencode_cli
+if errorlevel 1 set "OC_FAIL=1"
+if defined OC_FAIL (
+  call :step_start 3
+  call :step_fail 3
+) else if defined OC_URL (
+  call :step_start 3
+  call :step_done 3
+) else (
+  call :step_now 3 "OpenCode CLI %OPENCODE_CLI_V%"
+)
+call :spine
+
+call :step_start 4
+call :step_info "typecheck + Vite frontend + server compile"
+echo %C_DIM%  ^|%C_RESET%    %C_CYAN%^>^>%C_RESET%  Building for production...
 call npm run build
 if errorlevel 1 (
+  call :step_fail 4
   call :fatal "Build failed." "Fix the errors above and retry."
   exit /b 1
 )
-echo %ICON_OK%%C_RESET%  Build              done
-call :step_bar 3 3 Build
-echo.
+echo %C_DIM%  ^|%C_RESET%    %ICON_OK%%C_RESET%  Build              done
+call :step_done 4
+call :spine
 
 echo %C_BOLD%%C_CYAN%  READY - PRODUCTION%C_RESET%
 echo.
@@ -300,29 +540,49 @@ title RemoteCode - Dev
 echo %C_BOLD%  DEVELOPMENT MODE%C_RESET%
 echo.
 
-call :env_check
-call :read_env
-call :step_bar 1 4 Environment
+REM Same step shape as prod, but the last stage checks ports instead of
+REM building: 1 = :env_check, 2 = firewall rules,
+REM 3 = :ensure_opencode_cli, 4 = :port_check x2.
+set "STEP_NAME_1=Check environment"
+set "STEP_NAME_2=Configure network"
+set "STEP_NAME_3=Ensure OpenCode CLI"
+set "STEP_NAME_4=Check ports"
+call :steps_begin "Start Project"
 
+call :step_start 1
+call :env_check
+REM No :step_done here - every check row already carries its own [√].
+if errorlevel 1 call :step_fail 1
+call :read_env
+call :spine
+
+REM No :step_start here either - :step_now announces step 2 itself.
 REM Firewall rules are best-effort here (needs Admin; failure stays silent).
 netsh advfirewall firewall show rule name="PWA Dev 5173" >nul 2>&1
 if errorlevel 1 netsh advfirewall firewall add rule name="PWA Dev 5173" dir=in action=allow protocol=TCP localport=5173 >nul 2>&1
 netsh advfirewall firewall show rule name="PWA Prod %BACKEND_PORT%" >nul 2>&1
 if errorlevel 1 netsh advfirewall firewall add rule name="PWA Prod %BACKEND_PORT%" dir=in action=allow protocol=TCP localport=%BACKEND_PORT% >nul 2>&1
-echo %ICON_OK%%C_RESET%  Firewall rules     checked
-echo.
-call :step_bar 2 4 Network
+call :step_now 2 "Firewall rules     checked"
+call :spine
 
+REM Same decide-then-print rule as prod: exactly one branch, never two.
+set "OC_FAIL="
 if not defined OC_URL call :ensure_opencode_cli
-if not defined OC_URL echo %ICON_OK%%C_RESET%  OpenCode CLI        %OPENCODE_CLI_V%
-if not defined OC_URL echo.
-call :step_bar 3 4 "OpenCode CLI"
+if errorlevel 1 set "OC_FAIL=1"
+if defined OC_FAIL (
+  call :step_start 3
+  call :step_fail 3
+) else if defined OC_URL (
+  call :step_start 3
+  call :step_done 3
+) else (
+  call :step_now 3 "OpenCode CLI %OPENCODE_CLI_V%"
+)
+call :spine
 
 call :port_check 5173
 call :port_check %BACKEND_PORT%
-echo %ICON_OK%%C_RESET%  Ports              5173 + %BACKEND_PORT% checked
-echo.
-call :step_bar 4 4 Ports
+call :step_now 4 "Ports  5173 + %BACKEND_PORT% checked"
 
 echo %C_BOLD%%C_CYAN%  READY - DEVELOPMENT%C_RESET%
 echo.
