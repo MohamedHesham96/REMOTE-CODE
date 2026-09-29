@@ -760,6 +760,72 @@ describe("project list filtering", () => {
     const projects = await service.projects()
     expect(projects.map((project) => project.worktree).sort()).toEqual(["E:/mSales/app", "E:/mSales/app2"])
   })
+
+  it("يعرض مشروعًا مسجَّلًا لا يحمل أي جلسة", async () => {
+    const service = new OpenCodeService({ projectDirectory: "E:/mSales/app" })
+    const internals = service as unknown as {
+      client: {
+        project: { list: () => Promise<unknown[]> }
+        session: { list: () => Promise<{ data: unknown[]; cursor: object }> }
+      }
+    }
+    internals.client = {
+      project: {
+        list: () => Promise.resolve([
+          { id: "p1", canonical: "E:/mSales/app", name: "app", time: { created: 10, updated: 20, active: 0 } },
+          // بلا جلسات: هو المطلوب أن يظهر
+          { id: "p2", canonical: "E:/work/fresh", name: "fresh", time: { created: 30, updated: 40, active: 0 } },
+          // بادئة مخفية: عمل مؤقت لا مشروع
+          { id: "p3", canonical: "E:/work/.opencode/tmp", time: { created: 50, updated: 60, active: 0 } },
+          // جذر قرص: لا يظهر
+          { id: "p4", canonical: "E:/", time: { created: 70, updated: 80, active: 0 } },
+        ]),
+      },
+      session: {
+        list: () => Promise.resolve({ data: [], cursor: {} }),
+      },
+    }
+
+    const projects = await service.projects()
+    expect(projects.map((project) => project.worktree)).toEqual(["E:/work/fresh", "E:/mSales/app"])
+  })
+
+  it("يستخدم اسم المشروع المسجَّل ودمج زمنه مع الجلسات", async () => {
+    const service = new OpenCodeService({ projectDirectory: "E:/mSales/app" })
+    const internals = service as unknown as {
+      client: {
+        project: { list: () => Promise<unknown[]> }
+        session: { list: () => Promise<{ data: unknown[]; cursor: object }> }
+      }
+    }
+    internals.client = {
+      project: {
+        list: () => Promise.resolve([
+          { id: "p1", canonical: "E:/mSales/app", name: "mSales App", time: { created: 1, updated: 5, active: 0 } },
+        ]),
+      },
+      session: {
+        list: () => Promise.resolve({
+          data: [{
+            id: "ses_1",
+            title: "app",
+            projectID: "p1",
+            location: { directory: "E:/mSales/app" },
+            time: { created: 2, updated: 99 },
+          }],
+          cursor: {},
+        }),
+      },
+    }
+
+    const projects = await service.projects()
+    expect(projects).toEqual([{
+      id: "E:/mSales/app",
+      worktree: "E:/mSales/app",
+      name: "mSales App",
+      time: { created: 1, updated: 99 },
+    }])
+  })
 })
 
 describe("v2 session shapes", () => {

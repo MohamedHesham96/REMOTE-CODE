@@ -643,22 +643,37 @@ export class OpenCodeService {
   }
 
   async projects(): Promise<Project[]> {
-    // v2 بلا سجل مشاريع بمجلدات: المشروع `id` مجرد، والمجلدات تُعرف من
-    // الجلسات نفسها (location.directory). القاعدة مشتركة مع الديسكتوب،
-    // فلا عزل ولا استيراد — القائمة كلها من مصدر واحد حي.
-    // الجذور والمسارات النسبية والأعشاش المؤقتة تُخفى من كل مصدر.
+    // مصدران للمجلدات: سجل المشروع في المحرك (`project.list`) وجلسات
+    // حيّة. السجل وحده يكفي لعرض مشروع ما بدأ فيه محادثة بعد، والجلسات
+    // وحدها تكفي لعميل قديم لا يسجّل — فالجمع يغطّي الاثنين. القاعدة
+    // مشتركة مع الديسكتوب، فلا عزل ولا استيراد.
+    // الجذور والمسارات النسبية والأعشاش المؤقتة تُخفى من كل مصدر عبر
+    // البوابة نفسها، فقائمة `/api/project` لا تتسرّب من أي فرع.
     const home = homedir()
     const projectsByDirectory = new Map<string, Project>()
     const nameByProjectId = new Map<string, string>()
+    // المسجَّل بمجلد لا يحمل جلسات: نضيفه الآن بـ canonical الخاص به لا
+    // بمجلد جلسة، وإلا اختفى المشروع حتى يُفتح فيه حوار.
+    const registeredByDirectory = new Map<string, { id: string; worktree: string; name?: string; created: number; updated: number }>()
     try {
       const registered = await this.requireClient().project.list()
       for (const project of registered) {
         if (project.name) {
           nameByProjectId.set(project.id, project.name)
         }
+        if (!isListableProjectDirectory(project.canonical, home)) {
+          continue
+        }
+        registeredByDirectory.set(directoryKey(project.canonical), {
+          id: project.id,
+          worktree: project.canonical,
+          name: project.name,
+          created: project.time?.created || 0,
+          updated: project.time?.updated || 0,
+        })
       }
     } catch {
-      // أسماء المشاريع تجميلية — الفشل يُبقي اسم المجلد
+      // فشل السجل يُبقي المجلد المُعدّ والمشاريع ذات الجلسات
     }
 
     // المجلد المُعدّ يظهر دائمًا — حتى قبل أول جلسة — فشاشة الاختيار لا
@@ -671,6 +686,28 @@ export class OpenCodeService {
         id: configured,
         worktree: configured,
         time: { created: 0, updated: 0 },
+      })
+    }
+
+    // مشروع مسجَّل بلا جلسات: يظهر بزمنه من المحرك. لو كان هو المجلد
+    // المُعدّ فالاسم والزمن يُملآن على القامة الموجودة بدل تكرار الصف.
+    for (const [key, project] of registeredByDirectory) {
+      const existing = projectsByDirectory.get(key)
+      if (existing) {
+        if (existing.id === configured) {
+          existing.name = project.name
+          existing.time = {
+            created: Math.min(existing.time.created || project.created, project.created),
+            updated: Math.max(existing.time.updated, project.updated),
+          }
+        }
+        continue
+      }
+      projectsByDirectory.set(key, {
+        id: project.id,
+        worktree: project.worktree,
+        name: project.name || folderName(project.worktree),
+        time: { created: project.created, updated: project.updated },
       })
     }
 
@@ -689,14 +726,14 @@ export class OpenCodeService {
       const existing = projectsByDirectory.get(key)
       const created = session.time.created
       const updated = session.time.updated
-      if (existing && existing.id !== configured) {
+      // أي صف قائم — مُعدّ أو مسجَّل — يقرأ زمن الجلسات فقط ولا يُستبدل:
+      // استبداله كان يضيّع `id` المُعدّ ويمنع أي تحديث على زمنه، فيبقى
+      // مثالًا في أسفل القائمة مهما كثرت محادثاته.
+      if (existing) {
         existing.time = {
           created: Math.min(existing.time.created || created, created),
           updated: Math.max(existing.time.updated, updated),
         }
-        continue
-      }
-      if (existing) {
         continue
       }
       const fallbackName = folderName(directory)
