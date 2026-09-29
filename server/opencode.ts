@@ -13,6 +13,7 @@ import type {
   SessionMessageInfo,
 } from "@opencode/client"
 import { setTimeout as sleep } from "node:timers/promises"
+import { ensureLocalEndpoint } from "./opencode/service-launch.js"
 import { serverMessage, type ServerLang } from "./i18n.js"
 import type {
   ActiveSession,
@@ -39,6 +40,7 @@ import {
   errorMessage,
   fileNameFromPath,
   folderName,
+  HEALTHCHECK_TIMEOUT_MS,
   isDefaultTitle,
   isFreeCost,
   isListableProjectDirectory,
@@ -277,17 +279,13 @@ export class OpenCodeService {
       await this.checkCliVersion()
       let endpoint: Awaited<ReturnType<typeof Service.ensure>>
       try {
-        endpoint = await Service.ensure({
-          version: (version: string) => version.startsWith("2."),
-          // على ويندوز spawn("opencode") يفشل بـ ENOENT لأن opencode ملف
-          // .cmd و Node لا ينفّذ ملفات .cmd بدون shell — نمرّر cmd /c كحل.
-          command: process.platform === "win32" ? ["cmd", "/c", "opencode", "serve", "--service"] : undefined,
-        })
+        // الاكتشاف أولًا ثم التشغيل المخفي على Windows (بلا نافذة بوب)،
+        // و`Service.ensure()` ملاذ أخير لحالات الاستبدال فقط.
+        endpoint = await ensureLocalEndpoint()
       } catch (error) {
-        // Service.ensure يرمي "Failed to start server" ويخفي السبب الحقيقي في
-        // cause (مثل ENOENT عندما لا يُنفَّذ أمر opencode بدون shell على ويندوز،
-        // أو CLI قديم بلا `serve --service`)، فنحفظ السلسلة كاملة مع تلميح عملي —
-        // وإلا بقي سجل البدء يكرر رسالة مبهمة كل 5 ثوانٍ بلا طريق للحل.
+        // بدء الخدمة يرمي سببًا مخفيًا في cause (مثل غياب التنفيذية)،
+        // فنحفظ السلسلة كاملة مع تلميح عملي — وإلا بقي سجل البدء يكرر
+        // رسالة مبهمة كل 5 ثوانٍ بلا طريق للحل.
         throw new Error(
           `تعذّر تشغيل خدمة OpenCode المحلية (${errorDetail(error)}). تأكد من تثبيت CLI بالإصدار 2 (opencode --version) أو اضبط OPENCODE_SERVER_URL لخادم خارجي`,
           { cause: error },
@@ -602,7 +600,9 @@ export class OpenCodeService {
   }
 
   async health(): Promise<{ healthy: boolean; version: string }> {
-    const info = await this.requireClient().server.info()
+    // بسقف زمني: المحرك المزنوق يقبل الاتصال ولا يرد، ومن غير السقف
+    // يبقى connect() معلقًا بدل ما يدخل حلقة إعادة المحاولة.
+    const info = await withTimeout(this.requireClient().server.info(), HEALTHCHECK_TIMEOUT_MS, "OpenCode healthcheck")
     return { healthy: true, version: info.version || "connected" }
   }
 
