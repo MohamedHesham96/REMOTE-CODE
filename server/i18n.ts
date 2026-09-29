@@ -4,10 +4,6 @@ import type { Request } from "express";
 export type ServerLang = "ar" | "en";
 
 const messages = {
-  opencodeConnecting: {
-    ar: "جارٍ الاتصال بـ OpenCode…",
-    en: "Connecting to OpenCode…",
-  },
   opencodeUnavailable: {
     ar: "خدمة OpenCode غير متاحة حاليًا. خادم الهاتف يعمل ويعيد المحاولة تلقائيًا — يرجى الانتظار قليلًا ثم تحديث الصفحة.",
     en: "The OpenCode service is currently unavailable. The phone server is running and retrying automatically — please wait a moment then refresh the page.",
@@ -134,18 +130,6 @@ const messages = {
   spawnHint: {
     ar: "السبب: تعذّر تشغيل أمر opencode — تأكد من تثبيت CLI بالإصدار 2 أو اضبط OPENCODE_SERVER_URL",
     en: "Cause: cannot run the opencode command — install CLI v2 or set OPENCODE_SERVER_URL",
-  },
-  noLanIp: {
-    ar: "No LAN IP found — تأكد أن الجهاز على نفس شبكة Wi-Fi مع الهاتف",
-    en: "No LAN IP found — make sure this machine shares Wi-Fi with the phone",
-  },
-  lanHeader: {
-    ar: "من الهاتف (نفس شبكة Wi-Fi) افتح:",
-    en: "From your phone (same Wi-Fi), open:",
-  },
-  afterBuild: {
-    ar: "بعد build",
-    en: "after build",
   },
   portInUse: {
     ar: "Port {port} مشغول — اقفل أي نسخة قديمة من السيرفر أو غيّر APP_PORT في .env",

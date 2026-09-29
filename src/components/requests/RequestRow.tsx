@@ -14,13 +14,6 @@ export const REQUEST_STATE_LABEL: Record<RequestState, keyof Strings> = {
   stopped: "stopped",
 }
 
-export const REQUEST_STATE_TITLE: Record<RequestState, keyof Strings> = {
-  queued: "taskQueued",
-  running: "taskRunning",
-  done: "taskFinished",
-  stopped: "taskStopped",
-}
-
 // كل طلب في المحادثة بيتعرض كسطر واحد جوه كارت واحد، زي قائمة المهام.
 const REQUEST_STATE_ROW: Record<RequestState, string> = {
   queued: "request-row-queued",

@@ -50,18 +50,6 @@ export function parseCliVersion(output: string): string {
   return match ? match[0] : ""
 }
 
-export function unwrap<T>(result: { data?: T; error?: unknown }): T {
-  if (result.error) {
-    throw new Error(errorMessage(result.error))
-  }
-
-  if (result.data === undefined) {
-    throw new Error("OpenCode returned an empty response")
-  }
-
-  return result.data
-}
-
 export function stripMobileSuffix(title: string): string {
   return title.replace(/\s*\(mobile\)\s*$/i, "").trim()
 }
@@ -99,12 +87,6 @@ export function titleFromUserText(text: string): string {
 
 export function directoryKey(directory: string): string {
   return directory.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase()
-}
-
-export function isChildDirectory(directory: string, parent: string): boolean {
-  const child = directoryKey(directory)
-  const root = directoryKey(parent)
-  return child !== root && child.startsWith(`${root}/`)
 }
 
 // شكل المسار وحده يحدد صلاحيته للعرض: القائمة تجمع من ثلاث مصادر (المُعدّ
@@ -203,9 +185,6 @@ export const MODELS_CACHE_MS = 5 * 60 * 1000
 
 // كاش قوائم الأسئلة: بتتقرأ مع كل poll للـ requests، وبتتبطل مع أحداث الأسئلة
 export const QUESTIONS_CACHE_MS = 2000
-
-// سقف عملاء SDK المحفوظين لكل directory — منع نمو غير محدود للذاكرة
-export const MAX_CACHED_CLIENTS = 12
 
 // ترتيب معروف لمستويات التفكير، عشان الكيبس تظهر بترتيب متوقع مش أبجدي
 export const VARIANT_ORDER = ["minimal", "none", "low", "medium", "high", "xhigh", "max"]

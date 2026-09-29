@@ -1,4 +1,4 @@
-import type { Express, NextFunction, Request, Response } from "express"
+import type { NextFunction, Request, Response } from "express"
 import type { OpenCodeService } from "../opencode.js"
 import type { PinService } from "../pins.js"
 import type { PushService } from "../push.js"
@@ -13,5 +13,3 @@ export interface RouteContext {
   hub: EventHub
   pollLimiter: (request: Request, response: Response, next: NextFunction) => void
 }
-
-export type RouteModule = (app: Express, ctx: RouteContext) => void
