@@ -224,7 +224,7 @@ export function serverMessage(key: ServerMessageKey, lang: ServerLang): string {
 }
 
 // لغة سطور السجل والطرفية فقط (لا تمس رسائل الـ API — تلك حسب لغة كل
-// طلب عبر getServerLang). من APP_LANG (يضبطها run.bat على en)، والافتراضي
+// طلب عبر getServerLang). من APP_LANG (يضبطها build.bat على en)، والافتراضي
 // العربية للحفاظ على السلوك الحالي لمن يشغّل يدويًا.
 export function consoleLang(env: NodeJS.ProcessEnv = process.env): ServerLang {
   return env.APP_LANG?.trim().toLowerCase().startsWith("en") ? "en" : "ar";

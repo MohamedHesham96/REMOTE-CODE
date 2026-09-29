@@ -3,10 +3,10 @@ setlocal EnableExtensions
 REM ==========================================================================
 REM  RemoteCode - Launcher (Windows)
 REM  --------------------------------------------------------------------------
-REM  Usage: run.bat         = Development mode (backend + Vite on 5173)
-REM         run.bat prod    = Production mode (build + single port APP_PORT)
-REM         run.bat menu    = Interactive mode selection
-REM         run.bat check   = Environment check only, then exit
+REM  Usage: build.bat         = Development mode (backend + Vite on 5173)
+REM         build.bat prod    = Production mode (build + single port APP_PORT)
+REM         build.bat menu    = Interactive mode selection
+REM         build.bat check   = Environment check only, then exit
 REM  Any other argument prints a warning and starts Development (default).
 REM  Backend console language: APP_LANG=en here (Arabic is the default
 REM  when running npm commands manually or when APP_LANG is set explicitly).
@@ -196,7 +196,7 @@ echo   Local: %C_CYAN%http://localhost:%~1%C_RESET%
 goto :eof
 
 REM ==========================================================================
-REM  INTERACTIVE MENU (additive - plain "run.bat" still starts Dev directly)
+REM  INTERACTIVE MENU (additive - plain "build.bat" still starts Dev directly)
 REM ==========================================================================
 :menu
 call :banner
@@ -380,7 +380,7 @@ endlocal & set "OPENCODE_CLI_V=%OC_VERSION%" & goto :eof
 REM ---------------------------------------------------------------------------
 REM waitopen: background helper (runs in a minimized window) that polls until
 REM the servers answer, then opens the browser. Usage:
-REM   run.bat waitopen <backendPort> <frontendPort|-> <url>
+REM   build.bat waitopen <backendPort> <frontendPort|-> <url>
 REM "-" skips the frontend check (prod = backend only). Gives up after ~2 min
 REM so a failed start never leaves an orphan polling loop behind.
 REM ---------------------------------------------------------------------------

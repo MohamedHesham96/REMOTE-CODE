@@ -150,7 +150,7 @@ async function start(): Promise<void> {
   // الأهم: افتح بورت 7171 فورًا قبل أي اتصال بـ OpenCode،
   // عشان /api/login و /api/health يردّوا دايمًا وVite proxy ميضربش ECONNREFUSED أبدًا.
   // وضع هادئ مقصود: لا سطور بدء تشغيل — الأخطاء وحدها تُطبع
-  // (تعارض البورت أعلى). سطور العناوين أُزيلت من هنا ومن run.bat معًا.
+  // (تعارض البورت أعلى). سطور العناوين أُزيلت من هنا ومن build.bat معًا.
   server.listen(config.port, config.host, () => {})
 
   // اتصال OpenCode في الخلفية مع retry للأبد — السيرفر يفضل شغال حتى لو opencode واقع

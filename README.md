@@ -126,10 +126,10 @@ Everything below is implemented in the current code — no planned/vapor feature
 
 | Requirement | Version / notes |
 |-------------|-----------------|
-| Node.js | **20+** (`run.bat` checks this; developed with Node 24) |
+| Node.js | **20+** (`build.bat` checks this; developed with Node 24) |
 | npm | ships with Node (dependencies install via `npm install`) |
-| OpenCode CLI | required in `PATH` — install with `npm install -g opencode-ai`. The **OpenCode desktop app v2 alone is not enough**: its database format is incompatible with the CLI v1 this backend drives (`run.bat` fails fast with a clear error if the CLI is missing) |
-| OS | Windows scripts provided (`run.bat`); macOS/Linux can run the same `npm` commands manually |
+| OpenCode CLI | required in `PATH` — install with `npm install -g opencode-ai`. The **OpenCode desktop app v2 alone is not enough**: its database format is incompatible with the CLI v1 this backend drives (`build.bat` fails fast with a clear error if the CLI is missing) |
+| OS | Windows scripts provided (`build.bat`); macOS/Linux can run the same `npm` commands manually |
 | Phone + computer | same Wi-Fi, no VPN, firewall open (see [Troubleshooting](#troubleshooting)) |
 | HTTPS (optional) | required for PWA install + Web Push on LAN; `localhost` is exempt by browsers |
 
@@ -143,7 +143,7 @@ cd REMOTE-CODE
 npm install
 ```
 
-`run.bat` also runs `npm install` automatically when `node_modules/` is missing.
+`build.bat` also runs `npm install` automatically when `node_modules/` is missing.
 
 ### 2. Create `.env`
 
@@ -189,7 +189,7 @@ VAPID_SUBJECT=mailto:opencode@localhost
 | `APP_ACCESS_TOKEN` | (none — required) | min 24 chars; changing it signs out all devices |
 | `APP_HOST` | `0.0.0.0` | keep for LAN access; `127.0.0.1` = this machine only |
 | `APP_PORT` | `7171` | backend + prod frontend port |
-| `APP_LANG` | empty (= Arabic) | console log language: set to `en` for English (`run.bat` sets it automatically) |
+| `APP_LANG` | empty (= Arabic) | console log language: set to `en` for English (`build.bat` sets it automatically) |
 | `APP_TLS_CERT_PATH` / `APP_TLS_KEY_PATH` | empty (plain HTTP) | set both for HTTPS; needed for LAN PWA install + push |
 | `OPENCODE_PROJECT_DIR` | `.` | working directory OpenCode operates in |
 | `OPENCODE_SERVER_URL` | empty (= start local CLI) | set to use an external OpenCode server instead |
@@ -204,28 +204,28 @@ Validation rules enforced at startup (`server/config.ts`): missing/short token f
 ### 4. Connect to OpenCode
 
 - **Default**: the backend starts the OpenCode CLI itself on `127.0.0.1:<OPENCODE_PORT>` — nothing to configure.
-- **External server**: set `OPENCODE_SERVER_URL` (plus username/password if needed); `run.bat` then skips the CLI check.
+- **External server**: set `OPENCODE_SERVER_URL` (plus username/password if needed); `build.bat` then skips the CLI check.
 
 Note on databases: the backend pins `OPENCODE_DB` to `data/projects-database.db` because the desktop app (v2) migrates a shared database to a format without a `session` table, which kills CLI v1 with "Database is not empty and has no session table". Desktop project folders are auto-imported **read-only** (absolute, existing, non-hidden paths only — no drive roots, relative paths, or the home folder) as targets for new sessions; old desktop conversations are not migrated due to the format difference.
 
 ## Running the Application
 
-### Easiest: `run.bat` (Windows)
+### Easiest: `build.bat` (Windows)
 
 ```powershell
 # Development (backend + Vite with hot reload)
-.\run.bat
+.\build.bat
 
 # Production (build + single-port server)
-.\run.bat prod
+.\build.bat prod
 ```
 
 What it does: checks Node/npm (and the OpenCode CLI unless an external server is set), adds Windows Firewall rules for the needed ports, creates `.env` on first run, shows localhost URLs, opens the browser once the servers answer, and starts the server (`pause` keeps the window open; `Ctrl+C` stops).
 
 | Mode | Command | Phone URL | Notes |
 |------|---------|-----------|-------|
-| Dev | `.\run.bat` | `http://<PC-IP>:5173` | Vite frontend + backend on `APP_PORT`; hot reload via LAN (`hmr.clientPort: 5173`) |
-| Prod | `.\run.bat prod` | `http://<PC-IP>:7171` (or your `APP_PORT`) | serves `dist/` + API on one port; port 5173 stays closed — this is normal |
+| Dev | `.\build.bat` | `http://<PC-IP>:5173` | Vite frontend + backend on `APP_PORT`; hot reload via LAN (`hmr.clientPort: 5173`) |
+| Prod | `.\build.bat prod` | `http://<PC-IP>:7171` (or your `APP_PORT`) | serves `dist/` + API on one port; port 5173 stays closed — this is normal |
 
 Startup is quiet by design: the backend prints nothing on success (errors only),
 and the launcher opens the browser automatically once the servers answer.
@@ -266,7 +266,7 @@ Available scripts (`package.json`):
 
 ### Access from the phone
 
-1. Start the app (`.\run.bat` or `.\run.bat prod`).
+1. Start the app (`.\build.bat` or `.\build.bat prod`).
 2. Read the LAN address from the console (or find your PC's IPv4 via `ipconfig`).
 3. On the phone (same Wi-Fi, no VPN), open `http://<PC-IP>:5173` (dev) or `http://<PC-IP>:<APP_PORT>` (prod).
 4. Log in with the `APP_ACCESS_TOKEN` from `.env`.
@@ -287,7 +287,7 @@ APP_TLS_CERT_PATH=./certs/localhost.pem
 APP_TLS_KEY_PATH=./certs/localhost-key.pem
 ```
 
-3. Rebuild and restart: `npm run build` then `npm start` (or `.\run.bat prod`).
+3. Rebuild and restart: `npm run build` then `npm start` (or `.\build.bat prod`).
 4. Open the `https://<PC-IP>:<APP_PORT>` address on the phone, then install and enable push from the app's Settings.
 
 ### Android (Chrome/Edge)
@@ -336,7 +336,7 @@ REMOTE-CODE/
 ├── public/                 # manifest.webmanifest, sw.js, icon.svg, icons/*.png
 ├── data/                   # gitignored local state: pins, push-subscriptions.json, projects-database.db
 ├── dist/ / dist-server/    # build outputs (frontend / backend)
-├── run.bat                 # Windows launcher (dev default, prod via `prod` arg)
+├── build.bat                 # Windows launcher (dev default, prod via `prod` arg)
 ├── vite.config.ts          # host 0.0.0.0, allowedHosts, hmr.clientPort 5173, no sourcemaps, React vendor chunk
 └── package.json            # scripts + pinned deps
 ```
@@ -423,14 +423,14 @@ Base: same origin as the app. Auth: `POST /api/login` sets the session cookie; a
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| `npm run setup` / start fails: `Missing required environment variable: APP_ACCESS_TOKEN` | `.env` missing — run `npm run setup` (or `.\run.bat`, which does it automatically) |
+| `npm run setup` / start fails: `Missing required environment variable: APP_ACCESS_TOKEN` | `.env` missing — run `npm run setup` (or `.\build.bat`, which does it automatically) |
 | `APP_ACCESS_TOKEN must contain at least 24 characters` | token too short — generate a long random value; `npm run setup` makes a 43-char one |
 | `VAPID_… must be configured together` / `APP_TLS_… must be configured together` | key pairs are all-or-nothing — set both or neither (empty = disabled) |
 | `OpenCode project directory does not exist` | `OPENCODE_PROJECT_DIR` points nowhere — fix the path in `.env` |
-| `run.bat` says OpenCode CLI not found | install it: `npm install -g opencode-ai`, then restart. Desktop app v2 alone is insufficient |
+| `build.bat` says OpenCode CLI not found | install it: `npm install -g opencode-ai`, then restart. Desktop app v2 alone is insufficient |
 | `Port 7171 مشغول` / `EADDRINUSE` | another instance holds the port — stop the old server or change `APP_PORT` in `.env` |
 | Phone shows `BACKEND_STARTING` / Vite proxy `ECONNREFUSED` | backend still booting — wait ~5 s and refresh; the server opens the port before the engine connects |
-| Phone can't reach the PC | same Wi-Fi required; disable VPN on both; allow the firewall rule (run `run.bat` as Administrator if auto-add failed); some guest/hotel networks enable client isolation — use a normal home router |
+| Phone can't reach the PC | same Wi-Fi required; disable VPN on both; allow the firewall rule (run `build.bat` as Administrator if auto-add failed); some guest/hotel networks enable client isolation — use a normal home router |
 | Opened `:5173` in prod and nothing loads | expected — 5173 is dev-only; in prod open `:<APP_PORT>` (default 7171) |
 | `Database is not empty and has no session table` | a desktop-app v2 database is being shared — keep the default isolated `OPENCODE_DB` (`data/projects-database.db`) or set an explicit `OPENCODE_DB` |
 | Install/PWA button missing; push won't enable | needs a secure context — use HTTPS (see above) or `localhost`; on iOS 16.4+ the app must be installed to the home screen first |
