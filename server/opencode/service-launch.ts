@@ -4,6 +4,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { Service, type Endpoint } from "@opencode/client/service"
+import { consoleLang, serverMessage } from "../i18n.js"
 
 // تشغيل الخدمة المحلية بصمت على Windows: اكتشاف أولًا، وتشغيل مخفي
 // عند الحاجة، وترك `Service.ensure()` كملاذ أخير فقط.
@@ -118,11 +119,11 @@ export function spawnHiddenService(binary: string): void {
       windowsHide: true,
     })
     child.once("error", (cause: unknown) => {
-      console.error("تعذّر تشغيل خدمة OpenCode في الخلفية:", cause instanceof Error ? cause.message : cause)
+      console.error(serverMessage("serviceLaunchFailed", consoleLang()), cause instanceof Error ? cause.message : cause)
     })
     child.unref()
   } catch (error) {
-    console.error("تعذّر تشغيل خدمة OpenCode في الخلفية:", error instanceof Error ? error.message : error)
+    console.error(serverMessage("serviceLaunchFailed", consoleLang()), error instanceof Error ? error.message : error)
   }
 }
 

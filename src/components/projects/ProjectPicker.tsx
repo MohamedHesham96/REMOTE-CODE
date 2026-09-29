@@ -202,7 +202,7 @@ export function ProjectPicker({ projects, selectedId, switchingKey, recentPaths,
       <div className="project-picker">
         <div className="project-picker-header">
           <div className="brand-mark"><img src="/icon.svg" alt="OpenCode" /></div>
-          <div className="eyebrow">OpenCode Mobile</div>
+          <div className="eyebrow">RemoteCode</div>
           <h1>{t.chooseProject}</h1>
           <p>{t.chooseFromList}</p>
         </div>

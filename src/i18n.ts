@@ -39,7 +39,7 @@ export function applyLanguage(lang: Language): void {
   const meta = LANGUAGE_META[lang];
   document.documentElement.lang = lang === "ar" ? "ar" : "en";
   document.documentElement.dir = meta.dir;
-  document.title = lang === "ar" ? "OpenCode Mobile" : "OpenCode Mobile";
+  document.title = "RemoteCode";
 }
 
 export function localeOf(lang: Language): string {
@@ -47,7 +47,7 @@ export function localeOf(lang: Language): string {
 }
 
 const ar = {
-  appName: "OpenCode Mobile",
+  appName: "RemoteCode",
   statusReady: "جاهز",
   statusBusy: "يعمل الآن",
   statusRetry: "إعادة المحاولة",
@@ -344,7 +344,7 @@ const ar = {
 };
 
 const en: typeof ar = {
-  appName: "OpenCode Mobile",
+  appName: "RemoteCode",
   statusReady: "Ready",
   statusBusy: "Working now",
   statusRetry: "Retrying",

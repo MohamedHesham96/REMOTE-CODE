@@ -1745,7 +1745,7 @@ function App() {
       <main className="login-screen">
         <div className="login-card">
           <div className="brand-mark"><img src="/icon.svg" alt="OpenCode" /></div>
-          <div className="eyebrow">OpenCode Mobile</div>
+          <div className="eyebrow">RemoteCode</div>
           <h1>{t.loginTitle}</h1>
           <p className="login-copy">{t.loginCopyEnv} <code>pwa/.env</code> {t.loginCopyAfter}</p>
           <form onSubmit={handleLogin}>

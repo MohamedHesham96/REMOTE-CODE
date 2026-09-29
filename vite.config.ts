@@ -7,6 +7,9 @@ export default defineConfig(({ mode }) => {
   const backendTarget = `http://127.0.0.1:${backendPort}`
   return {
   plugins: [react()],
+  // وضع هادئ: إخفاء سطور "ready" وإعادة التحسين — التحذيرات والأخطاء تظهر فقط
+  logLevel: "warn",
+  clearScreen: false,
   server: {
     // لازم 0.0.0.0 عشان الموبايل يوصل من نفس Wi-Fi — لا تغيّرها لـ localhost
     host: "0.0.0.0",

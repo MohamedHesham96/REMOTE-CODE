@@ -14,7 +14,7 @@ import type {
 } from "@opencode/client"
 import { setTimeout as sleep } from "node:timers/promises"
 import { ensureLocalEndpoint } from "./opencode/service-launch.js"
-import { serverMessage, type ServerLang } from "./i18n.js"
+import { consoleLang, serverMessage, type ServerLang } from "./i18n.js"
 import type {
   ActiveSession,
   ConversationQuestionRequest,
@@ -247,20 +247,21 @@ export class OpenCodeService {
   // فحص مسبق لنسخة CLI قبل محاولة تشغيل الخدمة — v1 لا يدعم `serve --service`
   // ويخرج بـ code 1 بدون رسالة واضحة، فهذا الفحص يعطي خطأً فوريًا قابلًا للحل.
   private async checkCliVersion(): Promise<string> {
+    const lang = consoleLang()
     const { execFile } = await import("node:child_process")
     return new Promise((resolve, reject) => {
       const command = process.platform === "win32" ? "cmd" : "opencode"
       const args = process.platform === "win32" ? ["/c", "opencode", "--version"] : ["--version"]
       execFile(command, args, { timeout: 10_000 }, (error, stdout) => {
         if (error) {
-          reject(new Error(`تعذّر تشغيل opencode CLI: ${error.message}. تأكد من تثبيته أو اضبط OPENCODE_SERVER_URL`))
+          reject(new Error(`${serverMessage("cliRunFailed", lang)}: ${error.message}. ${serverMessage("cliInstallHint", lang)}`))
           return
         }
         // v2 تطبع "opencode v2.0.18" لا الرقم مجرّدًا، فبنمطّع الصيغة قبل الحكم.
         const version = parseCliVersion(stdout)
         if (!version.startsWith("2.")) {
           reject(new Error(
-            `نسخة OpenCode CLI المثبّتة ${version || stdout.trim() || "غير معروفة"} — المطلوب الإصدار 2 أو أحدث. ثبّته بـ: npm uninstall -g opencode-ai && npm install -g @opencode/cli`,
+            serverMessage("cliVersionMismatch", lang).replace("{version}", version || stdout.trim() || serverMessage("versionUnknown", lang)),
           ))
           return
         }
@@ -286,8 +287,9 @@ export class OpenCodeService {
         // بدء الخدمة يرمي سببًا مخفيًا في cause (مثل غياب التنفيذية)،
         // فنحفظ السلسلة كاملة مع تلميح عملي — وإلا بقي سجل البدء يكرر
         // رسالة مبهمة كل 5 ثوانٍ بلا طريق للحل.
+        const lang = consoleLang()
         throw new Error(
-          `تعذّر تشغيل خدمة OpenCode المحلية (${errorDetail(error)}). تأكد من تثبيت CLI بالإصدار 2 (opencode --version) أو اضبط OPENCODE_SERVER_URL لخادم خارجي`,
+          `${serverMessage("serviceStartFailed", lang)} (${errorDetail(error)}). ${serverMessage("cliV2Hint", lang)}`,
           { cause: error },
         )
       }

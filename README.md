@@ -1,4 +1,4 @@
-# OpenCode Mobile PWA
+# RemoteCode
 
 A mobile-first web interface for talking to [OpenCode](https://opencode.ai) from your phone over the same Wi-Fi network. A thin Express backend drives a locally-started OpenCode engine; a React single-page app gives you conversations, live status, history, pins, Git status, models, permissions, questions, files, and push notifications.
 
@@ -189,6 +189,7 @@ VAPID_SUBJECT=mailto:opencode@localhost
 | `APP_ACCESS_TOKEN` | (none — required) | min 24 chars; changing it signs out all devices |
 | `APP_HOST` | `0.0.0.0` | keep for LAN access; `127.0.0.1` = this machine only |
 | `APP_PORT` | `7171` | backend + prod frontend port |
+| `APP_LANG` | empty (= Arabic) | console log language: set to `en` for English (`run.bat` sets it automatically) |
 | `APP_TLS_CERT_PATH` / `APP_TLS_KEY_PATH` | empty (plain HTTP) | set both for HTTPS; needed for LAN PWA install + push |
 | `OPENCODE_PROJECT_DIR` | `.` | working directory OpenCode operates in |
 | `OPENCODE_SERVER_URL` | empty (= start local CLI) | set to use an external OpenCode server instead |
@@ -219,20 +220,18 @@ Note on databases: the backend pins `OPENCODE_DB` to `data/projects-database.db`
 .\run.bat prod
 ```
 
-What it does: checks Node/npm (and the OpenCode CLI unless an external server is set), adds Windows Firewall rules for the needed ports, creates `.env` on first run, prints your LAN addresses, opens the browser, and starts the server (`pause` keeps the window open; `Ctrl+C` stops).
+What it does: checks Node/npm (and the OpenCode CLI unless an external server is set), adds Windows Firewall rules for the needed ports, creates `.env` on first run, shows localhost URLs, opens the browser once the servers answer, and starts the server (`pause` keeps the window open; `Ctrl+C` stops).
 
 | Mode | Command | Phone URL | Notes |
 |------|---------|-----------|-------|
 | Dev | `.\run.bat` | `http://<PC-IP>:5173` | Vite frontend + backend on `APP_PORT`; hot reload via LAN (`hmr.clientPort: 5173`) |
 | Prod | `.\run.bat prod` | `http://<PC-IP>:7171` (or your `APP_PORT`) | serves `dist/` + API on one port; port 5173 stays closed — this is normal |
 
-The backend prints exact addresses at startup, e.g.:
-
-```text
-OpenCode Mobile listening on 0.0.0.0:7171
-من الهاتف (نفس شبكة Wi-Fi) افتح:
-  - Prod (بعد build): http://192.168.1.20:7171
-```
+Startup is quiet by design: the backend prints nothing on success (errors only),
+and the launcher opens the browser automatically once the servers answer.
+Find this machine's LAN IP with `ipconfig` and open
+`http://<PC-IP>:5173` (dev) or `http://<PC-IP>:<APP_PORT>` (prod)
+from the phone — same Wi-Fi, no VPN.
 
 ### Manual commands (any OS)
 

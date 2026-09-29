@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express"
 import { setTimeout as sleep } from "node:timers/promises"
 import type { OpenCodeService } from "./opencode.js"
-import { getServerLang, serverMessage } from "./i18n.js"
+import { consoleLang, getServerLang, serverMessage } from "./i18n.js"
 
 const CONNECT_RETRY_MS = 5000
 
@@ -93,9 +93,10 @@ export class OpenCodeConnection {
       } catch (error) {
         this.ready = false
         this.lastError = error instanceof Error ? error.message : String(error)
-        console.error(`OpenCode connect failed: ${this.lastError} — الخادم على :${port} يعمل ويعيد المحاولة بعد 5 ثوانٍ…`)
+        const lang = consoleLang()
+        console.error(`OpenCode connect failed: ${this.lastError} — ${serverMessage("connectRetry", lang).replace("{port}", `${port}`)}`)
         if (/ENOENT|spawn/i.test(this.lastError)) {
-          console.error("  السبب: تعذّر تشغيل أمر opencode — تأكد من تثبيت CLI بالإصدار 2 أو اضبط OPENCODE_SERVER_URL")
+          console.error(`  ${serverMessage("spawnHint", lang)}`)
         }
         await sleep(CONNECT_RETRY_MS)
       }

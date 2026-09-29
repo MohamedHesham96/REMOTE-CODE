@@ -131,7 +131,7 @@ export class PushService {
 
     const lang = isServerLang((value as unknown as { lang?: unknown }).lang) ? (value as unknown as { lang: ServerLang }).lang : "ar"
     await this.send(value, {
-      title: "OpenCode Mobile",
+      title: "RemoteCode",
       body: serverMessage("pushTestBody", lang),
       tag: "opencode-push-test",
     })

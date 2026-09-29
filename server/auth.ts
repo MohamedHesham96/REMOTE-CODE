@@ -1,8 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 import type { NextFunction, Request, Response } from "express"
 
-const cookieName = "opencode_mobile_session"
-const sessionContext = "opencode-mobile-pwa"
+const cookieName = "remotecode_session"
+const sessionContext = "remotecode"
 
 function equal(left: string, right: string): boolean {
   const leftBuffer = Buffer.from(left)

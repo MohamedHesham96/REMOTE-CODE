@@ -1,4 +1,4 @@
-const CACHE_NAME = "opencode-mobile-shell-v9"
+const CACHE_NAME = "RemoteCode-shell-v9"
 const SHELL = [
   "/",
   "/manifest.webmanifest",

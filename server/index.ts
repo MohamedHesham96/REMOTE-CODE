@@ -3,7 +3,6 @@ import compression from "compression"
 import { createServer as createHttpServer } from "node:http"
 import { createServer as createHttpsServer } from "node:https"
 import { readFileSync } from "node:fs"
-import { networkInterfaces } from "node:os"
 import { config } from "./config.js"
 import { requireAuthentication } from "./auth.js"
 import { OpenCodeService } from "./opencode.js"
@@ -12,6 +11,7 @@ import { PushService } from "./push.js"
 import { createRateLimiter } from "./utils/rate-limit.js"
 import { OpenCodeConnection } from "./connection.js"
 import { EventHub, pinsEvent } from "./sse/hub.js"
+import { consoleLang, serverMessage } from "./i18n.js"
 import { clientEvent, eventSessionId, isIdleEvent } from "./sse/filter.js"
 import { securityHeaders } from "./middleware/security.js"
 import { registerStatic } from "./static.js"
@@ -121,31 +121,6 @@ app.use((error: unknown, request: Request, response: Response, next: NextFunctio
   connection.handleError(error, response, request)
 })
 
-function printLanAddresses(port: number): void {
-  try {
-    const nets = networkInterfaces()
-    const ips = new Set<string>()
-    for (const list of Object.values(nets)) {
-      for (const entry of list || []) {
-        if (entry.family === "IPv4" && !entry.internal) {
-          ips.add(entry.address)
-        }
-      }
-    }
-    if (ips.size === 0) {
-      console.log("No LAN IP found — تأكد أن الجهاز على نفس شبكة Wi-Fi مع الهاتف")
-      return
-    }
-    console.log("من الهاتف (نفس شبكة Wi-Fi) افتح:")
-    for (const ip of ips) {
-      console.log(`  - Dev (Vite):  http://${ip}:5173`)
-      console.log(`  - Prod (بعد build): http://${ip}:${port}`)
-    }
-  } catch {
-    // تجاهل — الطباعة مساعدة فقط
-  }
-}
-
 async function start(): Promise<void> {
   // push اختيارية — فشلها لا يوقع السيرفر أبدًا
   try {
@@ -166,7 +141,7 @@ async function start(): Promise<void> {
 
   server.on("error", (error: NodeJS.ErrnoException) => {
     if (error.code === "EADDRINUSE") {
-      console.error(`Port ${config.port} مشغول — اقفل أي نسخة قديمة من السيرفر أو غيّر APP_PORT في .env`)
+      console.error(serverMessage("portInUse", consoleLang()).replace("{port}", `${config.port}`))
     } else {
       console.error("Server error:", error.message)
     }
@@ -174,15 +149,9 @@ async function start(): Promise<void> {
 
   // الأهم: افتح بورت 7171 فورًا قبل أي اتصال بـ OpenCode،
   // عشان /api/login و /api/health يردّوا دايمًا وVite proxy ميضربش ECONNREFUSED أبدًا.
-  server.listen(config.port, config.host, () => {
-    console.log(`OpenCode Mobile listening on ${config.host}:${config.port}`)
-    console.log(`OpenCode project: ${config.openCode.projectDirectory}`)
-    console.log("OpenCode database: shared with the desktop app (v2)")
-    printLanAddresses(config.port)
-    if (!config.tlsCertificatePath) {
-      console.log("TLS is disabled; Web Push and PWA installation require HTTPS or localhost")
-    }
-  })
+  // وضع هادئ مقصود: لا سطور بدء تشغيل — الأخطاء وحدها تُطبع
+  // (تعارض البورت أعلى). سطور العناوين أُزيلت من هنا ومن run.bat معًا.
+  server.listen(config.port, config.host, () => {})
 
   // اتصال OpenCode في الخلفية مع retry للأبد — السيرفر يفضل شغال حتى لو opencode واقع
   void connection.connectWithRetry(config.port)

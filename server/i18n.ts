@@ -120,6 +120,73 @@ const messages = {
     ar: "الإشعارات تعمل بنجاح",
     en: "Notifications are working",
   },
+  // سطور السجل والطرفية (console) — نفس المفاتيح باللغتين، والاختيار عبر
+  // consoleLang(). الرسائل التي تحتاج قيمًا متغيرة تستخدم {name}
+  // ويستبدلها المنادي بـ replace.
+  serviceLaunchFailed: {
+    ar: "تعذّر تشغيل خدمة OpenCode في الخلفية:",
+    en: "Failed to start the OpenCode background service:",
+  },
+  connectRetry: {
+    ar: "الخادم على :{port} يعمل ويعيد المحاولة بعد 5 ثوانٍ…",
+    en: "Server on :{port} is up and retrying in 5s…",
+  },
+  spawnHint: {
+    ar: "السبب: تعذّر تشغيل أمر opencode — تأكد من تثبيت CLI بالإصدار 2 أو اضبط OPENCODE_SERVER_URL",
+    en: "Cause: cannot run the opencode command — install CLI v2 or set OPENCODE_SERVER_URL",
+  },
+  noLanIp: {
+    ar: "No LAN IP found — تأكد أن الجهاز على نفس شبكة Wi-Fi مع الهاتف",
+    en: "No LAN IP found — make sure this machine shares Wi-Fi with the phone",
+  },
+  lanHeader: {
+    ar: "من الهاتف (نفس شبكة Wi-Fi) افتح:",
+    en: "From your phone (same Wi-Fi), open:",
+  },
+  afterBuild: {
+    ar: "بعد build",
+    en: "after build",
+  },
+  portInUse: {
+    ar: "Port {port} مشغول — اقفل أي نسخة قديمة من السيرفر أو غيّر APP_PORT في .env",
+    en: "Port {port} is busy — stop any old server copy or change APP_PORT in .env",
+  },
+  cliRunFailed: {
+    ar: "تعذّر تشغيل opencode CLI",
+    en: "Cannot run the opencode CLI",
+  },
+  cliInstallHint: {
+    ar: "تأكد من تثبيته أو اضبط OPENCODE_SERVER_URL",
+    en: "Make sure it is installed or set OPENCODE_SERVER_URL",
+  },
+  versionUnknown: {
+    ar: "غير معروفة",
+    en: "unknown",
+  },
+  cliVersionMismatch: {
+    ar: "نسخة OpenCode CLI المثبتة {version} — المطلوب الإصدار 2 أو أحدث. ثبته بـ: npm uninstall -g opencode-ai && npm install -g @opencode/cli",
+    en: "Installed OpenCode CLI is {version} — version 2 or newer is required. Install it with: npm uninstall -g opencode-ai && npm install -g @opencode/cli",
+  },
+  serviceStartFailed: {
+    ar: "تعذّر تشغيل خدمة OpenCode المحلية",
+    en: "Cannot start the local OpenCode service",
+  },
+  cliV2Hint: {
+    ar: "تأكد من تثبيت CLI بالإصدار 2 (opencode --version) أو اضبط OPENCODE_SERVER_URL لخادم خارجي",
+    en: "Make sure CLI v2 is installed (opencode --version) or set OPENCODE_SERVER_URL to an external server",
+  },
+  setupCreated: {
+    ar: "تم إنشاء {path}",
+    en: "Created {path}",
+  },
+  accessTokenIs: {
+    ar: "رمز الوصول: {token}",
+    en: "Access token: {token}",
+  },
+  httpsNote: {
+    ar: "لتشغيل PWA/Web Push من الهاتف، فعّل HTTPS عبر APP_TLS_CERT_PATH وAPP_TLS_KEY_PATH.",
+    en: "To run PWA/Web Push from the phone, enable HTTPS via APP_TLS_CERT_PATH and APP_TLS_KEY_PATH.",
+  },
 } as const;
 
 export type ServerMessageKey = keyof typeof messages;
@@ -154,4 +221,11 @@ export function getServerLang(request: Pick<Request, "query" | "headers" | "body
 
 export function serverMessage(key: ServerMessageKey, lang: ServerLang): string {
   return messages[key][lang];
+}
+
+// لغة سطور السجل والطرفية فقط (لا تمس رسائل الـ API — تلك حسب لغة كل
+// طلب عبر getServerLang). من APP_LANG (يضبطها run.bat على en)، والافتراضي
+// العربية للحفاظ على السلوك الحالي لمن يشغّل يدويًا.
+export function consoleLang(env: NodeJS.ProcessEnv = process.env): ServerLang {
+  return env.APP_LANG?.trim().toLowerCase().startsWith("en") ? "en" : "ar";
 }

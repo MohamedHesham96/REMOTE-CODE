@@ -1,4 +1,4 @@
-# AGENTS.md — OpenCode Mobile PWA
+# AGENTS.md — RemoteCode
 
 اقرأ ده قبل أي تعديل. القواعد مستخرجة من الكود الفعلي — لو فيه قاعدة غلط، عدّلها في نفس الـ commit.
 
