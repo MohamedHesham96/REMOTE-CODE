@@ -210,16 +210,34 @@ export function GitBranchIcon() {
   )
 }
 
-// سهم طالع من صينية: الزرار بيعمل commit و push، فالسهم الطالع معناه إن
-// التغييرات رايحة للفرع. استبدلنا به الحرف "⑂" القديم لأن شكله في خطوط كتير
-// بيبان شبه سمكة، وكمان كان بيتلخبط بزرار التراجع اللي جنبه — والاتنين
-// معناهيا عكس بعض تمامًا.
+// نقطة دائرة: الـ commit في git هو نقطة في تاريخ الفرع، فالأيقونة بتمثل
+// النقطة دي مباشرة. مبتشبهش أي أيقونة تانية في الدرج.
 export function GitCommitIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="4" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+// سهم طالع من صينية: الـ push بيرفع التغييرات المحلية للفرع البعيد.
+export function GitPushIcon() {
   return (
     <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />
       <path d="M12 15V4" />
       <path d="m7.5 8.5 4.5-4.5 4.5 4.5" />
+    </svg>
+  )
+}
+
+// سهم نازل في صينية: الـ pull بيجيب التغييرات من الفرع البعيد للمحلي.
+export function GitPullIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 9v6.5A1.5 1.5 0 0 0 5.5 17h13a1.5 1.5 0 0 0 1.5-1.5V9" />
+      <path d="M12 15V4" />
+      <path d="m7.5 12.5 4.5 4.5 4.5-4.5" />
     </svg>
   )
 }

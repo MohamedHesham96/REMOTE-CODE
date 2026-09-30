@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { commitPushPrompt, revertAllPrompt, revertFilePrompt } from "./git-prompts"
+import { commitPrompt, revertAllPrompt, revertFilePrompt } from "./git-prompts"
 import type { GitChangeFile } from "../types"
 
 function file(path: string, status: GitChangeFile["status"]): GitChangeFile {
@@ -8,8 +8,8 @@ function file(path: string, status: GitChangeFile["status"]): GitChangeFile {
 
 describe("git prompts", () => {
   it("names the branch in the commit request only when there is one", () => {
-    expect(commitPushPrompt([file("a.ts", "modified")], "main", "en")).toContain("branch 'main'")
-    expect(commitPushPrompt([file("a.ts", "modified")], "", "en")).not.toContain("branch ''")
+    expect(commitPrompt([file("a.ts", "modified")], "main", "en")).toContain("branch 'main'")
+    expect(commitPrompt([file("a.ts", "modified")], "", "en")).not.toContain("branch ''")
   })
 
   it("tells the agent to restore a tracked file instead of deleting it", () => {

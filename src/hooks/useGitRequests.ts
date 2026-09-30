@@ -1,19 +1,27 @@
 import { useCallback, useState } from "react"
 import type { Language } from "../i18n"
 import type { GitChangeFile, GitChanges } from "../types"
-import { commitPushPrompt, revertAllPrompt, revertFilePrompt } from "../utils/git-prompts"
+import { commitPrompt, pullPrompt, pushPrompt, revertAllPrompt, revertFilePrompt } from "../utils/git-prompts"
 
 export interface GitRequests {
   isOpen: boolean
   confirming: boolean
+  confirmingCommit: boolean
   confirmingPush: boolean
+  confirmingPull: boolean
   show: () => void
   close: () => void
   askRevertAll: () => void
   cancelRevertAll: () => void
-  askCommitPush: () => void
-  cancelCommitPush: () => void
-  commitPush: () => Promise<void>
+  askCommit: () => void
+  cancelCommit: () => void
+  commit: () => Promise<void>
+  askPush: () => void
+  cancelPush: () => void
+  push: () => Promise<void>
+  askPull: () => void
+  cancelPull: () => void
+  pull: () => Promise<void>
   revertAll: () => Promise<void>
   revertFile: (file: GitChangeFile) => Promise<void>
 }
@@ -30,23 +38,43 @@ export function useGitRequests(
 ): GitRequests {
   const [isOpen, setIsOpen] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [confirmingCommit, setConfirmingCommit] = useState(false)
   const [confirmingPush, setConfirmingPush] = useState(false)
+  const [confirmingPull, setConfirmingPull] = useState(false)
 
   const close = useCallback(() => {
     setIsOpen(false)
     setConfirming(false)
+    setConfirmingCommit(false)
     setConfirmingPush(false)
+    setConfirmingPull(false)
   }, [])
 
   // نطلب من السطر الأول فيه تغييرات حقيقية، وإلا الطلب هيتنفّذ على مجلد نضيف
   const canRequest = useCallback(() => Boolean(changes?.available) && (changes?.files.length ?? 0) > 0 && !sending, [changes, sending])
 
-  const commitPush = useCallback(async () => {
+  const commit = useCallback(async () => {
     if (!changes || !canRequest()) {
       return
     }
     close()
-    await send(commitPushPrompt(changes.files, changes.branch, lang))
+    await send(commitPrompt(changes.files, changes.branch, lang))
+  }, [canRequest, changes, lang, close, send])
+
+  const push = useCallback(async () => {
+    if (!changes || !canRequest()) {
+      return
+    }
+    close()
+    await send(pushPrompt(changes.branch, lang))
+  }, [canRequest, changes, lang, close, send])
+
+  const pull = useCallback(async () => {
+    if (!changes || !canRequest()) {
+      return
+    }
+    close()
+    await send(pullPrompt(changes.branch, lang))
   }, [canRequest, changes, lang, close, send])
 
   const revertAll = useCallback(async () => {
@@ -68,7 +96,9 @@ export function useGitRequests(
   const show = useCallback(() => {
     setIsOpen(true)
     setConfirming(false)
+    setConfirmingCommit(false)
     setConfirmingPush(false)
+    setConfirmingPull(false)
   }, [])
 
   // فتح dialog التأكيد هو نفسه action مدمّر — ميتفتحش لما مفيش ملفات.
@@ -82,15 +112,36 @@ export function useGitRequests(
   // الإلغاء بيسيب الدرج مفتوح — المستخدم لسه بيراجع الملفات قبل ما يقرر
   const cancelRevertAll = useCallback(() => setConfirming(false), [])
 
+  // الـ commit بيبعت رسالة للعميل بس، فحالته منفصلة عن التراجع المدمّر —
+  // كانوا بيشتركوا في نفس الـ flag فالضغط على واحد كان بيفتح الحوارين معًا.
+  const askCommit = useCallback(() => {
+    if (!canRequest()) {
+      return
+    }
+    setConfirmingCommit(true)
+  }, [canRequest])
+
+  const cancelCommit = useCallback(() => setConfirmingCommit(false), [])
+
   // الـ push بيبعت commit حقيقي للفرع، فبيتأكد زي التراجع عن الكل تمامًا.
-  const askCommitPush = useCallback(() => {
+  const askPush = useCallback(() => {
     if (!canRequest()) {
       return
     }
     setConfirmingPush(true)
   }, [canRequest])
 
-  const cancelCommitPush = useCallback(() => setConfirmingPush(false), [])
+  const cancelPush = useCallback(() => setConfirmingPush(false), [])
 
-  return { isOpen, confirming, confirmingPush, show, close, askRevertAll, cancelRevertAll, askCommitPush, cancelCommitPush, commitPush, revertAll, revertFile }
+  // الـ pull بيعدّل الملفات المحلية بالبعيد، فبيتأكد كمان.
+  const askPull = useCallback(() => {
+    if (!canRequest()) {
+      return
+    }
+    setConfirmingPull(true)
+  }, [canRequest])
+
+  const cancelPull = useCallback(() => setConfirmingPull(false), [])
+
+  return { isOpen, confirming, confirmingCommit, confirmingPush, confirmingPull, show, close, askRevertAll, cancelRevertAll, askCommit, cancelCommit, commit, askPush, cancelPush, push, askPull, cancelPull, pull, revertAll, revertFile }
 }
