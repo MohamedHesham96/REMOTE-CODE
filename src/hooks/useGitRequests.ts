@@ -26,8 +26,10 @@ export interface GitRequests {
   revertFile: (file: GitChangeFile) => Promise<void>
 }
 
-// كل أزرار الـ git في الدرج بتبعت prompt للعميل (نفس نمط زرار commit & push)،
-// فبنت guard واحد مشترك: لازم المشروع يكون git وفيه ملفات ومفيش طلب شغال.
+// كل أزرار الـ git في الدرج بتبعت prompt للعميل (نفس نمط زرار commit & push).
+// الـ commit والتراجع محتاجين ملفات متغيّرة فعلًا، لكن الـ push والـ pull
+// بيزامنوا commits موجودة أو بعيدة فشغّالين على شجرة نضيفة — عشان كده
+// الـ guard متقسّم اتنين بدل واحد مشترك.
 // الدالة المشتركة بتقفل الدرج كمان — الطلب بيفتح محادثة جديدة، والدرج تاني
 // وراه مش هيفيد. التراجع عن الكل محتاج خطوة تأكيد منفصلة عشان مدمّر.
 export function useGitRequests(
@@ -53,6 +55,9 @@ export function useGitRequests(
   // نطلب من السطر الأول فيه تغييرات حقيقية، وإلا الطلب هيتنفّذ على مجلد نضيف
   const canRequest = useCallback(() => Boolean(changes?.available) && (changes?.files.length ?? 0) > 0 && !sending, [changes, sending])
 
+  // الـ push والـ pull مزامنة مش تغيير — بيشتغلوا على شجرة نضيفة بعد الـ commit
+  const canSync = useCallback(() => Boolean(changes?.available) && !sending, [changes, sending])
+
   const commit = useCallback(async () => {
     if (!changes || !canRequest()) {
       return
@@ -62,20 +67,20 @@ export function useGitRequests(
   }, [canRequest, changes, lang, close, send])
 
   const push = useCallback(async () => {
-    if (!changes || !canRequest()) {
+    if (!changes || !canSync()) {
       return
     }
     close()
     await send(pushPrompt(changes.branch, lang))
-  }, [canRequest, changes, lang, close, send])
+  }, [canSync, changes, lang, close, send])
 
   const pull = useCallback(async () => {
-    if (!changes || !canRequest()) {
+    if (!changes || !canSync()) {
       return
     }
     close()
     await send(pullPrompt(changes.branch, lang))
-  }, [canRequest, changes, lang, close, send])
+  }, [canSync, changes, lang, close, send])
 
   const revertAll = useCallback(async () => {
     if (!changes || !canRequest()) {
@@ -123,23 +128,25 @@ export function useGitRequests(
 
   const cancelCommit = useCallback(() => setConfirmingCommit(false), [])
 
-  // الـ push بيبعت commit حقيقي للفرع، فبيتأكد زي التراجع عن الكل تمامًا.
+  // الـ push بيبعت commit حقيقي للفرع، فبيتأكد زي التراجع عن الكل تمامًا —
+  // بس من غير شرط الملفات عشان الـ push بييجي بعد الـ commit على نضافة.
   const askPush = useCallback(() => {
-    if (!canRequest()) {
+    if (!canSync()) {
       return
     }
     setConfirmingPush(true)
-  }, [canRequest])
+  }, [canSync])
 
   const cancelPush = useCallback(() => setConfirmingPush(false), [])
 
-  // الـ pull بيعدّل الملفات المحلية بالبعيد، فبيتأكد كمان.
+  // الـ pull بيعدّل الملفات المحلية بالبعيد، فبيتأكد كمان — وبرضه من غير
+  // شرط الملفات لنفس السبب.
   const askPull = useCallback(() => {
-    if (!canRequest()) {
+    if (!canSync()) {
       return
     }
     setConfirmingPull(true)
-  }, [canRequest])
+  }, [canSync])
 
   const cancelPull = useCallback(() => setConfirmingPull(false), [])
 

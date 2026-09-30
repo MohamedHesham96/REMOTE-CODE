@@ -31,9 +31,12 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
   // قائمة الملفات المتغيّرة في git للمشروع الحالي، مع ملخص سريع فوقها
   const files = changes?.files ?? EMPTY_GIT_FILES
   const hasFiles = Boolean(changes?.available) && files.length > 0
-  // كل أزرار التحكم بتتقفل لما مفيش ملفات، وبتتقفل كمان وقت أي تأكيد
+  // الـ commit والتراجع محتاجين ملفات متغيّرة، لكن الـ push والـ pull مزامنة
+  // فبيفضلوا شغّالين على شجرة نضيفة بعد الـ commit — القفل وقت أي تأكيد بس
   // عشان المستخدم ميضربش action تاني وهو بيأكد واحد شغّال.
-  const canAct = hasFiles && !loading && !busy && !confirming && !confirmingCommit && !confirmingPush && !confirmingPull
+  const confirmingAny = confirming || confirmingCommit || confirmingPush || confirmingPull
+  const canAct = hasFiles && !loading && !busy && !confirmingAny
+  const canSync = Boolean(changes?.available) && !loading && !busy && !confirmingAny
   const summary = useMemo(() => files.reduce((total, file) => {
     if (file.status === "added") {
       total.added += 1
@@ -92,7 +95,7 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
             <button
               type="button"
               className="icon-button git-push-button"
-              disabled={!canAct}
+              disabled={!canSync}
               onClick={onAskPush}
               aria-busy={busy}
               aria-label={t.gitPush}
@@ -103,7 +106,7 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
             <button
               type="button"
               className="icon-button git-pull-button"
-              disabled={!canAct}
+              disabled={!canSync}
               onClick={onAskPull}
               aria-busy={busy}
               aria-label={t.gitPull}
@@ -149,7 +152,7 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
               <button type="button" className="git-confirm-cancel" onClick={onCancelPush} disabled={busy}>
                 {t.cancel}
               </button>
-              <button type="button" className="git-confirm-accept" onClick={onPush} disabled={busy || !hasFiles}>
+              <button type="button" className="git-confirm-accept" onClick={onPush} disabled={busy || !changes?.available}>
                 {t.gitPushConfirmYes}
               </button>
             </div>
@@ -163,7 +166,7 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
               <button type="button" className="git-confirm-cancel" onClick={onCancelPull} disabled={busy}>
                 {t.cancel}
               </button>
-              <button type="button" className="git-confirm-accept" onClick={onPull} disabled={busy || !hasFiles}>
+              <button type="button" className="git-confirm-accept" onClick={onPull} disabled={busy || !changes?.available}>
                 {t.gitPullConfirmYes}
               </button>
             </div>
