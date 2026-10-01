@@ -93,6 +93,10 @@ function App() {
   const [requests, setRequests] = useState<SessionRequest[]>([])
   const [requestQuestions, setRequestQuestions] = useState<ConversationQuestionRequest[]>([])
   const [rawStatuses, setRawStatuses] = useState<Record<string, SessionStatus>>({})
+  // محادثات حكمها "واقفة" (كاشف الجمود في السيرفر اتقفل). مخزّنة بمعرّف
+  // المحادثة لا كحالة واحدة عشان ما تتسرّبش لمحادثة تانية لو المستخدم
+  // غيّر الجلسة قبل ما تحل. بتتظبط من رد /requests بس — مفيش مصدر تاني.
+  const [stalledIds, setStalledIds] = useState<Set<string>>(() => new Set())
   // اللي بيتبعرض منه (أيقونة + "شغّال/جاهز" + تنبيه الإتمام) هو حالة مستقرة،
   // مش آخر عيّنة وصلتنا — عشان تضارب الـ SSE مع الـ poll ما يخطفش الشاشة.
   const [statuses, setSettledStatus] = useSettledStatuses(rawStatuses)
@@ -473,6 +477,20 @@ function App() {
     contentIdRef.current = id
     setRequests(next.requests)
     setRequestQuestions(next.questions)
+    // حكم الجمود جزء من نفس الرد — من غير سطر ده كان الكارت بيفضّل يعرض
+    // آخر حالة عرفها بدل الحكم الجديد.
+    setStalledIds((current) => {
+      if (next.stalled === current.has(id)) {
+        return current
+      }
+      const updated = new Set(current)
+      if (next.stalled) {
+        updated.add(id)
+      } else {
+        updated.delete(id)
+      }
+      return updated
+    })
     setRawStatuses((current) => ({ ...current, [id]: next.status }))
     setPermissions(nextPermissions)
   }, [])
@@ -1126,6 +1144,7 @@ function App() {
     setActiveId(null)
     setRequests([])
     setRequestQuestions([])
+    setStalledIds(new Set())
     setGitChanges(null)
     setAccessToken("")
   }
@@ -1941,7 +1960,7 @@ function App() {
           <div className="workspace-scroll" ref={workspaceScrollRef} onPointerDown={releaseScrollPin}>
             {requests.length > 0 ? (
               <div className="request-stack">
-                <RequestCard requests={requests} sessionId={activeId} listRef={requestListRef} title={activeTitle} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={(request) => void handleSkip(request)} onRunNow={(request) => void handleRunNow(request)} onRemove={(request) => void handleRemoveQueued(request)} busyAction={queueAction} t={t} lang={lang} />
+                <RequestCard requests={requests} sessionId={activeId} listRef={requestListRef} title={activeTitle} status={activeStatus} stalled={activeId ? stalledIds.has(activeId) : false} waitingOnUser={activeId !== null && (requestQuestions.some((question) => question.sessionID === activeId) || permissions.some((permission) => permission.sessionID === activeId))} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={(request) => void handleSkip(request)} onRunNow={(request) => void handleRunNow(request)} onRemove={(request) => void handleRemoveQueued(request)} busyAction={queueAction} t={t} lang={lang} />
               </div>
             ) : (
               <div className="welcome-state">

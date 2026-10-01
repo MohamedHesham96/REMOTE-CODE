@@ -78,6 +78,37 @@ const messages = {
     ar: "يستخدم OpenCode الأداة",
     en: "OpenCode is using",
   },
+  // وصف العملية اللي OpenCode بيعملها دلوقتي. أسماء الأدوات في المحرك نص
+  // حر (مش اتحاد مغلق) — فبنترجمها لفئات يفهمها المستخدم، ونقفلها على
+  // "يستخدم الأداة <اسم>" لأي اسم جديد بدل ما نكسر.
+  activityAwaitingTool: {
+    ar: "في انتظار أداة",
+    en: "Waiting for a tool",
+  },
+  activityReadingFiles: {
+    ar: "يقرأ الملفات",
+    en: "Reading files",
+  },
+  activitySearchingFiles: {
+    ar: "يبحث في الكود",
+    en: "Searching the code",
+  },
+  activityRunningCommand: {
+    ar: "يشغّل أمرًا",
+    en: "Running a command",
+  },
+  activityApplyingChanges: {
+    ar: "يطبّق تعديلات",
+    en: "Applying changes",
+  },
+  activityBrowsingWeb: {
+    ar: "يستعرض الويب",
+    en: "Browsing the web",
+  },
+  activityDelegating: {
+    ar: "يستعين بمهمة فرعية",
+    en: "Delegating a sub-task",
+  },
   workingOnTask: {
     ar: "يعمل OpenCode على المهمة",
     en: "OpenCode is working on the task",

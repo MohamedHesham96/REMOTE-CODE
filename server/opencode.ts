@@ -9,11 +9,11 @@ import type {
   FormInfo,
   SessionInfo,
   SessionMessageAssistant,
-  SessionMessageAssistantTool,
   SessionMessageInfo,
 } from "@opencode/client"
 import { setTimeout as sleep } from "node:timers/promises"
 import { ensureLocalEndpoint } from "./opencode/service-launch.js"
+import { findActiveTool, toolActivity } from "./opencode/activity.js"
 import { consoleLang, serverMessage, type ServerLang } from "./i18n.js"
 import type {
   ActiveSession,
@@ -1084,15 +1084,14 @@ export class OpenCodeService {
       const reversed = [...turn.entries].reverse()
       const currentAssistant = reversed.find((entry) => entry.time.completed === undefined)
       const completedAssistant = reversed.find((entry) => entry.time.completed !== undefined)
-      const activeTool = currentAssistant?.content.find((part): part is SessionMessageAssistantTool =>
-        part.type === "tool" && (part.state.status === "running" || part.state.status === "streaming"))
+      const activeTool = findActiveTool(currentAssistant)
 
       let activity = serverMessage("taskReady", lang)
       if (running) {
         if (status.type === "retry") {
           activity = serverMessage("retryingNow", lang)
         } else if (activeTool) {
-          activity = `${serverMessage("usesTool", lang)} ${activeTool.name}`
+          activity = toolActivity(activeTool, lang)
         } else {
           activity = serverMessage("workingOnTask", lang)
         }
@@ -1151,11 +1150,19 @@ export class OpenCodeService {
       })
     }
 
+    // حكم الجمود المُثبت (كاشف الجمود شاف بصمة ثابتة فوق BUSY_STALL_MS) —
+    // بيتبعت للعميل صريح عشان يعرض "متجمّدة" بدل ما يستنتج الجمود من
+    // صمت. effectiveStatus فوق بيحوّل busy لـ idle لما الجلسة محرّرة بالجمود،
+    // فبدون الحقل ده المهمة المجمّدة كانت هتبان "خلصت" مش "واقفة".
+    const stalled = this.stalledSessions.has(id)
+
     // بصمة الحالة (ETag): نفس مكوّنات بصمة الجمود لكن بنوع الحالة الفعّالة،
     // فأي تغيير مرئي يغيّرها والعميل يوفّر إعادة التحميل (304) لما مفيش جديد.
-    const version = [status.type, sharedTail].join("|")
+    // حكم الجمود جزء من البصمة: ثباته على busy مع نفي التقدّم هو اللي
+    // يخلي الكارت يقلب لـ "متجمّدة" من غير ما ينتظر تغيّر تاني.
+    const version = [status.type, stalled ? "stalled" : "live", sharedTail].join("|")
 
-    return { status, requests, questions, queued: queue.length, version }
+    return { status, requests, questions, queued: queue.length, stalled, version }
   }
 
   private assistantText(entry: SessionMessageAssistant): string {

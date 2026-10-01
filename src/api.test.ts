@@ -119,7 +119,7 @@ describe("parallel requests", () => {
   })
 
   it("returns the stacked request cards oldest first", async () => {
-    const payload: SessionRequests = { status: { type: "busy" }, requests: [queued], questions: [], queued: 1, version: "busy|1||q|..." }
+    const payload: SessionRequests = { status: { type: "busy" }, requests: [queued], questions: [], queued: 1, stalled: false, version: "busy|live|1||q|..." }
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify(payload), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -250,7 +250,7 @@ describe("request efficiency", () => {
   })
 
   it("sends If-None-Match and reuses the cached payload on 304", async () => {
-    const payload: SessionRequests = { status: { type: "busy" }, requests: [], questions: [], queued: 0, version: "busy|0|||" }
+    const payload: SessionRequests = { status: { type: "busy" }, requests: [], questions: [], queued: 0, stalled: false, version: "busy|live|0|||" }
     const seen: Array<Record<string, string>> = []
     const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       seen.push({ ...(init?.headers as Record<string, string>) })

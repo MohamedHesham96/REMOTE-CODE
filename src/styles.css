@@ -1446,6 +1446,36 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .task-summary-state { padding: 6px 9px; border-radius: 4px; color: var(--yellow); background: rgba(245, 199, 108, 0.1); font-size: 10px; white-space: nowrap; }
 .task-finished .task-summary-state { color: var(--green); background: rgba(66, 215, 162, 0.1); }
 .task-queued .task-summary-state { color: var(--yellow); background: rgba(245, 199, 108, 0.12); }
+/* لوحة حالة المهمة: أشهر حاجة في الكارت — شارة الحالة على مستوى المحادثة
+   وسطر "OpenCode بيعمل إيه دلوقتي". جوّه الترويسة الثابتة عشان تفضل
+   قدام العين أثناء التمرير، وتوصّل حالة الكارت من غير فتح أي صف.
+   اللون كله من متغيرات الثيم الموجودة (accent/green/yellow/red) فبتشتغل
+   في الأربعة من غير تعريفات جديدة. والشكل بيحمل المعنى كمان مش اللون
+   بس: الدايرة المتوهجة = شغال، الحلقة الفاضية = في انتظار، المعيّن =
+   واقف، الدايرة الحمراء = مشكلة. */
+.task-panel { display: flex; flex-direction: column; gap: 8px; padding: 11px 13px; border: 1px solid var(--accent-border); border-inline-start: 3px solid var(--accent); border-radius: 5px; background: var(--accent-soft-bg2); }
+.task-panel-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.task-panel-dot { width: 11px; height: 11px; flex: 0 0 11px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(139, 124, 255, 0.12); }
+.task-panel-dot.is-live { animation: pulse 1.2s infinite; }
+.task-panel-label { flex: 0 0 auto; padding: 4px 9px; border-radius: 4px; color: var(--accent); background: rgba(139, 124, 255, 0.12); font-size: 11px; font-weight: 800; white-space: nowrap; }
+.task-panel-eyebrow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
+.task-panel-activity { margin: 0; color: var(--task-activity-text); font-size: 13px; font-weight: 700; line-height: 1.7; }
+/* كل حالة بتاخد لوّنها وشكلها من الـ data-phase.
+   الحركة مقصورة على "قيد التنفيذ" وحدها، فأي حالة تانية بتوقف نبض
+   الشغل بدل ما تخلّي المستخدم يفتكر إن OpenCode لسه بيشتغل. */
+.task-panel[data-phase="running"] { border-color: rgba(139, 124, 255, 0.4); }
+.task-panel[data-phase="waiting"] { border-color: var(--live-stat-border); border-inline-start-color: var(--yellow); }
+.task-panel[data-phase="waiting"] .task-panel-dot { border: 2px solid var(--yellow); background: transparent; box-shadow: none; }
+.task-panel[data-phase="waiting"] .task-panel-label { color: var(--yellow); background: rgba(245, 199, 108, 0.12); }
+.task-panel[data-phase="stuck"] { border-style: dashed; border-inline-start-style: solid; }
+.task-panel[data-phase="stuck"] .task-panel-dot { border-radius: 2px; background: var(--yellow); transform: rotate(45deg); box-shadow: none; }
+.task-panel[data-phase="stuck"] .task-panel-label { color: var(--yellow); background: rgba(245, 199, 108, 0.16); }
+.task-panel[data-phase="error"] { border-color: var(--error-border); border-inline-start-color: var(--red); }
+.task-panel[data-phase="error"] .task-panel-dot { background: var(--red); box-shadow: 0 0 0 4px rgba(239, 105, 105, 0.12); }
+.task-panel[data-phase="error"] .task-panel-label { color: var(--error-text); background: var(--error-bg); }
+.task-panel[data-phase="completed"] { border-color: var(--green-border); border-inline-start-color: var(--green); }
+.task-panel[data-phase="completed"] .task-panel-dot { background: var(--green); box-shadow: 0 0 0 4px rgba(66, 215, 162, 0.1); }
+.task-panel[data-phase="completed"] .task-panel-label { color: var(--green); background: rgba(66, 215, 162, 0.1); }
 .task-request { margin-top: 21px; padding: 13px 15px; border: 1px solid var(--accent-border); border-right: 3px solid var(--accent); border-radius: 5px; background: var(--accent-soft-bg2); }
 .task-request > span { display: inline-block; padding: 3px 12px; border-radius: 8px; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 800; }
 .final-result-label { color: var(--task-request-label); font-size: 10px; font-weight: 700; }

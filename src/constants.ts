@@ -18,6 +18,12 @@ export const PINNED_MODELS_LIMIT = 5
 // نافذة تانية) والـ hook بيسمعه فالتطبيقات كلها بتتحدّد من غير poll
 export const PINS_SYNC_EVENT = "opencode:pins"
 export const ACTIVE_GRACE_MS = 5 * 60 * 1000
+// بعد قد إيه من صمت (ولا أداة شغّالة) نعتبر الطلب "في انتظار" بدل "قيد التنفيذ".
+// قصير من مهلة الجمود اللي في السيرفر (BUSY_STALL_MS = ١٠ د) عن قصد: ده
+// جرس إنذار مبكر يعرض السطر بوضوح، والحكم القاطع بيفضله السيرفر. نص
+// الدقيقة دا أقل من مدة أمر ممكن تاخدها فعلًا (بناء، تثبيت)، فمفتاحنا
+// بيستثني الأداة الشغّالة من الحساب خالص.
+export const TASK_QUIET_MS = 60 * 1000
 export const COMPOSER_MAX_LINES = 6
 export const TOUCH_QUERY = "(hover: none), (pointer: coarse)"
 

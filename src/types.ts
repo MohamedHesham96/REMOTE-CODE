@@ -173,9 +173,18 @@ export interface SessionRequests {
   requests: SessionRequest[]
   questions: ConversationQuestionRequest[]
   queued: number
+  // حكم كاشف الجمود في السيرفر — اتقفل عليه بعد مهلة بلا أي بصمة تقدّم
+  // تتغيّر. بيتحوّل معه status لـ idle، فلو الواجهة اعتمدت على status بس
+  // كانت هتعرض المهمة المجمّدة كأنها "خلصت".
+  stalled: boolean
   // بصمة الحالة من السيرفر لدعم ETag/304 — غيابها (ردود قديمة) يعني "دايمًا جديد"
   version: string
 }
+
+// حالة المهمة كما تُعرض في لوحة الحالة أعلى الكارت. الترتيب مقصود: كل حالة
+// تُقاس قبل التي بعدها، فالجمود بيتقدّم على كل حاجة عشان المهمة الواقفة ما
+// تبانش شغّالة (زي ما الكارت القديم كان بيعمل).
+export type TaskPhase = "running" | "waiting" | "stuck" | "error" | "completed"
 
 export interface ResultFile {
   id: string
