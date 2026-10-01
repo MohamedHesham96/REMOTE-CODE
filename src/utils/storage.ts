@@ -1,4 +1,4 @@
-import { DEFAULT_MODEL_KEY, LAST_SESSION_KEY, PINNED_SESSIONS_KEY, PINNED_SESSIONS_LIMIT, RECENT_PROJECTS_KEY } from "../constants"
+import { DEFAULT_MODEL_KEY, LAST_SESSION_KEY, PINNED_MODELS_KEY, PINNED_MODELS_LIMIT, PINNED_SESSIONS_KEY, PINNED_SESSIONS_LIMIT, RECENT_PROJECTS_KEY } from "../constants"
 import type { PinnedConversation, Session, SessionModelRef, SessionRequest } from "../types"
 import { normalizeProjectPath } from "./paths"
 
@@ -159,6 +159,69 @@ export function loadRecentProjects(): string[] {
   } catch {
     return []
   }
+}
+
+// ── النماذج المثبّتة في منتقي النماذج ──
+// المفتاح "providerID/modelID" — كاش عرض محلي يظهر قسمًا علويًا للوصول
+// السريع. القيم تالفة/مكررة تُنضّف عند القراءة، والسقف يُفرض عند التثبيت.
+export function modelPinKey(providerID: string, id: string): string {
+  return `${providerID.trim()}/${id.trim()}`
+}
+
+export function loadPinnedModels(): string[] {
+  try {
+    const raw = localStorage.getItem(PINNED_MODELS_KEY)
+    if (!raw) {
+      return []
+    }
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    const seen = new Set<string>()
+    const result: string[] = []
+    for (const item of parsed) {
+      if (typeof item !== "string") {
+        continue
+      }
+      const key = item.trim()
+      if (!key || !key.includes("/") || seen.has(key)) {
+        continue
+      }
+      seen.add(key)
+      result.push(key)
+      if (result.length >= PINNED_MODELS_LIMIT) {
+        break
+      }
+    }
+    return result
+  } catch {
+    return []
+  }
+}
+
+export function savePinnedModels(keys: string[]): void {
+  try {
+    localStorage.setItem(PINNED_MODELS_KEY, JSON.stringify(keys.slice(0, PINNED_MODELS_LIMIT)))
+  } catch {
+    // ignore
+  }
+}
+
+// يثبّت أو يفكّ — التثبيت الجديد يروح للأول، والزيادة عن السقف تُرفض
+// (نفس المرجع لو مفيش تغيير عشان React يعمل bail-out)
+export function togglePinnedModel(keys: string[], key: string): string[] {
+  const clean = key.trim()
+  if (!clean) {
+    return keys
+  }
+  if (keys.includes(clean)) {
+    return keys.filter((item) => item !== clean)
+  }
+  if (keys.length >= PINNED_MODELS_LIMIT) {
+    return keys
+  }
+  return [clean, ...keys]
 }
 
 // ── المثبّتات ──

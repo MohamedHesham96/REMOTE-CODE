@@ -10,6 +10,10 @@ export const DEFAULT_MODEL_KEY = "opencode.defaultModelByProject"
 export const PINNED_SESSIONS_KEY = "opencode.pinnedSessions"
 // سقف للمحادثات المثبّتة المحفوظة — يمنع التخزين من النمو بلا حد
 export const PINNED_SESSIONS_LIMIT = 200
+// مفاتيح النماذج المثبّتة في منتقي النماذج ("providerID/modelID") — كاش عرض
+// محلي (مش على السيرفر)، وسقف 5 يخلّي القسم العلوي مفيدًا بدل قائمة ثانية
+export const PINNED_MODELS_KEY = "opencode.pinnedModels"
+export const PINNED_MODELS_LIMIT = 5
 // حدث داخلي: السيرفر بثّ قائمة المثبّتات الجديدة (تغيير من جهاز تاني أو من
 // نافذة تانية) والـ hook بيسمعه فالتطبيقات كلها بتتحدّد من غير poll
 export const PINS_SYNC_EVENT = "opencode:pins"

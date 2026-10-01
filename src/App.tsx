@@ -172,6 +172,9 @@ function App() {
   const showHistoryRef = useRef(false)
   // لتتبع متى نحتاج ننزل لآخر المحادثة عند فتح جلسة جديدة
   const shouldScrollToBottomRef = useRef(false)
+  // آخر محادثة نزلنا لآخرها تلقائيًا — أي activeId جديد ينزل فورًا حتى لو
+  // مسار الفتح (مشروع/نشاط/مثبّتة) لم يضبط shouldScrollToBottomRef
+  const scrolledForActiveIdRef = useRef<string | null>(null)
   showHistoryRef.current = showHistory
   // تنسيق الـ polling مع الـ SSE: طول ما الستريم حي والأحداث واصلة، الـ polls
   // الدورية fallback فقط — لا طلبات مكررة لنفس البيانات اللي الـ SSE جابها.
@@ -780,22 +783,30 @@ function App() {
   }, [activeTitle, authState, selectedProject, t])
 
   // كل ما يتضاف طلب جديد: انزل تحت على آخر كارت عشان المستخدم يشوفه فورًا
-  // لكن فقط لو المستخدم قريب من الأسفل أصلًا (ما نزعجش لو قارئ رسائل قديمة)
-  // أو لو فتح محادثة جديدة — في الحالة دي ننزل لآخرها فورًا
+  // لكن فقط لو المستخدم قريب من الأسفل أصلًا (ما نزعجش لو قارئ رسائل قديمة).
+  // فتح أي محادثة (أي activeId جديد) ينزل لآخرها فورًا مهما كانت المسارات —
+  // مسارات تبديل المشروع والقفز من النشاط لا تضبط shouldScrollToBottomRef،
+  // فتتبع activeId نفسه هو الضمان الوحيد.
   useEffect(() => {
     const element = workspaceScrollRef.current
-    if (!element || requests.length === 0) {
+    if (!element || requests.length === 0 || !activeId) {
+      return
+    }
+    if (scrolledForActiveIdRef.current !== activeId || shouldScrollToBottomRef.current) {
+      shouldScrollToBottomRef.current = false
+      scrolledForActiveIdRef.current = activeId
+      // التخطيط يكتمل بعد الرسم — إطار واحد يضمن الارتفاع النهائي قبل النزول
+      requestAnimationFrame(() => {
+        element.scrollTo({ top: element.scrollHeight, behavior: "auto" })
+      })
       return
     }
     const { scrollTop, scrollHeight, clientHeight } = element
     const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
-    if (shouldScrollToBottomRef.current) {
-      shouldScrollToBottomRef.current = false
-      element.scrollTo({ top: scrollHeight, behavior: "smooth" })
-    } else if (isNearBottom) {
+    if (isNearBottom) {
       element.scrollTo({ top: scrollHeight, behavior: "smooth" })
     }
-  }, [requests.length])
+  }, [requests.length, activeId])
 
   // حدّث الكارتات طول ما فيه طلب شغّال أو طلبات مستنية في الطابور
   useEffect(() => {

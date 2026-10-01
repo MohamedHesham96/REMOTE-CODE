@@ -36,6 +36,22 @@ export function ModelPicker({
 }) {
   const [query, setQuery] = useState("")
   const [freeOnly, setFreeOnly] = useState(false)
+  // كل المجموعات مطوية افتراضيًا — القائمة طويلة (مئات النماذج)، فالطيّ
+  // يخلّي التنقل حسب الموفر بدل السكرول الطويل. البحث يفتح الكل تلقائيًا
+  // عشان النتائج تبان من غير فتح يدوي.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const searching = query.trim().length > 0
+  const toggleGroup = (providerID: string): void => {
+    setExpanded((previous) => {
+      const next = new Set(previous)
+      if (next.has(providerID)) {
+        next.delete(providerID)
+      } else {
+        next.add(providerID)
+      }
+      return next
+    })
+  }
   // كل النماذج تتعرض كما وصلت من السيرفر — بلا إخفاء حسب التفعيل.
   // مرشح "المجاني فقط" اختياري (مغلق افتراضيًا) فالقائمة الكاملة هي الأصل.
   const filtered = useMemo(() => {
@@ -151,9 +167,21 @@ export function ModelPicker({
           <div className="empty-state">{t.noModels}</div>
         ) : (
           <div className="model-list">
-            {groups.map((group) => (
+            {groups.map((group) => {
+              const open = searching || expanded.has(group.providerID)
+              return (
               <section className="model-group" key={group.providerID}>
-                <h3 className="model-group-title" dir="ltr">{group.providerID} <span>({group.models.length})</span></h3>
+                <button
+                  type="button"
+                  className="model-group-toggle"
+                  aria-expanded={open}
+                  onClick={() => toggleGroup(group.providerID)}
+                >
+                  <span className="model-group-caret" aria-hidden="true">{open ? "▾" : "▸"}</span>
+                  <span className="model-group-title" dir="ltr">{group.providerID} <span>({group.models.length})</span></span>
+                </button>
+                {open ? (
+                <div className="model-group-models">
                 {group.models.map((model) => {
                   const key = `${model.providerID}/${model.id}`
                   const isCurrent = current?.providerID === model.providerID && current?.modelID === model.id
@@ -186,8 +214,11 @@ export function ModelPicker({
                     </button>
                   )
                 })}
+                </div>
+                ) : null}
               </section>
-            ))}
+              )
+            })}
           </div>
         )}
         <div className="model-footnote">{t.modelListLive}</div>
