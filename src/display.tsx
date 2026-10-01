@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- ملف helpers مشترك عمدًا
    بين App واللوحات الكسولة، مع الأيقونات SVG (GitBranchIcon, GitCommitIcon,
-   GitRevertIcon, GitRefreshIcon, SpinnerIcon, LogoutIcon, SoundOnIcon,
-   SoundMuteIcon, SettingsIcon) */
+   GitCommitOnlyIcon, GitPullIcon, GitRevertIcon, GitRefreshIcon, SpinnerIcon,
+   LogoutIcon, SoundOnIcon, SoundMuteIcon, SettingsIcon) */
 import { localeOf, type Language, type Strings } from "./i18n"
 import type { GitChangeFile, GitChangeStatus, ModelInfo, Project, SessionModelRef, SessionStatus } from "./types"
 
@@ -220,6 +220,31 @@ export function GitCommitIcon() {
       <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />
       <path d="M12 15V4" />
       <path d="m7.5 8.5 4.5-4.5 4.5 4.5" />
+    </svg>
+  )
+}
+
+// نقطة على خط أفقي: ده رمز الـ commit نفسه في git. اخترناه لزرار "commit بدون
+// push" لأنه النقطة الوحيدة في الصف اللي مش سهم ولا علامة، فميتلخبطش مع سهم
+// الـ push ولا مع ✕ التراجع ولا مع ↻ التحديث.
+export function GitCommitOnlyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.5 12h4.7" />
+      <path d="M15.8 12h4.7" />
+      <circle cx="12" cy="12" r="3.4" />
+    </svg>
+  )
+}
+
+// سهم نازل في صينية: نفس سهم الـ push مقلوب رأسًا على عقب، والاتنين معناهم
+// عكس بعض تمامًا — واحد طالع للفرع البعيد والتاني جاي منه.
+export function GitPullIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 9v9.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V9" />
+      <path d="M12 4v11" />
+      <path d="m7.5 10.5 4.5 4.5 4.5-4.5" />
     </svg>
   )
 }
