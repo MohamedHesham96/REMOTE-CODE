@@ -301,6 +301,11 @@ export const BUSY_STALL_MS = 10 * 60 * 1000
 // سقف مراقبات الجمود — منع نمو غير محدود للذاكرة لجلسات كثيرة
 export const MAX_STALL_WATCHES = 200
 
+// سقف خريطة الجذور — مهمة Task بتفتح جلسة ابن مع كل نداء، والخريطة
+// بتتمسح بـ `session.deleted` بس. السقف يمنع نمو غير محدود لو الجلسات
+// القديمة ما اتحذفتش (LRU بسيط: الأقدم أولًا).
+export const MAX_TRACKED_ROOTS = 500
+
 // سباق promise ضد مهلة: يرمي خطأ لو المهلة خلصت الأول، وينضّف المؤقت
 // في الحالتين عشان ما يسرّبش مؤقتات.
 export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {

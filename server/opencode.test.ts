@@ -974,6 +974,16 @@ describe("v2 session shapes", () => {
 describe("subtask sessions collapse onto their root", () => {
   const ROOT = "ses_root"
   const KIDS = ["ses_kid_a", "ses_kid_b", "ses_kid_c", "ses_kid_d"]
+  // `noUncheckedIndexedAccess` مفعّل في tsconfig السيرفر، فـ `KIDS[0]` نوعه
+  // `string | undefined`. الدالة دي بتغلّف الفهرس في guard واحد بدل cast
+  // متكرّر في كل سطر اختبار.
+  function KID(index: number): string {
+    const id = KIDS[index]
+    if (id === undefined) {
+      throw new Error(`لا توجد مهمة فرعية عند ${index}`)
+    }
+    return id
+  }
 
   function subtaskService(runningIds: string[]) {
     const listed: Array<Record<string, unknown>> = [
@@ -999,7 +1009,7 @@ describe("subtask sessions collapse onto their root", () => {
         active: () => Promise.resolve(active),
       },
     }
-    return { service }
+    return { service, internals }
   }
 
   it("يعدّ المحادثة الأم مرة واحدة مهما اشتغلت من مهامها الفرعية", async () => {
@@ -1022,5 +1032,72 @@ describe("subtask sessions collapse onto their root", () => {
 
     const sessions = await service.sessions()
     expect(sessions.map((session) => session.id)).toEqual([ROOT])
+  })
+
+  // صوت الإتمام كان بيتشغّل مع كل مهمة فرعية تخلص، لأن حالة كل جلسة بتبعت
+  // على الـ id بتاعها والعميل بيعامل المهمة كمحادثة مستقلة. الخريطة دي بتربط
+  // كل مهمة بأمها عشان الحالة تنسب للجذر.
+  it("ينسب المهمة الفرعية لمحادثتها الأم من حدث الإنشاء", () => {
+    const { service, internals } = subtaskService([])
+
+    internals.trackEvent({ type: "session.created", data: { sessionID: KID(0), parentID: ROOT } } as unknown as OpenCodeEvent)
+
+    expect(service.conversationOf(KID(0))).toBe(ROOT)
+    expect(service.conversationOf(ROOT)).toBe(ROOT)
+  })
+
+  it("ينسب المهمة جوه مهمة على نفس المحادثة الأم", () => {
+    const { service, internals } = subtaskService([])
+
+    internals.trackEvent({ type: "session.created", data: { sessionID: "ses_mid", parentID: ROOT } } as unknown as OpenCodeEvent)
+    internals.trackEvent({ type: "session.created", data: { sessionID: "ses_leaf", parentID: "ses_mid" } } as unknown as OpenCodeEvent)
+
+    expect(service.conversationOf("ses_leaf")).toBe(ROOT)
+  })
+
+  // المهمة اللي فاتتها أحداث الإنشاء (اتعملت قبل ما السيرفر يتصل) لازم
+  // ترجع لنسبتها من قائمة الجلسات زي أول مرة.
+  it("ينسب المهمة من قائمة الجلسات لما فاتتها أحداث الإنشاء", async () => {
+    const { service } = subtaskService([])
+
+    await service.statuses()
+
+    expect(service.conversationOf(KID(1))).toBe(ROOT)
+  })
+
+  it("يعتبر المحادثة شغّالة لو مهمة فرعية من مهامها شغّالة", () => {
+    const { service, internals } = subtaskService([])
+
+    internals.trackEvent({ type: "session.created", data: { sessionID: KID(0), parentID: ROOT } } as unknown as OpenCodeEvent)
+    internals.trackEvent({ type: "session.status", data: { sessionID: KID(0), status: { type: "busy" } } } as unknown as OpenCodeEvent)
+
+    expect(service.conversationBusy(ROOT)).toBe(true)
+    expect(service.conversationBusy(KID(0))).toBe(true)
+  })
+
+  it("يخلّي المحادثة خاملة بعد خلوص آخر مهمة فرعية", () => {
+    const { service, internals } = subtaskService([])
+
+    for (const kid of KIDS) {
+      internals.trackEvent({ type: "session.created", data: { sessionID: kid, parentID: ROOT } } as unknown as OpenCodeEvent)
+      internals.trackEvent({ type: "session.status", data: { sessionID: kid, status: { type: "busy" } } } as unknown as OpenCodeEvent)
+    }
+    internals.trackEvent({ type: "session.idle", data: { sessionID: KID(0) } } as unknown as OpenCodeEvent)
+    // أول مهمة خلصت والتانية لسه شغّالة ⇒ المحادثة الأم لسه شغّالة
+    expect(service.conversationBusy(ROOT)).toBe(true)
+
+    for (const kid of KIDS.slice(1)) {
+      internals.trackEvent({ type: "session.idle", data: { sessionID: kid } } as unknown as OpenCodeEvent)
+    }
+    expect(service.conversationBusy(ROOT)).toBe(false)
+  })
+
+  it("ينسى الجلسة المحذوفة من خريطة الجذور", () => {
+    const { service, internals } = subtaskService([])
+
+    internals.trackEvent({ type: "session.created", data: { sessionID: KID(0), parentID: ROOT } } as unknown as OpenCodeEvent)
+    internals.trackEvent({ type: "session.deleted", data: { sessionID: KID(0) } } as unknown as OpenCodeEvent)
+
+    expect(service.conversationOf(KID(0))).toBe(KID(0))
   })
 })
