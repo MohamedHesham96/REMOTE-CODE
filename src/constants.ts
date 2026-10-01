@@ -26,6 +26,12 @@ export const ACTIVE_GRACE_MS = 5 * 60 * 1000
 export const TASK_QUIET_MS = 60 * 1000
 export const COMPOSER_MAX_LINES = 6
 export const TOUCH_QUERY = "(hover: none), (pointer: coarse)"
+// حارس جمود الـ SSE: النبضة كل 25 ثانية، فنعتبر الستريم ميت لو صام أكتر من
+// 45 ثانية (نبضة ضايعة واحدة مسموحة)، ونتفقّده كل 10 ثوان. من غيره الاتصال
+// نصف المفتوح (تايم آوت NAT أو قفل شاشة الموبايل) ما بيعملش onerror ولا
+// بيعيد الاتصال، فالشاشة بتجمّد لحد ما المستخدم يعمل refresh بإيده.
+export const SSE_STALE_MS = 45 * 1000
+export const SSE_WATCHDOG_MS = 10 * 1000
 
 export const emptyConfig: AppConfig = {
   openCode: { healthy: false, version: "" },

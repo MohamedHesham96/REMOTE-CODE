@@ -1074,6 +1074,22 @@ h2.session-title-editable { cursor: pointer; }
 .permission-content { min-width: 0; flex: 1; }.permission-content strong { font-size: 12px; }.permission-content p { margin: 5px 0 8px; color: var(--permission-body-text); font-size: 12px; }.permission-content code { display: block; overflow: auto; margin-bottom: 10px; color: var(--permission-code-text); font-size: 10px; direction: ltr; text-align: left; }
 .permission-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 
+/* كارت السؤال لاصق بأسفل منطقة المحادثة فيطوف فوقها بدل ما يزقّ
+   المحادثة أو يحتاج نزول يدوي — والمحادثة بتفضل في مكانها تحته.
+   البلور إجباري هنا: خلفية الكارت شفافة جزئيًا في الثيمات الداكنة،
+   ومن غيره كلام المحادثة اللي وراه بيعدّي عليه والقراية بتصعب.
+   :empty عشان الغلاف موجود دائمًا في الـ DOM (تبسيطًا للرسم) لكنه
+   يختفي تمامًا لما مفيش أسئلة فما يسيبش مسافة زائدة. */
+.questions-sticky { position: sticky; bottom: 12px; z-index: 5; display: grid; gap: 10px; margin-top: 18px; }
+.questions-sticky:empty { display: none; }
+.questions-sticky .question-card { margin: 0; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.15); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
+/* الشريط المصغّر بنفس خامة الكارت (وبنفس البلور) عشان السؤال المعلق
+   يفضل باينًا ومميزًا حتى وهو مطوي أثناء قراءة الرسائل القديمة. */
+.questions-minibar { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 13px; border: 1px solid var(--question-card-border); border-radius: 6px; background: var(--grad-question); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45); color: var(--text); font-size: 12px; cursor: pointer; }
+.questions-minibar strong { font-size: 12px; }
+.questions-expand-hint { margin-inline-start: auto; color: var(--question-hint); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.questions-collapse { justify-self: start; padding: 6px 10px; border: 1px solid var(--question-card-border); border-radius: 4px; color: var(--question-hint); background: transparent; font-size: 11px; font-weight: 700; cursor: pointer; }
+.questions-collapse:hover { color: var(--text); background: rgba(245, 199, 108, 0.08); }
 .question-card { width: 100%; margin: 18px 0 0; padding: 16px; border: 1px solid var(--question-card-border); border-radius: 6px; background: var(--grad-question); box-shadow: 0 14px 38px rgba(0, 0, 0, 0.18); }
 .question-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .question-card h3 { margin: 5px 0 0; font-size: 17px; color: var(--text); }

@@ -29,7 +29,7 @@ import {
   subscribePush,
   unsubscribePush,
 } from "./api"
-import type { ActiveSession, AppConfig, AuthState, ClientEvent, ConversationQuestionRequest, GitChanges, HistoryTurn, ModelInfo, Permission, PinnedConversation, Project, Session, SessionModelRef, SessionRequest, SessionStatus, Toast, ToastKind } from "./types"
+import type { ActiveSession, AppConfig, AuthState, ClientEvent, ConversationQuestionRequest, GitChanges, HistoryTurn, ModelInfo, Permission, PinnedConversation, Project, Session, SessionModelRef, SessionRequest, SessionRequests, SessionStatus, Toast, ToastKind } from "./types"
 import { isSoundEnabled, playAttentionSound, playCompletionSound, setSoundEnabled, unlockAudio, vibrate } from "./sound"
 import { applyTheme, getSavedTheme, nextTheme, saveTheme, themeDescription, themeLabel, THEMES, THEME_META, type AppTheme } from "./theme"
 import { applyLanguage, getSavedLanguage, getStrings, saveLanguage, type Language } from "./i18n"
@@ -48,13 +48,14 @@ import {
   SoundOnIcon,
   statusLabel,
 } from "./display"
-import { ACTIVE_GRACE_MS, COMPOSER_MAX_LINES, PINS_SYNC_EVENT, RECENT_PROJECTS_KEY, emptyConfig } from "./constants"
+import { ACTIVE_GRACE_MS, COMPOSER_MAX_LINES, RECENT_PROJECTS_KEY, emptyConfig } from "./constants"
 import { PanelFallback } from "./components/PanelFallback"
 import { PermissionCard } from "./components/PermissionCard"
 import { ProjectDropdown, ProjectPicker } from "./components/projects/ProjectPicker"
-import { QuestionCard } from "./components/requests/QuestionCard"
+import { StickyQuestions } from "./components/requests/StickyQuestions"
 import { RequestCard } from "./components/requests/RequestCard"
 import { useActivityGrace } from "./hooks/useActivityGrace"
+import { useEventStream } from "./hooks/useEventStream"
 import { useGitRequests } from "./hooks/useGitRequests"
 import { usePinnedConversations } from "./hooks/usePinnedConversations"
 import { useScrollToBottom } from "./hooks/useScrollToBottom"
@@ -112,7 +113,6 @@ function App() {
   // معرّف الطلب اللي شغّال عليه فعل في الطابور دلوقتي (تخطّي/حذف) عشان نمنع ضغط مزدوج
   const [queueAction, setQueueAction] = useState<string | null>(null)
   const [loginError, setLoginError] = useState("")
-  const [eventConnected, setEventConnected] = useState(false)
   const [showSessions, setShowSessions] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<InstallPrompt | null>(null)
@@ -168,7 +168,6 @@ function App() {
   const sessionsRef = useRef<Session[]>([])
   sessionsRef.current = sessions
   const activeSessionItemRef = useRef<HTMLDivElement | null>(null)
-  const eventsConnectedOnce = useRef(false)
   const workspaceScrollRef = useRef<HTMLDivElement | null>(null)
   // قائمة المهام جوه كارت المحادثة — هي اللي بتسكرول فعليًا (الكارت بحجم
   // النافذة والقائمة جوه flex:1). حاوية الشغل بتنزل معاها كمان عشان بطاقات
@@ -313,10 +312,15 @@ function App() {
     vibrate([180, 100, 180, 100, 320])
   }, [])
 
-  const notifyAttention = useCallback((message: string) => {
+  const notifyAttention = useCallback((message?: string) => {
     playAttentionSound()
     vibrate([120, 80, 120])
-    addToast(message, "info")
+    // من غير رسالة = صوت واهتزاز بس. بيستخدمها السؤال: كارت السؤال نفسه هو
+    // الإشارة، والتوست المكرر كان بيقول "OpenCode طرح سؤال" من غير ما يبان
+    // الكارت فبيوهم المستخدم إن حاجة وصلت وهو مش شايفها.
+    if (message) {
+      addToast(message, "info")
+    }
   }, [addToast])
 
   // التنبيه لازم يطلع مرة واحدة بس لكل مهمة: نفس المفتاح = نفس المهمة، فمهما
@@ -472,7 +476,15 @@ function App() {
       return
     }
     const ticket = ++requestsSeq.current
-    const [next, nextPermissions] = await Promise.all([getRequests(id, langRef.current), listPermissions()])
+    let next: SessionRequests
+    let nextPermissions: Permission[]
+    try {
+      const fetched = await Promise.all([getRequests(id, langRef.current), listPermissions()])
+      next = fetched[0]
+      nextPermissions = fetched[1]
+    } catch {
+      return
+    }
     // رد قديم وصل بعد رد أحدث — اتجاهله عشان الكارتات ماتقفش بترتيب غلط
     if (activeIdRef.current !== id || ticket !== requestsSeq.current) {
       return
@@ -844,8 +856,10 @@ function App() {
     // وحارس contentIdRef كان رفضه أول مرة — فالنزول ما كانش بيحصل خالص.
   }, [activeId, requests, authState, pinToBottom])
 
-  // كل ما يتضاف طلب جديد: انزل تحت على آخر كارت عشان المستخدم يشوفه فورًا
-  // لكن فقط لو المستخدم قريب من الأسفل أصلًا (ما نزعجش لو قارئ رسائل قديمة).
+  // كل ما يتضاف طلب جديد: انزل تحت على آخر كارت عشان المستخدم يشوفه
+  // فورًا — لكن فقط لو قريب من الأسفل أصلًا (ما نزعجش لو قارئ رسائل
+  // قديمة). الأسئلة مستثناة عمدًا: كارت السؤال لاصق (sticky) فوق المحادثة
+  // فالمحادثة بتفضل في مكانها وهو اللي بيظهر فوقها.
   useEffect(() => {
     if (requests.length === 0) {
       return
@@ -863,6 +877,18 @@ function App() {
     }, 2500)
     return () => window.clearInterval(timer)
   }, [authState, activeId, isBusy, hasQueuedRequests, hasRunningRequests, refreshRequests])
+
+  // فحص دوري احتياطي للأسئلة كل 5 ثوانٍ عندما تكون هناك جلسة نشطة.
+  // هذا يضمن ظهور الأسئلة حتى لو فشل جلب SSE أو حدثت مشكلة في تزامن الحالة.
+  useEffect(() => {
+    if (authState !== "signedIn" || !activeId) {
+      return
+    }
+    const timer = window.setInterval(() => {
+      void refreshRequests(activeId).catch(() => undefined)
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [authState, activeId, refreshRequests])
 
   useEffect(() => {
     if (authState !== "signedIn" || !selectedProject) {
@@ -886,6 +912,13 @@ function App() {
       }
       void refreshStatuses()
       void refreshActivity()
+      // طلبات المحادثة المفتوحة (ومعاها الأسئلة والأذونات) مالهاش poll دوري
+      // غير ده: بدونها سؤال بييجي وقت ما الستريم ميت والجلسة idle ما بيظهرش
+      // غير بعد refresh، لأن الـ poll بتاعها بيقف وهي مش busy ولا فيها طابور.
+      const id = activeIdRef.current
+      if (id) {
+        void refreshRequests(id).catch(() => undefined)
+      }
     }, 4000)
     // جلسات اللاب الجديدة تلتقط حتى لو الـ SSE ضاع — كل 12 ثانية كفاية ومش تقيلة
     const sessionsTimer = window.setInterval(() => {
@@ -934,8 +967,6 @@ function App() {
   }, [authState, selectedProject, refreshStatuses, refreshRequests, loadModels, refreshActivity, refreshGitChanges, refreshSessions, isFresh])
 
   const handleOpenCodeEvent = useCallback((event: ClientEvent) => {
-    // أي حدث واصل = الستريم حي — يحدّث ساعة الصحة للـ fallback والـ safety checks
-    lastSseAtRef.current = Date.now()
     if (event.type === "session.status") {
       setRawStatuses((current) => ({ ...current, [event.properties.sessionID]: event.properties.status }))
       // حالة شغل اتغيرت في أي مشروع — حدّث شريط "شغال الآن" فورًا
@@ -1002,18 +1033,37 @@ function App() {
     if (
       (event.type === "question.asked" || event.type === "question.v2.asked")
     ) {
-      notifyAttention(t.questionNeedsChoice)
+      // صوت واهتزاز بس من غير toast — كارت السؤال هو الإشارة نفسها
+      notifyAttention()
       // سؤال من أي جلسة (حتى اللاب) يحدّث النشطة — مدمجًا (حدث نادر لكن حرج،
       // والكارت نفسه يتحدث فوريًا أدناه فلا يضيع التنبيه)
       requestActivityRefresh()
-      if (event.properties.sessionID === activeIdRef.current) {
-        void refreshRequests(event.properties.sessionID)
+      const sessionID = event.properties.sessionID
+      // جلب متكرر بفواصل متزايدة (فيبوناتشي) عشان نغطي أي توقيت ضايع:
+      // جلب أولي ممكن يت رمى بسبب ticket guard، أو يفشل بسبب شبكة ضعيفة،
+      // أو يرجع فاضي بسبب كاش قديم. الفواصل المتزايدة تمنع العاصفة وتغطي
+      // أي تأخير في المحرك أو الشبكة.
+      const retryDelays = [500, 1000, 2000, 3000, 5000, 8000]
+      // نستدعي refreshRequests دائمًا، حتى لو لم يتطابق معرف الجلسة.
+      // هذا يضمن تحديث الأسئلة حتى لو كان هناك مشكلة في تطابق معرفات الجلسات.
+      void refreshRequests(sessionID).catch(() => undefined)
+      for (const delay of retryDelays) {
+        window.setTimeout(() => {
+          void refreshRequests(sessionID).catch(() => undefined)
+        }, delay)
       }
     } else if (
       (event.type === "question.replied" || event.type === "question.rejected" || event.type === "question.v2.replied" || event.type === "question.v2.rejected")
-      && event.properties.sessionID === activeIdRef.current
     ) {
-      void refreshRequests(event.properties.sessionID)
+      const sessionID = event.properties.sessionID
+      // نفس الجلب المتكرر: ردّ من جهاز تاني ضاع جلبه كان هيسيب كارت شبحًا للأبد
+      const retryDelays = [500, 1000, 2000, 3000, 5000, 8000]
+      void refreshRequests(sessionID).catch(() => undefined)
+      for (const delay of retryDelays) {
+        window.setTimeout(() => {
+          void refreshRequests(sessionID).catch(() => undefined)
+        }, delay)
+      }
     }
     if (event.type === "permission.updated") {
       setPermissions((current) => [...current.filter((permission) => permission.id !== event.properties.id), event.properties])
@@ -1046,67 +1096,25 @@ function App() {
     }
   }, [notifyAttention, refreshSessions, refreshRequests, refreshActivity, requestActivityRefresh, t])
 
-  useEffect(() => {
-    if (authState !== "signedIn") {
-      return
-    }
-    const source = new EventSource("/api/events", { withCredentials: true })
-    // EventSource يعيد الاتصال تلقائيًا بفاصل متزايد داخليًا؛ هنا نضيف:
-    // (1) تتبّع حالة الاتصال لإيقاف الـ polls الدورية أثناء الاتصال الحي،
-    // (2) resync متدرج (stagger) يتخطى الموارد الطازجة بدل العاصفة الكاملة.
-    const resyncTimers: number[] = []
-    source.addEventListener("ready", () => {
-      setEventConnected(true)
-      sseLiveRef.current = true
-      lastSseAtRef.current = Date.now()
-      // First connection: the mount effects already fetch. Any later one means the
-      // stream dropped (screen lock, network change) and every event in that window
-      // is gone, so re-sync now instead of waiting for the next poll tick.
-      if (!eventsConnectedOnce.current) {
-        eventsConnectedOnce.current = true
-        return
-      }
-      if (!isFresh("status")) {
-        void refreshStatuses()
-      }
-      const id = activeIdRef.current
-      if (id) {
-        resyncTimers.push(window.setTimeout(() => void refreshRequests(id).catch(() => undefined), 300))
-      }
-      if (!isFresh("activity")) {
-        resyncTimers.push(window.setTimeout(() => void refreshActivity(), 700))
-      }
-    })
-    source.addEventListener("opencode", (rawEvent) => {
-      try {
-        handleOpenCodeEvent(JSON.parse((rawEvent as MessageEvent<string>).data) as ClientEvent)
-      } catch {
-        addToast(t.unknownEvent, "error")
-      }
-    })
-    // تغيير في المثبّتات (جهاز تاني أو نافذة تانية): نحوّله لحدث داخلي
-    // يسمعه hook المثبّتات — نفس اتصال SSE واحد لكل نافذة، مش اتصال تاني.
-    source.addEventListener("pins", (rawEvent) => {
-      try {
-        const payload = JSON.parse((rawEvent as MessageEvent<string>).data) as { pins?: PinnedConversation[] }
-        window.dispatchEvent(new CustomEvent(PINS_SYNC_EVENT, { detail: { pins: payload.pins } }))
-      } catch {
-        // رد مش مفهوم — الـ resync والـ poll بيجيبوا الصورة الصح
-      }
-    })
-    source.onerror = () => {
-      setEventConnected(false)
-      sseLiveRef.current = false
-    }
-    return () => {
-      for (const timer of resyncTimers) {
-        window.clearTimeout(timer)
-      }
-      source.close()
-      sseLiveRef.current = false
-      setEventConnected(false)
-    }
-  }, [authState, addToast, handleOpenCodeEvent, refreshActivity, refreshRequests, refreshStatuses, isFresh, t])
+  const handleUnknownEvent = useCallback(() => {
+    addToast(t.unknownEvent, "error")
+  }, [addToast, t.unknownEvent])
+
+  // الاتصال الحي (SSE) وإعادة المزامنة بعد الانقطاع وحارس الجمود — كله جوه
+  // الهوك. App بيسيب بس القراءات المشتركة: حالة الاتصال للعرض، وsseLiveRef
+  // للـ polls الدورية، وlastSseAtRef لحارس الإرسال.
+  const eventConnected = useEventStream({
+    enabled: authState === "signedIn",
+    activeIdRef,
+    sseLiveRef,
+    lastSseAtRef,
+    isFresh,
+    refreshStatuses,
+    refreshRequests,
+    refreshActivity,
+    onEvent: handleOpenCodeEvent,
+    onUnknownEvent: handleUnknownEvent,
+  })
 
   useEffect(() => {
     if (authState !== "signedIn") {
@@ -1992,9 +2000,9 @@ function App() {
                 </div>
               </div>
             )}
-            {activeId ? requestQuestions.filter((question) => question.sessionID === activeId).map((question) => (
-              <QuestionCard key={question.id} request={question} sessionId={activeId} onAnswered={() => void refreshRequests(activeId).catch(() => undefined)} t={t} />
-            )) : null}
+            {activeId ? (
+              <StickyQuestions questions={requestQuestions.filter((question) => question.sessionID === activeId)} sessionId={activeId} onAnswered={() => void refreshRequests(activeId).catch(() => undefined)} t={t} />
+            ) : null}
           </div>
 
           {permissions.filter((permission) => permission.sessionID === activeId).length > 0 ? (

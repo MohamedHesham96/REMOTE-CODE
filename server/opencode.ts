@@ -195,6 +195,9 @@ export class OpenCodeService {
   // كتالوج models.dev العام — بلا directory لأنه مستقل عن المشروع
   private staticCatalogCache: { expiresAt: number; value: ModelInfo[] } | null = null
   private readonly questionsCache = new Map<string, { expiresAt: number; value: FormInfo[]}>()
+  // عدّاد إبطال لكل جلسة: نداء `form.list` بدأ قبل ما استمارة تتغير لازم
+  // يعرف إن نتيجته بقت قديمة فما يخزّنهاش (وإلا سؤال ظهر يفضل مخفي لحد refresh).
+  private readonly questionsEpoch = new Map<string, number>()
   // سلسلة كتابة ملف الجلسات: ترتيب مضمون من غير حظر الـ event loop
   private persistChain: Promise<void> = Promise.resolve()
 
@@ -383,14 +386,16 @@ export class OpenCodeService {
       }
     }
 
-    // أحداث الاستمارات (أسئلة المستخدم) تبطل كاش أسئلة جلستها
+    // أحداث الاستمارات (أسئلة المستخدم) تبطل كاش أسئلة جلستها والنداء الجاري
+    // كذلك. `form.created` بيحط الجلسة جوه `data.form` مش فوق، فلازم نقراها
+    // من المكانين وإلا الإبطال يقع على الكاش كله ويخلّي النداء القديم يعيد
+    // تخزين نتيجة فاضية بعد الإبطال.
     if (eventType === "form.created" || eventType === "form.replied" || eventType === "form.cancelled") {
-      const sessionId = (event.data as { sessionID?: unknown }).sessionID
-      if (typeof sessionId === "string") {
-        this.questionsCache.delete(sessionId)
-      } else {
-        this.questionsCache.clear()
-      }
+      const data = event.data as { sessionID?: unknown; form?: { sessionID?: unknown } } | undefined
+      const sessionId = typeof data?.sessionID === "string"
+        ? data.sessionID
+        : typeof data?.form?.sessionID === "string" ? data.form.sessionID : undefined
+      this.invalidateQuestions(sessionId)
     }
     if (eventType === "permission.asked") {
       const data = event.data as unknown as { id: string; sessionID: string; action: string; resources: string[]; message?: unknown }
@@ -1920,14 +1925,40 @@ export class OpenCodeService {
 
   // قوائم الأسئلة بتتقرأ مع كل poll للـ requests: كاش قصير لكل جلسة
   // يمتص التكرار، وبيتبطل مع أحداث الاستمارات أو بعد الرد/الرفض مباشرة
+  // إبطال كاش الأسئلة لجلسة (أو الكل لما الجلسة مش معروفة): بيمسح الكاش
+  // والنداء الجاري معًا، وبيزوّد عدّاد الإبطال اللي بيمنع أي نتيجة بدأت قبله
+  // إنها تتخزّن. من غير مسح الـ in-flight، نداء poll بدأ قبل إنشاء الاستمارة
+  // بيرجّع [] ويعيد تخزينها بعد الإبطال، فيفضل السؤال مخفي لحد refresh.
+  private invalidateQuestions(sessionId?: string): void {
+    if (sessionId) {
+      this.questionsCache.delete(sessionId)
+      this.inflight.delete(`questions:${sessionId}`)
+      this.questionsEpoch.set(sessionId, (this.questionsEpoch.get(sessionId) ?? 0) + 1)
+      return
+    }
+    this.questionsCache.clear()
+    for (const key of [...this.inflight.keys()]) {
+      if (key.startsWith("questions:")) {
+        this.inflight.delete(key)
+      }
+    }
+    for (const key of [...this.questionsEpoch.keys()]) {
+      this.questionsEpoch.set(key, (this.questionsEpoch.get(key) ?? 0) + 1)
+    }
+  }
+
   private async listForms(sessionId: string): Promise<FormInfo[]> {
     const cached = this.questionsCache.get(sessionId)
     if (cached && cached.expiresAt > Date.now()) {
       return cached.value
     }
+    const epoch = this.questionsEpoch.get(sessionId) ?? 0
     return this.dedup(`questions:${sessionId}`, async () => {
       const value = await this.requireClient().session.form.list({ sessionID: sessionId })
-      this.questionsCache.set(sessionId, { expiresAt: Date.now() + QUESTIONS_CACHE_MS, value })
+      // الاستمارات اتغيرت بعد ما بدأنا: النتيجة دي قديمة — متخزّنهاش.
+      if ((this.questionsEpoch.get(sessionId) ?? 0) === epoch) {
+        this.questionsCache.set(sessionId, { expiresAt: Date.now() + QUESTIONS_CACHE_MS, value })
+      }
       return value
     })
   }
@@ -1945,8 +1976,8 @@ export class OpenCodeService {
     }
     const answer = this.normalizeFormAnswers(form, answers)
     await this.requireClient().session.form.reply({ sessionID: sessionId, formID: requestId, answer })
-    // الرد غيّر حالة الأسئلة — ابطل الكاش فورًا عشان الـ poll الجاي يشوفها
-    this.questionsCache.delete(sessionId)
+    // الرد غيّر حالة الأسئلة — ابطل الكاش والنداء الجاري فورًا عشان الـ poll الجاي يشوفها
+    this.invalidateQuestions(sessionId)
     return true
   }
 
@@ -1957,7 +1988,7 @@ export class OpenCodeService {
       throw new Error("Question not found")
     }
     await this.requireClient().session.form.cancel({ sessionID: sessionId, formID: requestId })
-    this.questionsCache.delete(sessionId)
+    this.invalidateQuestions(sessionId)
     return true
   }
 
@@ -2040,6 +2071,7 @@ export class OpenCodeService {
     this.idlePolls.clear()
     this.inflight.clear()
     this.questionsCache.clear()
+    this.questionsEpoch.clear()
     this.activityCache = null
     this.modelsCache = null
     this.staticCatalogCache = null

@@ -785,8 +785,44 @@ describe("response caching and dedup", () => {
     await service.sessionQuestions(SESSION)
     expect(listCalls).toBe(1)
 
-    internals.trackEvent({ type: "form.created", data: { sessionID: SESSION } } as unknown as OpenCodeEvent)
+    // الجلسة جوه data.form زي ما SDK v2 بيبعت فعلًا في form.created
+    internals.trackEvent({ type: "form.created", data: { form: { id: "form_1", sessionID: SESSION } } } as unknown as OpenCodeEvent)
     await service.sessionQuestions(SESSION)
+    expect(listCalls).toBe(2)
+  })
+
+  it("does not cache an in-flight list that started before a form event", async () => {
+    let resolveFirst: (value: unknown) => void = () => undefined
+    let listCalls = 0
+    const service = new OpenCodeService({ projectDirectory: DIRECTORY })
+    const internals = service as unknown as Internals & {
+      client: { session: { form: { list: () => Promise<unknown> } } }
+    }
+    internals.client = {
+      session: {
+        form: {
+          list: () => {
+            listCalls += 1
+            if (listCalls === 1) {
+              return new Promise((resolve) => { resolveFirst = resolve })
+            }
+            return Promise.resolve([{ id: "form_1", sessionID: SESSION, title: "Q", fields: [] }])
+          },
+        },
+      },
+    }
+
+    // poll بدأ قبل ما الاستمارة تتوجد ولسه معلّق
+    const first = service.sessionQuestions(SESSION)
+    // الاستمارة اتنشأت — لازم الإبطال يشيل الكاش والنداء الجاري معًا
+    internals.trackEvent({ type: "form.created", data: { form: { id: "form_1", sessionID: SESSION } } } as unknown as OpenCodeEvent)
+    // النداء القديم خلص فاضي
+    resolveFirst([])
+    await first
+
+    // النداء اللي العميل بيعمله بعد الحدث لازم يشوف الاستمارة لا النتيجة القديمة
+    const after = await service.sessionQuestions(SESSION)
+    expect(after.map((question) => question.id)).toEqual(["form_1"])
     expect(listCalls).toBe(2)
   })
 })
