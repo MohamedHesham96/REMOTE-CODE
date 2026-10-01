@@ -967,3 +967,60 @@ describe("v2 session shapes", () => {
     expect(history[0]?.finalResult).toBe("تم")
   })
 })
+
+// العطل الأصلي: مهمة Task بتفتح جلسات ابن، و`session.active` بيرجّع كل واحدة
+// "running" لوحدها. قبل الإصلاح محادثة واحدة على أربع مهام فرعية كانت بتعدّ
+// خمس محادثات نشطة في العدّاد وفي القائمة الجانبية. الجذر هو وحدة العرض.
+describe("subtask sessions collapse onto their root", () => {
+  const ROOT = "ses_root"
+  const KIDS = ["ses_kid_a", "ses_kid_b", "ses_kid_c", "ses_kid_d"]
+
+  function subtaskService(runningIds: string[]) {
+    const listed: Array<Record<string, unknown>> = [
+      { ...sessionSummary(ROOT, DIRECTORY), title: "المحادثة الأم" },
+      ...KIDS.map((id) => ({ ...sessionSummary(id, DIRECTORY), title: `مهمة ${id}`, parentID: ROOT })),
+    ]
+    const active: Record<string, unknown> = {}
+    for (const id of runningIds) {
+      active[id] = { type: "running" }
+    }
+    const service = new OpenCodeService({ projectDirectory: DIRECTORY })
+    const internals = service as unknown as Internals & {
+      client: {
+        session: {
+          list: () => Promise<{ data: Array<Record<string, unknown>>; cursor: object }>
+          active: () => Promise<unknown>
+        }
+      }
+    }
+    internals.client = {
+      session: {
+        list: () => Promise.resolve({ data: listed, cursor: {} }),
+        active: () => Promise.resolve(active),
+      },
+    }
+    return { service }
+  }
+
+  it("يعدّ المحادثة الأم مرة واحدة مهما اشتغلت من مهامها الفرعية", async () => {
+    const { service } = subtaskService([ROOT, ...KIDS])
+
+    const items = await service.activity("ar")
+    expect(items.map((item) => item.id)).toEqual([ROOT])
+    expect(items[0]?.title).toBe("المحادثة الأم")
+  })
+
+  it("يعدّ المهمة الأم شغالة حتى لو شغّالتها ابنها", async () => {
+    // المحادثة الأم نفسها idle في الـ poll، والمهام الفرعية هي الشغالة
+    const { service } = subtaskService(KIDS)
+
+    await expect(service.statuses()).resolves.toEqual({ [ROOT]: { type: "busy" } })
+  })
+
+  it("يخفي المهام الفرعية من قائمة محادثات المشروع", async () => {
+    const { service } = subtaskService([])
+
+    const sessions = await service.sessions()
+    expect(sessions.map((session) => session.id)).toEqual([ROOT])
+  })
+})

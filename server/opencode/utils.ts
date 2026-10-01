@@ -89,6 +89,45 @@ export function directoryKey(directory: string): string {
   return directory.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase()
 }
 
+// مهام المساعد الفرعية (Task/subagent) جلسات ابن: OpenCode بيرجّعها في نفس
+// قائمة الجلسات ومعها `parentID` للمحادثة الأم. الديسكتوب بيخفيها من قائمة
+// المحادثات (`!e.parentID`)، فلازم نعمل نفس الحاجة هنا: غير كده محادثة واحدة
+// شغّالة على أربع مهام فرعية بتظهر في العدّاد كمحادثات أربع نشطة، والقائمة
+// الجانبية بتعرض المهام الفرعية كأنها محادثات مستقلة.
+//
+// الدالة بتكمّل الصعود لحد الجذر: مهمة جوه مهمة (سلسلة أعمق) بتتجمّع على
+// نفس المحادثة. وحلقة في البيانات (أب يشير لنفسه) بتوقف عند حد معيّن بدل ما
+// تعلّق. ونرجّع الجذر مع كل جلسة لأن الحالة "شغّال" بتيجي على الـ id: مهمة
+// فرعية شغّالة معناها المحادثة الأم شغّالة، فبدون الخريطة دي ما نقدرش نعرف.
+export function sessionRoots(sessions: Array<{ id: string; parentID?: string }>): {
+  roots: string[]
+  rootOf: Map<string, string>
+} {
+  const byId = new Map(sessions.map((session) => [session.id, session]))
+  const rootOf = new Map<string, string>()
+  const roots: string[] = []
+  for (const session of sessions) {
+    let root = session.id
+    const seen = new Set<string>([root])
+    let parent = session.parentID
+    while (parent && !seen.has(parent)) {
+      seen.add(parent)
+      // أب مش موجود في نفس الصفحة = نعتبر الجلسة جذر: أحسن نعرضها
+      // كأنها محادثة مستقلة من ما نخفيها خالص.
+      if (!byId.has(parent)) {
+        break
+      }
+      root = parent
+      parent = byId.get(parent)?.parentID
+    }
+    rootOf.set(session.id, root)
+    if (root === session.id) {
+      roots.push(session.id)
+    }
+  }
+  return { roots, rootOf }
+}
+
 // شكل المسار وحده يحدد صلاحيته للعرض: القائمة تجمع من ثلاث مصادر (المُعدّ
 // والمسجّل والجلسات) مع استيراد الديسكتوب، وأي مصدر قد يحمل قمامة — جذر
 // قرص مثل `E:\` أو مسار نسبي مثل `Workshop` أو عشّ worktree مؤقت مثل

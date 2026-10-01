@@ -6,6 +6,7 @@ import {
   isFilesystemRoot,
   isListableProjectDirectory,
   parseCliVersion,
+  sessionRoots,
 } from "./utils.js"
 
 // فحص الشكل نصّي خالص: يعمل بثبات على وندوز ولينكس لأنه لا يعتمد IO ولا
@@ -79,5 +80,64 @@ describe("parseCliVersion", () => {
   it("يعيد نصًا فارغًا بلا رقم إصدار", () => {
     expect(parseCliVersion("")).toBe("")
     expect(parseCliVersion("command not found")).toBe("")
+  })
+})
+
+// العطل الأصلي: مهمة Task بتفتح جلسات ابن، و`session.active` بيرجّع كل واحدة
+// "running" لوحدها، فمحادثة واحدة على أربع مهام فرعية بتعدّ أربع محادثات
+// نشطة. الجذر هو وحدة العرض الصح.
+describe("sessionRoots", () => {
+  it("يرجّع الجذور وحدها من قائمة فيها مهام فرعية", () => {
+    const { roots } = sessionRoots([
+      { id: "ses_root" },
+      { id: "ses_a", parentID: "ses_root" },
+      { id: "ses_b", parentID: "ses_root" },
+      { id: "ses_other" },
+    ])
+    expect(roots).toEqual(["ses_root", "ses_other"])
+  })
+
+  it("ينسب كل مهمة فرعية للجذر بتاعها", () => {
+    const { rootOf } = sessionRoots([
+      { id: "ses_root" },
+      { id: "ses_a", parentID: "ses_root" },
+      { id: "ses_b", parentID: "ses_root" },
+    ])
+    expect(rootOf.get("ses_root")).toBe("ses_root")
+    expect(rootOf.get("ses_a")).toBe("ses_root")
+    expect(rootOf.get("ses_b")).toBe("ses_root")
+  })
+
+  it("يكمل الصعود لمهمة جوه مهمة", () => {
+    const { roots, rootOf } = sessionRoots([
+      { id: "ses_root" },
+      { id: "ses_mid", parentID: "ses_root" },
+      { id: "ses_leaf", parentID: "ses_mid" },
+    ])
+    expect(roots).toEqual(["ses_root"])
+    expect(rootOf.get("ses_leaf")).toBe("ses_root")
+  })
+
+  // أب مش موجود في نفس الصفحة (سقف الترقيم) — أحسن نعرض الجلسة كجذر من ما
+  // نخفيها خالص عن المستخدم.
+  it("يعتبر الجلسة جذرًا لو أبوها مش في القائمة", () => {
+    const { roots, rootOf } = sessionRoots([
+      { id: "ses_a", parentID: "ses_missing" },
+    ])
+    expect(roots).toEqual(["ses_a"])
+    expect(rootOf.get("ses_a")).toBe("ses_a")
+  })
+
+  it("يتوقف عند حلقة بدل ما يعلق", () => {
+    const { rootOf } = sessionRoots([
+      { id: "ses_a", parentID: "ses_b" },
+      { id: "ses_b", parentID: "ses_a" },
+    ])
+    expect(rootOf.get("ses_a")).toBeDefined()
+    expect(rootOf.get("ses_b")).toBeDefined()
+  })
+
+  it("يتعامل مع القائمة الفاضية", () => {
+    expect(sessionRoots([])).toEqual({ roots: [], rootOf: new Map() })
   })
 })
