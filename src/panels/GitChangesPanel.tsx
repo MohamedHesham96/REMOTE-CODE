@@ -36,10 +36,15 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
   // معناه "مفيش حاجة مستنية push" أو "مفيش upstream متظبط" — والاتنين
   // معناه إننا متكلّمين عن push أصلاً فمفيش حاجة نلفت النظر ليها.
   const unpushed = changes?.unpushed ?? 0
+  // زرار commit & push بيفضل شغال على شجرة نضيفة لو فيه commits مستنية
+  // الـ push: الحاجة المطلوبة (الـ push) موجودة حتى لو مفيش ملفات.
+  const canPush = idle && Boolean(changes?.available) && (hasFiles || unpushed > 0)
   // الرقم في نص الزر (aria-label) كمان: الشارة مرئية للعين بس،
-  // فبدونها قارئ الشاشة هيسمع "commit & push" من غير أي رقم.
+  // فبدونها قارئ الشاشة هيسمع "commit & push" من غير أي رقم. والاسم
+  // بيتغيّر لـ "push" لما مفيش حاجة تتعملها commit عشان الزرار مايوعدش
+  // بحاجة مش هتحصل.
   const pushLabel = unpushed > 0
-    ? `${t.gitCommitPush} — ${unpushed} ${unpushed === 1 ? t.gitUnpushedOne : t.gitUnpushedMany}`
+    ? `${hasFiles ? t.gitCommitPush : t.gitPush} — ${unpushed} ${unpushed === 1 ? t.gitUnpushedOne : t.gitUnpushedMany}`
     : t.gitCommitPush
   const summary = useMemo(() => files.reduce((total, file) => {
     if (file.status === "added") {
@@ -101,7 +106,7 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
                 <button
                   type="button"
                   className="icon-button git-push-button"
-                  disabled={!canAct}
+                  disabled={!canPush}
                   onClick={onAskCommitPush}
                   aria-busy={busy}
                   aria-label={pushLabel}
@@ -141,10 +146,12 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
             </div>
           </div>
         ) : null}
-        {/* الـ push بيعدّل الفرع البعيد، فبيتأكد جوه الدرج زي التراجع عن الكل */}
+        {/* الـ push بيعدّل الفرع البعيد، فبيتأكد جوه الدرج زي التراجع عن الكل.
+            النص بيتبع اللي هيحصل فعلًا: فيه ملفات ⇒ commit و push، وشجرة
+            نضيفة ⇒ push بس. تأكيد بيقول "commit" وحاجة مش موجودة بيوهّم. */}
         {confirmingPush ? (
-          <div className="git-confirm" role="alertdialog" aria-label={t.gitCommitPushConfirm}>
-            <p className="git-confirm-text">{t.gitCommitPushConfirm}</p>
+          <div className="git-confirm" role="alertdialog" aria-label={hasFiles ? t.gitCommitPushConfirm : t.gitPushConfirm}>
+            <p className="git-confirm-text">{hasFiles ? t.gitCommitPushConfirm : t.gitPushConfirm}</p>
             <div className="git-confirm-actions">
               <button type="button" className="git-confirm-cancel" onClick={onCancelCommitPush} disabled={busy}>
                 {t.cancel}

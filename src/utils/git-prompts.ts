@@ -17,6 +17,16 @@ export function commitPushPrompt(files: GitChangeFile[], branch: string, lang: L
     : `Commit all current git changes and then push${branch ? ` to branch '${branch}'` : ""}.\nSteps:\n1) Review git status and git diff.\n2) git add the changed files.\n3) Commit with a clear, concise message.\n4) Push${branch ? ` to '${branch}'` : ""}.\nChanged files:\n${fileLines}\nIf no remote is configured, say so clearly and don't invent anything.`
 }
 
+// push بس، من غير commit. ده مسار الشجرة النضيفة: فيها commits محلية
+// مستنية الـ push بس مفيش ملفات متغيّرة. لو بعتنا commitPushPrompt في
+// الحالة دي الوكيل هيدوّر على حاجة يعملها commit ويلخبط الشغل، فبنقول
+// له صريح إن مفيش حاجة تتعملها commit.
+export function pushPrompt(branch: string, lang: Language): string {
+  return lang === "ar"
+    ? `ارفع (push) الـ commits الموجودة على الفرع المحلي${branch ? ` '${branch}'` : ""} للفرع البعيد. مفيش تغييرات محلية تتعملها commit.\nخطواتك:\n1) راجع git status و git log عشان تشوف الـ commits غير المدفوعة.\n2) ارفعهم بـ git push${branch ? ` origin ${branch}` : ""}.\nممنوع تعمل commit. ولو مفيش remote متظبط قولي بوضوح ومتخترعش حاجة.`
+    : `Push the existing local commits${branch ? ` on branch '${branch}'` : ""} to the remote. There are no local changes to commit.\nSteps:\n1) Review git status and git log to find the unpushed commits.\n2) Push them with git push${branch ? ` origin ${branch}` : ""}.\nDo not commit. If no remote is configured, say so clearly and don't invent anything.`
+}
+
 // commit لوحده بدون push: الحفظ محلي وقابل للتراجع بـ reset في أي وقت، فمفيش
 // سبب ياخد خطوة تأكيد زي زرار الـ commit & push.
 export function commitPrompt(files: GitChangeFile[], branch: string, lang: Language): string {

@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react"
 import type { Language } from "../i18n"
 import type { GitChangeFile, GitChanges } from "../types"
-import { commitPrompt, commitPushPrompt, pullPrompt, revertAllPrompt, revertFilePrompt } from "../utils/git-prompts"
+import { commitPrompt, commitPushPrompt, pullPrompt, pushPrompt, revertAllPrompt, revertFilePrompt } from "../utils/git-prompts"
 
 export interface GitRequests {
   isOpen: boolean
@@ -43,17 +43,27 @@ export function useGitRequests(
   // نطلب من السطر الأول فيه تغييرات حقيقية، وإلا الطلب هيتنفّذ على مجلد نضيف
   const canRequest = useCallback(() => Boolean(changes?.available) && (changes?.files.length ?? 0) > 0 && !sending, [changes, sending])
 
+  // زرار commit & push استثناء عن قاعدة "لازم فيه تغييرات": شجرة نضيفة
+  // فيها commits محلية لسه ما اترفعتش هي الحالة الطبيعية بعد شغل سابق،
+  // والـ push هو الحاجة الوحيدة المطلوبة. باقي الأزرار (commit/تراجع)
+  // لسه محتاجة تغييرات فعلية لأن أثرها محلي.
+  const canPush = useCallback(() => Boolean(changes?.available) && ((changes?.files.length ?? 0) > 0 || (changes?.unpushed ?? 0) > 0) && !sending, [changes, sending])
+
   // السحب هو الاستثناء عن قاعدة "لازم فيه تغييرات": جلب التحديثات الجديدة
   // بيحصل على مجلد نضيف، وهو أكتر حالة بيستعملها المستخدم فيها الزر ده.
   const canPull = useCallback(() => Boolean(changes?.available) && !sending, [changes, sending])
 
   const commitPush = useCallback(async () => {
-    if (!changes || !canRequest()) {
+    if (!changes || !canPush()) {
       return
     }
     close()
-    await send(commitPushPrompt(changes.files, changes.branch, lang))
-  }, [canRequest, changes, lang, close, send])
+    // شجرة نضيفة + commits مستنية: مفيش حاجة تتعملها commit، فالطلب
+    // بيقتصر على الـ push عشان الوكيل مايدوّرش على شغل مش موجود.
+    await send(changes.files.length > 0
+      ? commitPushPrompt(changes.files, changes.branch, lang)
+      : pushPrompt(changes.branch, lang))
+  }, [canPush, changes, lang, close, send])
 
   const commit = useCallback(async () => {
     if (!changes || !canRequest()) {
@@ -104,13 +114,13 @@ export function useGitRequests(
   // الإلغاء بيسيب الدرج مفتوح — المستخدم لسه بيراجع الملفات قبل ما يقرر
   const cancelRevertAll = useCallback(() => setConfirming(false), [])
 
-  // الـ push بيبعت commit حقيقي للفرع، فبيتأكد زي التراجع عن الكل تمامًا.
+  // الـ push بيعدّل الفرع البعيد، فبيتأكد زي التراجع عن الكل تمامًا.
   const askCommitPush = useCallback(() => {
-    if (!canRequest()) {
+    if (!canPush()) {
       return
     }
     setConfirmingPush(true)
-  }, [canRequest])
+  }, [canPush])
 
   const cancelCommitPush = useCallback(() => setConfirmingPush(false), [])
 

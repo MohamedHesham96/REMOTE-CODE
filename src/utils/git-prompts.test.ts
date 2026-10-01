@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { commitPrompt, commitPushPrompt, pullPrompt, revertAllPrompt, revertFilePrompt } from "./git-prompts"
+import { commitPrompt, commitPushPrompt, pullPrompt, pushPrompt, revertAllPrompt, revertFilePrompt } from "./git-prompts"
 import type { GitChangeFile } from "../types"
 
 function file(path: string, status: GitChangeFile["status"]): GitChangeFile {
@@ -18,6 +18,20 @@ describe("git prompts", () => {
     expect(prompt).toContain("branch 'main'")
     expect(prompt).toContain("- a.ts (modified)")
     expect(prompt).toContain("Do not push")
+  })
+
+  // الحالة اللي بيفتحها زرار الـ push على شجرة نضيفة: commits محلية
+  // مستنية الـ push ومفيش ملفات. الطلب لازم يمنع الـ commit صريح، وإلا
+  // الوكيل يدوّر على حاجة يعملها commit ويلخبط الشغل.
+  it("asks for a push only and forbids committing on a clean tree", () => {
+    const prompt = pushPrompt("main", "en")
+    expect(prompt).toContain("Push the existing local commits")
+    expect(prompt).toContain("branch 'main'")
+    expect(prompt).toContain("Do not commit")
+  })
+
+  it("omits the branch in a push when there is none", () => {
+    expect(pushPrompt("", "ar")).not.toContain("''")
   })
 
   it("stops at the first conflict on a pull instead of resolving it", () => {
