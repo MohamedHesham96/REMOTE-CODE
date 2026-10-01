@@ -7,6 +7,7 @@ import {
   isListableProjectDirectory,
   parseCliVersion,
   sessionRoots,
+  parseStaticCatalog,
 } from "./utils.js"
 
 // فحص الشكل نصّي خالص: يعمل بثبات على وندوز ولينكس لأنه لا يعتمد IO ولا
@@ -83,6 +84,7 @@ describe("parseCliVersion", () => {
   })
 })
 
+<<<<<<< Updated upstream
 // العطل الأصلي: مهمة Task بتفتح جلسات ابن، و`session.active` بيرجّع كل واحدة
 // "running" لوحدها، فمحادثة واحدة على أربع مهام فرعية بتعدّ أربع محادثات
 // نشطة. الجذر هو وحدة العرض الصح.
@@ -139,5 +141,41 @@ describe("sessionRoots", () => {
 
   it("يتعامل مع القائمة الفاضية", () => {
     expect(sessionRoots([])).toEqual({ roots: [], rootOf: new Map() })
+  })
+})
+
+// تحليل كتالوج models.dev العام — دالة خالصة بلا IO، فتُختبر بعينات ثابتة
+describe("parseStaticCatalog", () => {
+  it("يحوّل الموفرات والنماذج لعناصر عرض معطّلة", () => {
+    const items = parseStaticCatalog({
+      anthropic: {
+        id: "anthropic",
+        models: {
+          "claude-sonnet-4-5": { name: "Claude Sonnet 4.5", cost: { input: 3, output: 15, cache_read: 0.3 } },
+          "free-thing": { name: "Free Thing", cost: { input: 0, output: 0 } },
+        },
+      },
+    })
+
+    expect(items).toEqual([
+      { id: "claude-sonnet-4-5", providerID: "anthropic", name: "Claude Sonnet 4.5", free: false, enabled: false },
+      { id: "free-thing", providerID: "anthropic", name: "Free Thing", free: true, enabled: false },
+    ])
+  })
+
+  it("غياب السعر لا يعني المجانية، والاسم الفارغ يسقط على الـ id", () => {
+    const items = parseStaticCatalog({
+      acme: { models: { coder: {} } },
+    })
+
+    expect(items).toEqual([
+      { id: "coder", providerID: "acme", name: "coder", free: false, enabled: false },
+    ])
+  })
+
+  it("يرفض الحمولات التالفة بدل ما يرمي", () => {
+    expect(parseStaticCatalog(null)).toEqual([])
+    expect(parseStaticCatalog("oops")).toEqual([])
+    expect(parseStaticCatalog({ acme: null, broken: { models: null }, empty: {} })).toEqual([])
   })
 })

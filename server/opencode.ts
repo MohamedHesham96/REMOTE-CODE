@@ -51,6 +51,7 @@ import {
   mimeFromName,
   MODELS_CACHE_MS,
   parseModelString,
+  parseStaticCatalog,
   parseCliVersion,
   PROMPT_DISPATCH_TIMEOUT_MS,
   QUEUED_ID_PREFIX,
@@ -58,7 +59,11 @@ import {
   QUESTIONS_CACHE_MS,
   sessionRoots,
   sortVariants,
+  STATIC_CATALOG_CACHE_MS,
   STALE_BUSY_GRACE_MS,
+  STATIC_CATALOG_RETRY_MS,
+  STATIC_CATALOG_TIMEOUT_MS,
+  STATIC_CATALOG_URL,
   stripMobileSuffix,
   titleFromUserText,
   variantIds,
@@ -181,6 +186,8 @@ export class OpenCodeService {
   private activityCache: { expiresAt: number; lang: ServerLang; value: ActiveSession[] } | null = null
   // كاش الموديلات الكامل + قوائم الأسئلة لكل جلسة
   private modelsCache: { expiresAt: number; directory: string; value: ModelInfo[] } | null = null
+  // كتالوج models.dev العام — بلا directory لأنه مستقل عن المشروع
+  private staticCatalogCache: { expiresAt: number; value: ModelInfo[] } | null = null
   private readonly questionsCache = new Map<string, { expiresAt: number; value: FormInfo[]}>()
   // سلسلة كتابة ملف الجلسات: ترتيب مضمون من غير حظر الـ event loop
   private persistChain: Promise<void> = Promise.resolve()
@@ -1695,10 +1702,56 @@ export class OpenCodeService {
       return cached.value
     }
     return this.dedup(`models:${directory}`, async () => {
-      const value = await this.computeModels()
+      const live = await this.computeModels()
+      const value = this.mergeStaticCatalog(live, await this.staticCatalog())
       this.modelsCache = { expiresAt: Date.now() + MODELS_CACHE_MS, directory, value }
       return value
     })
+  }
+
+  // دمج الكتالوج العام فوق نماذج المحرك: الحيّ أولًا (وموجوده يكسب عند
+  // التكرار)، والزائد من الكتالوج يُلحق معطّلًا لأنه لا يعمل قبل ربط موفره.
+  private mergeStaticCatalog(live: ModelInfo[], catalog: ModelInfo[]): ModelInfo[] {
+    if (catalog.length === 0) {
+      return live
+    }
+    const seen = new Set(live.map((model) => `${model.providerID}/${model.id}`))
+    const extra = catalog.filter((model) => {
+      const key = `${model.providerID}/${model.id}`
+      if (seen.has(key)) {
+        return false
+      }
+      seen.add(key)
+      return true
+    })
+    return [...live, ...extra].sort((a, b) => a.providerID.localeCompare(b.providerID) || a.id.localeCompare(b.id))
+  }
+
+  // الكتالوج العام من models.dev — يُعرض حتى قبل ربط أي موفر. أي فشل
+  // (انقطاع النت) يرجّع آخر صورة أو قائمة فارغة، فتظهر نماذج المحرك وحدها.
+  private async staticCatalog(): Promise<ModelInfo[]> {
+    const cached = this.staticCatalogCache
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value
+    }
+    try {
+      const response = await withTimeout(
+        fetch(STATIC_CATALOG_URL, { headers: { accept: "application/json" } }),
+        STATIC_CATALOG_TIMEOUT_MS,
+        "static model catalog",
+      )
+      if (!response.ok) {
+        throw new Error(`static catalog responded ${response.status}`)
+      }
+      const value = parseStaticCatalog(await response.json() as unknown)
+      this.staticCatalogCache = { expiresAt: Date.now() + STATIC_CATALOG_CACHE_MS, value }
+      return value
+    } catch (error) {
+      console.error("static model catalog failed, showing engine models only", errorMessage(error))
+      // فشل مؤقت — إعادة المحاولة بعد مهلة قصيرة لا مع كل طلب
+      this.staticCatalogCache = { expiresAt: Date.now() + STATIC_CATALOG_RETRY_MS, value: cached?.value ?? [] }
+      return cached?.value ?? []
+    }
   }
 
   private async computeModels(): Promise<ModelInfo[]> {
@@ -1710,20 +1763,11 @@ export class OpenCodeService {
       return variants ? { ...info, variants } : info
     })
 
-    // النشطة فقط من الـ providers (activation بدل disabled في v1)
-    let activeProviders: Set<string> | null = null
-    try {
-      const providers = await this.requireClient().provider.list({ location: this.location() })
-      activeProviders = new Set(
-        providers.data.filter((provider) => provider.activation !== "disabled").map((provider) => provider.id),
-      )
-    } catch (error) {
-      console.error("provider list failed, showing catalog without provider filter", errorMessage(error))
-    }
-
+    // كل الكتالوج يتعرض كما هو من opencode — بلا ترشيح حسب الموفر أو
+    // حالة التفعيل. الترشيح كان يخفي القائمة كلها لما لا يوجد موفر مفعّل،
+    // والمطلوب عرض كل النماذج والاختيار للمستخدم.
     return withVariants(
       catalog
-        .filter((model) => !activeProviders || activeProviders.has(model.providerID))
         .map((model) => ({
           id: model.id,
           providerID: model.providerID,
@@ -1774,8 +1818,9 @@ export class OpenCodeService {
     if (!cleanProvider || !cleanModel) {
       throw new Error("Model is required")
     }
-    // تحقق إن الموديل موجود فعلًا (ويفضل free — الواجهة بتعرض free فقط)
-    const available = await this.models()
+    // تحقق إن الموديل موجود فعلًا ضمن نماذج المحرك الحية قبل التبديل —
+    // عناصر الكتالوج العام لا تعمل قبل ربط موفرها فلا تُقبل هنا
+    const available = await this.computeModels()
     const match = available.find((candidate) => candidate.providerID === cleanProvider && candidate.id === cleanModel)
     if (!match) {
       throw new Error("Model not found")
@@ -1963,6 +2008,7 @@ export class OpenCodeService {
     this.questionsCache.clear()
     this.activityCache = null
     this.modelsCache = null
+    this.staticCatalogCache = null
     this.pendingPermissions.clear()
     this.busySessions.clear()
     this.finishedRuns.clear()

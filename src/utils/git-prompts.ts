@@ -9,26 +9,12 @@ function listFiles(files: GitChangeFile[]): string {
   return files.slice(0, MAX_LISTED_FILES).map((file) => `- ${file.path} (${file.status})`).join("\n")
 }
 
-// طلب commit للتغييرات كلها — نفس منطق زرار الـ commit في قائمة git.
-export function commitPrompt(files: GitChangeFile[], branch: string, lang: Language): string {
+// طلب commit و push للتغييرات كلها — نفس منطق زرار الـ commit في قائمة git.
+export function commitPushPrompt(files: GitChangeFile[], branch: string, lang: Language): string {
   const fileLines = listFiles(files)
   return lang === "ar"
-    ? `اعمل commit لكل التغييرات الحالية في git${branch ? ` على الفرع '${branch}'` : ""}.\nخطواتك:\n1) راجع git status و git diff.\n2) اعمل git add للملفات المتغيرة.\n3) اعمل commit برسالة واضحة ومختصرة.\nالملفات المتغيرة:\n${fileLines}\nممنوع تعمل push.`
-    : `Commit all current git changes${branch ? ` on branch '${branch}'` : ""}.\nSteps:\n1) Review git status and git diff.\n2) git add the changed files.\n3) Commit with a clear, concise message.\nChanged files:\n${fileLines}\nDo not push.`
-}
-
-// طلب push للفرع الحالي.
-export function pushPrompt(branch: string, lang: Language): string {
-  return lang === "ar"
-    ? `اعمل push${branch ? ` للفرع '${branch}'` : ""}.\nمفيش ملفات متغيرة تتضاف — الـ push بيبعت الـ commits الموجودة بس.`
-    : `Push${branch ? ` branch '${branch}'` : ""}.\nThere are no new files to add — the push only sends existing commits.`
-}
-
-// طلب pull للفرع الحالي.
-export function pullPrompt(branch: string, lang: Language): string {
-  return lang === "ar"
-    ? `اعمل pull${branch ? ` للفرع '${branch}'` : ""}.\nجيب آخر التغييرات من الفرع البعيد ودمجها مع المحلي.`
-    : `Pull${branch ? ` branch '${branch}'` : ""}.\nFetch the latest changes from the remote branch and merge them with the local one.`
+    ? `اعمل commit لكل التغييرات الحالية في git وبعدها push${branch ? ` على الفرع '${branch}'` : ""}.\nخطواتك:\n1) راجع git status و git diff.\n2) اعمل git add للملفات المتغيرة.\n3) اعمل commit برسالة واضحة ومختصرة.\n4) اعمل push${branch ? ` إلى '${branch}'` : ""}.\nالملفات المتغيرة:\n${fileLines}\nلو مفيش remote متظبط قولي بوضوح ومتخترعش حاجة.`
+    : `Commit all current git changes and then push${branch ? ` to branch '${branch}'` : ""}.\nSteps:\n1) Review git status and git diff.\n2) git add the changed files.\n3) Commit with a clear, concise message.\n4) Push${branch ? ` to '${branch}'` : ""}.\nChanged files:\n${fileLines}\nIf no remote is configured, say so clearly and don't invent anything.`
 }
 
 // commit لوحده بدون push: الحفظ محلي وقابل للتراجع بـ reset في أي وقت، فمفيش

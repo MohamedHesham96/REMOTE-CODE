@@ -1,46 +1,27 @@
 import { useCallback, useState } from "react"
 import type { Language } from "../i18n"
 import type { GitChangeFile, GitChanges } from "../types"
-<<<<<<< HEAD
-import { commitPrompt, pullPrompt, pushPrompt, revertAllPrompt, revertFilePrompt } from "../utils/git-prompts"
-=======
 import { commitPrompt, commitPushPrompt, pullPrompt, revertAllPrompt, revertFilePrompt } from "../utils/git-prompts"
->>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
 
 export interface GitRequests {
   isOpen: boolean
   confirming: boolean
-  confirmingCommit: boolean
   confirmingPush: boolean
-  confirmingPull: boolean
   show: () => void
   close: () => void
   askRevertAll: () => void
   cancelRevertAll: () => void
-<<<<<<< HEAD
-  askCommit: () => void
-  cancelCommit: () => void
-  commit: () => Promise<void>
-  askPush: () => void
-  cancelPush: () => void
-  push: () => Promise<void>
-  askPull: () => void
-  cancelPull: () => void
-=======
   askCommitPush: () => void
   cancelCommitPush: () => void
   commitPush: () => Promise<void>
   commit: () => Promise<void>
->>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
   pull: () => Promise<void>
   revertAll: () => Promise<void>
   revertFile: (file: GitChangeFile) => Promise<void>
 }
 
-// كل أزرار الـ git في الدرج بتبعت prompt للعميل (نفس نمط زرار commit & push).
-// الـ commit والتراجع محتاجين ملفات متغيّرة فعلًا، لكن الـ push والـ pull
-// بيزامنوا commits موجودة أو بعيدة فشغّالين على شجرة نضيفة — عشان كده
-// الـ guard متقسّم اتنين بدل واحد مشترك.
+// كل أزرار الـ git في الدرج بتبعت prompt للعميل (نفس نمط زرار commit & push)،
+// فبنت guard واحد مشترك: لازم المشروع يكون git وفيه ملفات ومفيش طلب شغال.
 // الدالة المشتركة بتقفل الدرج كمان — الطلب بيفتح محادثة جديدة، والدرج تاني
 // وراه مش هيفيد. التراجع عن الكل محتاج خطوة تأكيد منفصلة عشان مدمّر.
 export function useGitRequests(
@@ -51,52 +32,29 @@ export function useGitRequests(
 ): GitRequests {
   const [isOpen, setIsOpen] = useState(false)
   const [confirming, setConfirming] = useState(false)
-  const [confirmingCommit, setConfirmingCommit] = useState(false)
   const [confirmingPush, setConfirmingPush] = useState(false)
-  const [confirmingPull, setConfirmingPull] = useState(false)
 
   const close = useCallback(() => {
     setIsOpen(false)
     setConfirming(false)
-    setConfirmingCommit(false)
     setConfirmingPush(false)
-    setConfirmingPull(false)
   }, [])
 
   // نطلب من السطر الأول فيه تغييرات حقيقية، وإلا الطلب هيتنفّذ على مجلد نضيف
   const canRequest = useCallback(() => Boolean(changes?.available) && (changes?.files.length ?? 0) > 0 && !sending, [changes, sending])
 
-<<<<<<< HEAD
-  // الـ push والـ pull مزامنة مش تغيير — بيشتغلوا على شجرة نضيفة بعد الـ commit
-  const canSync = useCallback(() => Boolean(changes?.available) && !sending, [changes, sending])
-
-  const commit = useCallback(async () => {
-=======
   // السحب هو الاستثناء عن قاعدة "لازم فيه تغييرات": جلب التحديثات الجديدة
   // بيحصل على مجلد نضيف، وهو أكتر حالة بيستعملها المستخدم فيها الزر ده.
   const canPull = useCallback(() => Boolean(changes?.available) && !sending, [changes, sending])
 
   const commitPush = useCallback(async () => {
->>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
     if (!changes || !canRequest()) {
       return
     }
     close()
-    await send(commitPrompt(changes.files, changes.branch, lang))
+    await send(commitPushPrompt(changes.files, changes.branch, lang))
   }, [canRequest, changes, lang, close, send])
 
-<<<<<<< HEAD
-  const push = useCallback(async () => {
-    if (!changes || !canSync()) {
-      return
-    }
-    close()
-    await send(pushPrompt(changes.branch, lang))
-  }, [canSync, changes, lang, close, send])
-
-  const pull = useCallback(async () => {
-    if (!changes || !canSync()) {
-=======
   const commit = useCallback(async () => {
     if (!changes || !canRequest()) {
       return
@@ -107,16 +65,11 @@ export function useGitRequests(
 
   const pull = useCallback(async () => {
     if (!changes || !canPull()) {
->>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
       return
     }
     close()
     await send(pullPrompt(changes.branch, lang))
-<<<<<<< HEAD
-  }, [canSync, changes, lang, close, send])
-=======
   }, [canPull, changes, lang, close, send])
->>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
 
   const revertAll = useCallback(async () => {
     if (!changes || !canRequest()) {
@@ -137,9 +90,7 @@ export function useGitRequests(
   const show = useCallback(() => {
     setIsOpen(true)
     setConfirming(false)
-    setConfirmingCommit(false)
     setConfirmingPush(false)
-    setConfirmingPull(false)
   }, [])
 
   // فتح dialog التأكيد هو نفسه action مدمّر — ميتفتحش لما مفيش ملفات.
@@ -153,42 +104,15 @@ export function useGitRequests(
   // الإلغاء بيسيب الدرج مفتوح — المستخدم لسه بيراجع الملفات قبل ما يقرر
   const cancelRevertAll = useCallback(() => setConfirming(false), [])
 
-  // الـ commit بيبعت رسالة للعميل بس، فحالته منفصلة عن التراجع المدمّر —
-  // كانوا بيشتركوا في نفس الـ flag فالضغط على واحد كان بيفتح الحوارين معًا.
-  const askCommit = useCallback(() => {
+  // الـ push بيبعت commit حقيقي للفرع، فبيتأكد زي التراجع عن الكل تمامًا.
+  const askCommitPush = useCallback(() => {
     if (!canRequest()) {
       return
     }
-    setConfirmingCommit(true)
+    setConfirmingPush(true)
   }, [canRequest])
 
-  const cancelCommit = useCallback(() => setConfirmingCommit(false), [])
+  const cancelCommitPush = useCallback(() => setConfirmingPush(false), [])
 
-<<<<<<< HEAD
-  // الـ push بيبعت commit حقيقي للفرع، فبيتأكد زي التراجع عن الكل تمامًا —
-  // بس من غير شرط الملفات عشان الـ push بييجي بعد الـ commit على نضافة.
-  const askPush = useCallback(() => {
-    if (!canSync()) {
-      return
-    }
-    setConfirmingPush(true)
-  }, [canSync])
-
-  const cancelPush = useCallback(() => setConfirmingPush(false), [])
-
-  // الـ pull بيعدّل الملفات المحلية بالبعيد، فبيتأكد كمان — وبرضه من غير
-  // شرط الملفات لنفس السبب.
-  const askPull = useCallback(() => {
-    if (!canSync()) {
-      return
-    }
-    setConfirmingPull(true)
-  }, [canSync])
-
-  const cancelPull = useCallback(() => setConfirmingPull(false), [])
-
-  return { isOpen, confirming, confirmingCommit, confirmingPush, confirmingPull, show, close, askRevertAll, cancelRevertAll, askCommit, cancelCommit, commit, askPush, cancelPush, push, askPull, cancelPull, pull, revertAll, revertFile }
-=======
   return { isOpen, confirming, confirmingPush, show, close, askRevertAll, cancelRevertAll, askCommitPush, cancelCommitPush, commitPush, commit, pull, revertAll, revertFile }
->>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
 }

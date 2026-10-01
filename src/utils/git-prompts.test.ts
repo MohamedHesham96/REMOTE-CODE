@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest"
-<<<<<<< HEAD
-import { commitPrompt, revertAllPrompt, revertFilePrompt } from "./git-prompts"
-=======
 import { commitPrompt, commitPushPrompt, pullPrompt, revertAllPrompt, revertFilePrompt } from "./git-prompts"
->>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
 import type { GitChangeFile } from "../types"
 
 function file(path: string, status: GitChangeFile["status"]): GitChangeFile {
@@ -12,8 +8,8 @@ function file(path: string, status: GitChangeFile["status"]): GitChangeFile {
 
 describe("git prompts", () => {
   it("names the branch in the commit request only when there is one", () => {
-    expect(commitPrompt([file("a.ts", "modified")], "main", "en")).toContain("branch 'main'")
-    expect(commitPrompt([file("a.ts", "modified")], "", "en")).not.toContain("branch ''")
+    expect(commitPushPrompt([file("a.ts", "modified")], "main", "en")).toContain("branch 'main'")
+    expect(commitPushPrompt([file("a.ts", "modified")], "", "en")).not.toContain("branch ''")
   })
 
   it("keeps the commit-only request local and forbids pushing", () => {

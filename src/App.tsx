@@ -689,7 +689,7 @@ function App() {
     }
   }, [addToast, t])
 
-  // تحميل قائمة الموديلات (free فقط في العرض) بعد الدخول واختيار المشروع
+  // تحميل قائمة الموديلات الكاملة بعد الدخول واختيار المشروع
   useEffect(() => {
     if (authState !== "signedIn" || !selectedProject) {
       return
@@ -1991,27 +1991,13 @@ function App() {
             loading={gitLoading}
             busy={sending}
             confirming={gitRequests.confirming}
-            confirmingCommit={gitRequests.confirmingCommit}
             confirmingPush={gitRequests.confirmingPush}
-            confirmingPull={gitRequests.confirmingPull}
             onRefresh={() => void refreshGitChanges()}
-<<<<<<< HEAD
-            onCommit={() => void gitRequests.commit()}
-            onAskCommit={gitRequests.askCommit}
-            onCancelCommit={gitRequests.cancelCommit}
-            onPush={() => void gitRequests.push()}
-            onAskPush={gitRequests.askPush}
-            onCancelPush={gitRequests.cancelPush}
-            onPull={() => void gitRequests.pull()}
-            onAskPull={gitRequests.askPull}
-            onCancelPull={gitRequests.cancelPull}
-=======
             onCommitPush={() => void gitRequests.commitPush()}
             onAskCommitPush={gitRequests.askCommitPush}
             onCancelCommitPush={gitRequests.cancelCommitPush}
             onCommit={() => void gitRequests.commit()}
             onPull={() => void gitRequests.pull()}
->>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
             onAskRevertAll={gitRequests.askRevertAll}
             onRevertAll={() => void gitRequests.revertAll()}
             onCancelRevertAll={gitRequests.cancelRevertAll}

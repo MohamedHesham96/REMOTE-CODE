@@ -1,5 +1,5 @@
 import { extname, basename as pathBasename } from "node:path"
-import type { SessionModelRef } from "./types.js"
+import type { ModelInfo, SessionModelRef } from "./types.js"
 
 // ── دوال خالصة (pure) مستخرجة من opencode.ts — بلا حالة ولا IO ──
 
@@ -221,6 +221,60 @@ export const ACTIVITY_CACHE_MS = 3000
 
 // كاش قائمة الموديلات كاملة (مش الـ variants بس): الـ endpoints بطيئة ومتتكررة
 export const MODELS_CACHE_MS = 5 * 60 * 1000
+
+// كتالوج models.dev العام — مصدر النماذج المعروضة قبل ربط موفراتها.
+// يُحفظ يومًا كاملًا لأنه يتغير نادرًا، والفشل المؤقت (انقطاع النت)
+// يُعاد بعد 10 دقائق فقط حتى لا يُضرب مع كل طلب.
+export const STATIC_CATALOG_URL = "https://models.dev/api.json"
+export const STATIC_CATALOG_CACHE_MS = 24 * 60 * 60 * 1000
+export const STATIC_CATALOG_RETRY_MS = 10 * 60 * 1000
+export const STATIC_CATALOG_TIMEOUT_MS = 15000
+
+// تحليل كتالوج models.dev العام: { providerID: { id?, models: { modelID: { name?, cost? } } } }
+// الناتج للعرض فقط — معطّل (enabled: false) لأن المحرك لا يقدّمه قبل ربط
+// الموفر، وبلا سعر يُحسب غير مجاني لأن غياب السعر لا يعني المجانية.
+export function parseStaticCatalog(payload: unknown): ModelInfo[] {
+  if (!payload || typeof payload !== "object") {
+    return []
+  }
+  const items: ModelInfo[] = []
+  for (const [providerKey, entry] of Object.entries(payload as Record<string, unknown>)) {
+    if (!entry || typeof entry !== "object") {
+      continue
+    }
+    const provider = entry as { id?: unknown; models?: unknown }
+    const providerID = typeof provider.id === "string" && provider.id.trim() ? provider.id.trim() : providerKey.trim()
+    if (!providerID || !provider.models || typeof provider.models !== "object") {
+      continue
+    }
+    for (const [modelKey, info] of Object.entries(provider.models as Record<string, unknown>)) {
+      const id = modelKey.trim()
+      if (!id) {
+        continue
+      }
+      const detail = (info && typeof info === "object" ? info : {}) as { name?: unknown; cost?: unknown }
+      const name = typeof detail.name === "string" && detail.name.trim() ? detail.name.trim() : id
+      const cost = (detail.cost && typeof detail.cost === "object" ? detail.cost : null) as {
+        input?: unknown
+        output?: unknown
+        cache_read?: unknown
+        cache_write?: unknown
+      } | null
+      items.push({
+        id,
+        providerID,
+        name,
+        free: cost !== null && isFreeCost(costNumber(cost.input), costNumber(cost.output), costNumber(cost.cache_read), costNumber(cost.cache_write)),
+        enabled: false,
+      })
+    }
+  }
+  return items.sort((a, b) => a.providerID.localeCompare(b.providerID) || a.id.localeCompare(b.id))
+}
+
+function costNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0
+}
 
 // كاش قوائم الأسئلة: بتتقرأ مع كل poll للـ requests، وبتتبطل مع أحداث الأسئلة
 export const QUESTIONS_CACHE_MS = 2000

@@ -1,7 +1,7 @@
 import type { OpenCodeEvent } from "@opencode/client"
 import { mkdir, unlink, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
 import { OpenCodeService } from "./opencode.js"
 
 const SESSION = "ses_test"
@@ -107,7 +107,19 @@ interface Internals {
   idlePolls: Map<string, number>
   startQueueWatchdog: () => void
   variantsCache: unknown
+  modelsCache: unknown
+  staticCatalogCache: unknown
 }
+
+// الكتالوج العام يُجلب عبر fetch — الوضع الافتراضي "بلا نت" حتى لا تلمس
+// الاختبارات الشبكة أبدًا، واختبارات الدمج تُعيد التثبيت بنفسها.
+beforeEach(() => {
+  vi.stubGlobal("fetch", () => Promise.reject(new Error("offline")))
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 function createService() {
   const raw = { running: false }
@@ -530,6 +542,93 @@ describe("model variety levels", () => {
     const models = await service.models()
 
     expect(models[0]?.variants).toBeUndefined()
+  })
+})
+
+describe("static model catalog merge", () => {
+  // المحرك الحي يقدّم نموذجًا واحدًا، والكتالوج العام يضيف موفرًا جديدًا
+  // مع تكرار لنفس النموذج الحي — الحيّ يكسب والمعطّل يُلحق للعرض فقط.
+  function mergedService(staticPayload: unknown) {
+    const service = new OpenCodeService({ projectDirectory: DIRECTORY })
+    const internals = service as unknown as Internals & {
+      client: {
+        model: { list: () => Promise<unknown> }
+        provider: { list: () => Promise<unknown> }
+        session: { switchModel: () => Promise<unknown> }
+      }
+    }
+    internals.client = {
+      model: {
+        list: () => Promise.resolve({
+          data: [{
+            id: "opencode/space-bunny-free",
+            modelID: "space-bunny-free",
+            providerID: "opencode",
+            name: "Space Bunny Free",
+            cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+            enabled: true,
+            status: "active",
+            variants: [],
+          }],
+        }),
+      },
+      provider: {
+        list: () => Promise.resolve({ data: [{ id: "opencode", activation: "enabled" }] }),
+      },
+      session: {
+        switchModel: () => Promise.resolve(undefined),
+      },
+    }
+    vi.stubGlobal("fetch", () => Promise.resolve({ ok: true, json: () => Promise.resolve(staticPayload) }))
+    // نمنع الكاش من leaking بين التستات
+    internals.variantsCache = null
+    internals.modelsCache = null
+    internals.staticCatalogCache = null
+    return { service }
+  }
+
+  const payload = {
+    acme: {
+      id: "acme",
+      models: {
+        coder: { name: "Acme Coder", cost: { input: 1, output: 2 } },
+      },
+    },
+    opencode: {
+      id: "opencode",
+      models: {
+        "space-bunny-free": { name: "Stale Name" },
+        "extra-free": { name: "Extra Free", cost: { input: 0, output: 0 } },
+      },
+    },
+  }
+
+  it("appends catalog models the engine does not serve, disabled for display", async () => {
+    const { service } = mergedService(payload)
+
+    const models = await service.models()
+
+    expect(models).toEqual([
+      { id: "coder", providerID: "acme", name: "Acme Coder", free: false, enabled: false, status: undefined, variants: undefined },
+      { id: "extra-free", providerID: "opencode", name: "Extra Free", free: true, enabled: false, status: undefined, variants: undefined },
+      expect.objectContaining({ id: "space-bunny-free", providerID: "opencode", enabled: true, name: "Space Bunny Free" }),
+    ])
+  })
+
+  it("refuses to switch to a catalog-only model", async () => {
+    const { service } = mergedService(payload)
+
+    await expect(service.switchSessionModel(SESSION, "acme", "coder", "")).rejects.toThrow(/not found/i)
+  })
+
+  it("falls back to engine models when the catalog is unreachable", async () => {
+    const { service } = mergedService(payload)
+    vi.stubGlobal("fetch", () => Promise.reject(new Error("offline")))
+
+    const models = await service.models()
+
+    expect(models).toHaveLength(1)
+    expect(models[0]?.id).toBe("space-bunny-free")
   })
 })
 
