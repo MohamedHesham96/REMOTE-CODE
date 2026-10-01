@@ -274,6 +274,17 @@ export function GitRefreshIcon() {
   )
 }
 
+// عدسة مكبّرة: زخرفة حقل البحث في منتقي النماذج. SVG بنفس نظام الأيقونات
+// (currentColor) عشان تاخد لون التيمت بدل حرف يختلف من خط لخط
+export function SearchLensIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m16.5 16.5 4.5 4.5" />
+    </svg>
+  )
+}
+
 // قوس ناقص مع دوّارة: الحالة الشغالة لأزرار git. سبقت إيموجي "⏳" كانت بتظهر
 // ملوّنة على أي نظام وبتتجاهل لون التيمت، فكانت الزرار الوحيد في الدرج مش
 // على نفس نظام الأيقونات. القوس ده بياخد currentColor وبيلف مع keyframes

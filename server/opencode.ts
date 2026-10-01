@@ -93,6 +93,11 @@ export type {
   Todo,
 } from "./opencode/types.js"
 
+// نص مُرمَّز داخلي مش نص للمستخدم — الراوت بيمرّره لـ serverMessage
+// ليترجم حسب لغة الطلب، فـ opencode.ts ما فيهوش نصوص مترجمة.
+// الترجمة مكانها server/i18n.ts مع باقي رسائل العقد.
+const MODEL_PROVIDER_NOT_CONNECTED = "MODEL_PROVIDER_NOT_CONNECTED"
+
 interface MobileSessionFile {
   sessions: string[]
 }
@@ -1818,12 +1823,13 @@ export class OpenCodeService {
     if (!cleanProvider || !cleanModel) {
       throw new Error("Model is required")
     }
-    // تحقق إن الموديل موجود فعلًا ضمن نماذج المحرك الحية قبل التبديل —
-    // عناصر الكتالوج العام لا تعمل قبل ربط موفرها فلا تُقبل هنا
-    const available = await this.computeModels()
+    // التحقق يقبل الكتالوج العام كمان (models()) مش نماذج المحرك بس —
+    // نموذج الكتالوج مربوط بمزوّد لسه مش متوصل، فمحتاج رسالة تربط بدل
+    // "Model not found" اللي كانت بتظهر كأن الاختيار نفسه غلط
+    const available = await this.models()
     const match = available.find((candidate) => candidate.providerID === cleanProvider && candidate.id === cleanModel)
     if (!match) {
-      throw new Error("Model not found")
+      throw new Error(MODEL_PROVIDER_NOT_CONNECTED)
     }
     const cleanVariant = (variant || "").trim()
     // لو الموديل معروف بـ variants بنتحقق، ولو مش معروفين (مفيش بيانات) بنسمح بيه

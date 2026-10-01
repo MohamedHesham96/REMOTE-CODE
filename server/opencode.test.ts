@@ -615,10 +615,21 @@ describe("static model catalog merge", () => {
     ])
   })
 
-  it("refuses to switch to a catalog-only model", async () => {
+  it("accepts a catalog-only model so the provider can be connected later", async () => {
     const { service } = mergedService(payload)
 
-    await expect(service.switchSessionModel(SESSION, "acme", "coder", "")).rejects.toThrow(/not found/i)
+    await expect(service.switchSessionModel(SESSION, "acme", "coder", "")).resolves.toEqual({
+      providerID: "acme",
+      modelID: "coder",
+    })
+  })
+
+  it("reports an unknown model as needing a provider connection", async () => {
+    const { service } = mergedService(payload)
+
+    await expect(service.switchSessionModel(SESSION, "acme", "missing", "")).rejects.toThrow(
+      /MODEL_PROVIDER_NOT_CONNECTED/,
+    )
   })
 
   it("falls back to engine models when the catalog is unreachable", async () => {

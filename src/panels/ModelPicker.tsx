@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import {
   getVarietyLevels,
   GitRefreshIcon,
-  modelLabel,
+  SearchLensIcon,
   shortModelName,
   variantLabel,
   VARIANT_ORDER,
@@ -43,8 +43,10 @@ export function ModelPicker({
   // عشان النتائج تبان من غير فتح يدوي.
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   // النماذج المثبتة (بحد أقصى 5) — كاش عرض محلي يظهر قسمًا علويًا ثابتًا
-  // للوصول السريع من غير سكرول في مئات النماذج
+  // للوصول السريع من غير سكرول في مئات النماذج. مطوي افتراضيًا زي باقي
+  // المجموعات: العنوان بيقول كام مثبت، والمستخدم يفتحه لما يعوزه
   const [pinnedKeys, setPinnedKeys] = useState<string[]>(() => loadPinnedModels())
+  const [pinnedOpen, setPinnedOpen] = useState(false)
   useEffect(() => {
     savePinnedModels(pinnedKeys)
   }, [pinnedKeys])
@@ -77,9 +79,11 @@ export function ModelPicker({
   }, [models, freeOnly, query])
 
   // التجميع حسب الموفر مرتبًا أبجديًا — والنماذج داخل كل مجموعة مرتبة بالاسم.
-  // المثبتة مستثناة من المجموعات (تظهر في القسم العلوي فقط) عشان مفيش تكرار
+  // المثبتة مستثناة من المجموعات (تظهر في القسم العلوي فقط) عشان مفيش تكرار —
+  // لكن أثناء البحث بترجع لمجموعتها الطبيعية: البحث فهرس للنتايج مش قائمة
+  // اختصارات، والمستخدم بيدوّر على الموديل مش على مكانه في تثبيته
   const groups = useMemo(() => {
-    const pinned = new Set(pinnedKeys)
+    const pinned = searching ? new Set<string>() : new Set(pinnedKeys)
     const map = new Map<string, ModelInfo[]>()
     for (const model of filtered) {
       if (pinned.has(modelPinKey(model.providerID, model.id))) {
@@ -98,7 +102,7 @@ export function ModelPicker({
         providerID,
         models: [...list].sort((a, b) => a.name.localeCompare(b.name)),
       }))
-  }, [filtered, pinnedKeys])
+  }, [filtered, pinnedKeys, searching])
 
   // القسم العلوي بنفس ترتيب التثبيت ("الأحدث أولًا")، ويخضع لنفس الترشيح
   // (مجاني/بحث) عشان البحث ما يسيبش نتائج قديمة ظاهرة فوق
@@ -124,7 +128,6 @@ export function ModelPicker({
   const pinnedFull = pinnedKeys.length >= PINNED_MODELS_LIMIT
 
   const totalCount = models.length
-  const providerCount = useMemo(() => new Set(models.map((model) => model.providerID)).size, [models])
 
   // خيارات الـ variety بتتغير حسب الموديل المختار — بنجيبها من الموديل نفسه
   const currentModel = useMemo(
@@ -147,8 +150,9 @@ export function ModelPicker({
     const key = `${model.providerID}/${model.id}`
     const isCurrent = current?.providerID === model.providerID && current?.modelID === model.id
     const isSwitching = switching === key
-    // عناصر الكتالوج العام (enabled: false) للعرض فقط — المحرك
-    // لا يقدّمها قبل ربط موفرها، فالاختيار معطّل مع شارة توضيحية
+    // عناصر الكتالوج العام (enabled: false) مش مربوطة بالمحرك، بس بنسمح
+    // باختيارها: مفيش تكلفة، والمزوّد ممكن يتربط بعدين على المضيف فيشتغل
+    // من غير ما المستخدم يرجعل الاختيار تاني
     const unavailable = model.enabled === false
     const modelVariants = getVarietyLevels(model)
     const pinned = pinnedKeys.includes(key)
@@ -157,7 +161,7 @@ export function ModelPicker({
       <div className="model-row" key={key}>
         <button
           className={`model-card${isCurrent ? " selected" : ""}`}
-          disabled={busy || Boolean(switching) || unavailable}
+          disabled={busy || Boolean(switching)}
           title={unavailable ? t.needsConnection : undefined}
           onClick={() => onSelect(model, "")}
         >
@@ -194,50 +198,41 @@ export function ModelPicker({
     <div className="drawer-backdrop" onClick={onClose}>
       <aside className="drawer model-drawer" onClick={(event) => event.stopPropagation()}>
         <div className="drawer-header">
-          <div><div className="eyebrow">{t.currentModel}: {modelLabel(current, t)}</div><h2>{t.chooseModel}</h2></div>
+          <div><h2>{t.chooseModel}</h2></div>
           <button className="icon-button" onClick={onClose} aria-label={t.close}>×</button>
         </div>
         {variants.length > 0 && currentModel ? (
-          <div className="variant-picker">
+          <div className="variant-options">
             <div className="variant-label">
-              <span>{t.modelVariety}</span>
               <small dir="ltr">{currentModel.providerID}/{currentModel.id}</small>
+              <span>{t.modelVariety}</span>
             </div>
-            <div className="variant-chips" role="radiogroup" aria-label={t.modelVariety}>
-              {activeVariant ? (
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked="true"
-                  className="variant-chip active"
-                  onClick={() => onSelect(currentModel, "")}
-                >
-                  {t.varietyDefault}
-                </button>
-              ) : null}
+            <select
+              className="variant-select"
+              value={activeVariant}
+              onChange={(event) => onSelect(currentModel, event.target.value)}
+              aria-label={t.modelVariety}
+            >
+              <option value="">{t.varietyDefault}</option>
               {variants.map((variant) => (
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={activeVariant === variant}
-                  className={`variant-chip${activeVariant === variant ? " active" : ""}`}
-                  key={variant}
-                  onClick={() => onSelect(currentModel, variant)}
-                >
+                <option value={variant} key={variant}>
                   {variantLabel(variant, t)}
-                </button>
+                </option>
               ))}
-            </div>
+            </select>
           </div>
         ) : null}
         <div className="model-toolbar">
-          <input
-            className="model-search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t.searchModelsPlaceholder}
-            aria-label={t.searchModelsAria}
-          />
+          <span className="model-search-wrap">
+            <span className="model-search-icon" aria-hidden="true"><SearchLensIcon /></span>
+            <input
+              className="model-search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t.searchModelsPlaceholder}
+              aria-label={t.searchModelsAria}
+            />
+          </span>
           <button className="icon-button" onClick={onRefresh} aria-label={t.refreshList} title={t.refreshFromOpencode} disabled={loading}><GitRefreshIcon /></button>
         </div>
         <label className="model-filter-row">
@@ -248,19 +243,28 @@ export function ModelPicker({
           />
           <span>{t.freeOnly}</span>
         </label>
-        <div className="model-count">{loading ? t.updatingFromOpencode : `${t.availableNow}: ${totalCount} ${t.modelsCount} · ${providerCount} ${t.providersCount}`}</div>
         {loading && totalCount === 0 ? (
           <div className="picker-loading"><span className="loader" /> {t.loadingModels}</div>
         ) : filtered.length === 0 ? (
           <div className="empty-state">{t.noModels}</div>
         ) : (
           <div className="model-list">
-            {pinnedModels.length > 0 ? (
+            {!searching && pinnedModels.length > 0 ? (
               <section className="model-group pinned-group" aria-label={t.pinnedModels}>
-                <h3 className="model-group-title" dir="ltr">📌 {t.pinnedModels} <span>({pinnedModels.length}/{PINNED_MODELS_LIMIT})</span></h3>
+                <button
+                  type="button"
+                  className="model-group-toggle"
+                  aria-expanded={pinnedOpen}
+                  onClick={() => setPinnedOpen((previous) => !previous)}
+                >
+                  <span className="model-group-caret" aria-hidden="true">{pinnedOpen ? "▾" : "▸"}</span>
+                  <span className="model-group-title" dir="ltr">📌 {t.pinnedModels} <span>({pinnedModels.length}/{PINNED_MODELS_LIMIT})</span></span>
+                </button>
+                {pinnedOpen ? (
                 <div className="model-group-models">
                   {pinnedModels.map((model) => renderModelRow(model))}
                 </div>
+                ) : null}
               </section>
             ) : null}
             {groups.map((group) => {
@@ -286,7 +290,6 @@ export function ModelPicker({
             })}
           </div>
         )}
-        <div className="model-footnote">{t.modelListLive}</div>
       </aside>
     </div>
   )

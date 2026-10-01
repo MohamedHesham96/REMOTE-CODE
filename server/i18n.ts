@@ -32,6 +32,12 @@ const messages = {
     ar: "اختر نموذجًا",
     en: "A model is required",
   },
+  // اختيار نموذج من الكتالوج العام بنجاح، بس المزوّد لسه مش متوصل على
+  // المضيف — فالنموذج محفوظ على الجلسة وبيشتغل بمجرد الربط
+  modelProviderNotConnected: {
+    ar: "اربط المزوّد من OpenCode على المضيف لاستخدام هذا النموذج",
+    en: "Please connect from OpenCode to use this model",
+  },
   questionRequired: {
     ar: "السؤال مطلوب",
     en: "A question is required",

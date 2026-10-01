@@ -1157,7 +1157,10 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .needs-badge { padding: 2px 7px; border-radius: 8px; border: 1px solid var(--border); color: var(--muted); font-size: 9px; font-weight: 800; white-space: nowrap; }
 .model-card:disabled { opacity: 0.55; cursor: not-allowed; }
 .current-badge { padding: 2px 7px; border-radius: 8px; color: var(--current-badge-text); background: var(--current-badge-bg); font-size: 9px; font-weight: 800; white-space: nowrap; }
-.variant-picker { margin-bottom: 12px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-card); }
+.variant-options { margin-bottom: 12px; }
+/* مستوى التفكير قائمة منسدلة عادية بلا بطاقة — العنوان والقائمة فقط حتى لا
+   تنافس قائمة النماذج بصريًا */
+.variant-select { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 4px; color: var(--text); background: var(--surface-input); font-size: 12px; font-weight: 700; }
 .variant-label { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 9px; color: var(--text); font-size: 11px; font-weight: 800; }
 .variant-label small { min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 600; }
 .variant-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1165,37 +1168,47 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .variant-chip:hover { color: var(--text); border-color: rgba(66, 215, 162, 0.45); background: rgba(66, 215, 162, 0.08); }
 .variant-chip.active { color: #06281c; border-color: var(--green); background: var(--green); }
 .variant-badge { padding: 2px 7px; border-radius: 8px; border: 1px solid rgba(66, 215, 162, 0.4); color: var(--model-green-text); background: var(--green-bg); font-size: 9px; font-weight: 800; white-space: nowrap; }
-.model-drawer .model-search { width: 100%; padding: 11px 12px; border: 1px solid var(--border); border-radius: 4px; outline: none; color: var(--text); background: var(--surface-input); }
+.model-drawer .model-search { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 4px; outline: none; color: var(--text); background: var(--surface-input); font-size: 12px; }
 .model-drawer .model-search:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(66, 215, 162, 0.12); }
-.model-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
-.model-toolbar .model-search { flex: 1; }
-.model-toolbar .icon-button { flex: 0 0 42px; width: 42px; }
-.model-count { margin-bottom: 12px; color: var(--green); font-size: 11px; font-weight: 700; }
+.model-toolbar { display: flex; gap: 6px; margin-bottom: 8px; }
+.model-toolbar .model-search-wrap { position: relative; flex: 1; display: flex; min-width: 0; }
+.model-search-icon { position: absolute; inset-inline-start: 9px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; color: var(--text-faint); pointer-events: none; }
+.model-toolbar .model-search { flex: 1; min-width: 0; padding-inline-start: 30px; }
+.model-toolbar .icon-button { flex: 0 0 32px; width: 32px; height: 32px; font-size: 15px; }
+
 .model-filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: var(--text-dimmer); font-size: 11px; font-weight: 700; cursor: pointer; }
 .model-filter-row input { accent-color: var(--green); width: 15px; height: 15px; }
-.model-list { display: grid; gap: 12px; max-height: 55vh; overflow-y: auto; padding-left: 2px; }
-.model-group { display: grid; gap: 8px; }
+/* درج النماذج عمود flex: الرأس والفلاتر ثوابت فوق، والقائمة لوحدها هي
+   اللي بتتمرر. من غير ده الدرج كله بتمرر والقائمة لها 55vh وتسيب فراغ */
+.model-drawer { display: flex; flex-direction: column; overflow: hidden; }
+/* align-content: start مقصود: القائمة grid داخل flex بتمد بُعدها، والـ grid
+   بيمدّ الصفوف من نوع auto على الفراغ المتبقي. من غيرها نتيجة بحث واحدة
+   (أو مجموعة فيها موديل واحد) بتملاّ الدرج كله بدل ما تفضل صف عادي */
+.model-list { display: grid; gap: 6px; align-content: start; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-left: 2px; }
+.model-group { display: grid; gap: 8px; align-content: start; }
 .model-group-toggle { display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px 2px; border: 0; color: inherit; background: transparent; cursor: pointer; text-align: left; }
 .model-group-toggle:hover .model-group-title { color: var(--text); }
 .model-group-caret { color: var(--text-faint); font-size: 11px; line-height: 1; }
-.model-group-models { display: grid; gap: 8px; }
+.model-group-models { display: grid; gap: 5px; align-content: start; }
 .model-group-title { margin: 0; padding: 0; color: var(--text-dimmer); font-size: 11px; font-weight: 800; letter-spacing: 0.03em; text-align: left; }
 .model-group-title span { color: var(--text-faint); font-weight: 700; }
-.model-card { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--surface-card); text-align: right; }
+/* كارت نتيجة البحث: صف واحد مضغوط — الاسم والمعرّف سطرين صغيرين والشارات
+   على الجنب. أصغر من كارت عادي لأن القائمة مئات الصفوف وبتتمرر كتير */
+.model-card { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--surface-card); text-align: right; }
 /* صف النموذج: كارت الاختيار يتمدد وزر التثبيت ثابت جنبه */
-.model-row { display: flex; align-items: stretch; gap: 6px; }
+.model-row { display: flex; align-items: stretch; gap: 4px; }
 .model-row .model-card { flex: 1 1 auto; min-width: 0; }
-.model-pin { flex: 0 0 38px; width: 38px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 5px; color: var(--text-faint); background: var(--surface-card); font-size: 15px; cursor: pointer; }
+.model-pin { flex: 0 0 30px; width: 30px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 5px; color: var(--text-faint); background: var(--surface-card); font-size: 13px; cursor: pointer; }
 .model-pin:hover:not(:disabled) { color: var(--text); border-color: rgba(66, 215, 162, 0.5); }
 .model-pin.active { border-color: rgba(66, 215, 162, 0.6); background: rgba(66, 215, 162, 0.1); }
 .model-pin:disabled { opacity: 0.4; cursor: not-allowed; }
 .pinned-group .model-group-title { color: var(--green); }
 .model-card:hover:not(:disabled) { border-color: rgba(66, 215, 162, 0.5); background: rgba(66, 215, 162, 0.07); }
 .model-card.selected { border-color: rgba(66, 215, 162, 0.6); background: rgba(66, 215, 162, 0.1); }
-.model-card-body { min-width: 0; display: grid; gap: 4px; flex: 1; }
-.model-card-body strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.model-card-body small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
-.model-card-side { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.model-card-body { min-width: 0; display: grid; gap: 2px; flex: 1; }
+.model-card-body strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+.model-card-body small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 9.5px; }
+.model-card-side { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .loader.small { width: 18px; height: 18px; border-width: 2px; }
 .model-footnote { margin-top: 12px; color: var(--muted); font-size: 10px; line-height: 1.8; }
 .composer-model-row { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 2px 10px; margin: 5px auto 0; }

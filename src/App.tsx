@@ -57,6 +57,7 @@ import { RequestCard } from "./components/requests/RequestCard"
 import { useActivityGrace } from "./hooks/useActivityGrace"
 import { useGitRequests } from "./hooks/useGitRequests"
 import { usePinnedConversations } from "./hooks/usePinnedConversations"
+import { useScrollToBottom } from "./hooks/useScrollToBottom"
 import { useSettledStatuses } from "./hooks/useSettledStatuses"
 import { mergeActiveSessions } from "./utils/active-sessions"
 import { isTouchComposer } from "./utils/device"
@@ -165,16 +166,23 @@ function App() {
   const activeSessionItemRef = useRef<HTMLDivElement | null>(null)
   const eventsConnectedOnce = useRef(false)
   const workspaceScrollRef = useRef<HTMLDivElement | null>(null)
+  // قائمة المهام جوه كارت المحادثة — هي اللي بتسكرول فعليًا (الكارت بحجم
+  // النافذة والقائمة جوه flex:1). حاوية الشغل بتنزل معاها كمان عشان بطاقات
+  // الأسئلة اللي بتظهر تحت الكارت.
+  const requestListRef = useRef<HTMLUListElement | null>(null)
+  const { pinToBottom, followBottom, release: releaseScrollPin } = useScrollToBottom([requestListRef, workspaceScrollRef])
+  // هوية المحتوى المعروض: الـ fetch بيتأخر بعد تبديل المحادثة، فالطلبات اللي
+  // على الشاشة ممكن تكون لسه بتاعة المحادثة اللي فاتت. من غير المقارنة دي
+  // التثبيت هيستقر على محتوى غلط وميترجعش ينزل للمحادثة الجديدة.
+  const contentIdRef = useRef<string | null>(null)
+  // آخر محتوى نزلنا لآخره — بعد ما يستقر النزول (أو المستخدم يمسك السكول)
+  // بنسيبه، عشان ما نطاردش اللي بيرجع يقرا طلب قديم
+  const pinnedContentRef = useRef<string | null>(null)
   // خنق تحديثات النص الحي: أحداث message.part.updated بتيجي عشرات المرات
   // في الثانية أثناء الكتابة — نحدّث فور أول حدث وبعدها بمهلة قصيرة فقط.
   const messageRefreshAt = useRef(0)
   const messageRefreshTimer = useRef<number | null>(null)
   const showHistoryRef = useRef(false)
-  // لتتبع متى نحتاج ننزل لآخر المحادثة عند فتح جلسة جديدة
-  const shouldScrollToBottomRef = useRef(false)
-  // آخر محادثة نزلنا لآخرها تلقائيًا — أي activeId جديد ينزل فورًا حتى لو
-  // مسار الفتح (مشروع/نشاط/مثبّتة) لم يضبط shouldScrollToBottomRef
-  const scrolledForActiveIdRef = useRef<string | null>(null)
   showHistoryRef.current = showHistory
   // تنسيق الـ polling مع الـ SSE: طول ما الستريم حي والأحداث واصلة، الـ polls
   // الدورية fallback فقط — لا طلبات مكررة لنفس البيانات اللي الـ SSE جابها.
@@ -452,6 +460,7 @@ function App() {
       requestsSeq.current += 1
       setRequests([])
       setRequestQuestions([])
+      contentIdRef.current = null
       return
     }
     const ticket = ++requestsSeq.current
@@ -460,6 +469,8 @@ function App() {
     if (activeIdRef.current !== id || ticket !== requestsSeq.current) {
       return
     }
+    // الطلبات اللي على الشاشة بقت دي المحادثة دي — التثبيت بيفصل بمعرّفها
+    contentIdRef.current = id
     setRequests(next.requests)
     setRequestQuestions(next.questions)
     setRawStatuses((current) => ({ ...current, [id]: next.status }))
@@ -782,31 +793,32 @@ function App() {
     document.title = authState === "signedIn" && selectedProject ? activeTitle : t.appName
   }, [activeTitle, authState, selectedProject, t])
 
+  // فتح أي محادثة ينزل لآخر كارت المهام — أي تبديل لـ activeId أيًّا كان
+  // طريقه (اختيار من القائمة، تبديل مشروع، قفزة من النشاط، مثبّتة، أو رجوع
+  // تلقائي بعد الـ refresh). المحتوى بيوصل بعد الفتح على دفعات، فالتثبيت
+  // بيكمّل لحد ما الطول يستقر؛ وبعد ما يستقر (أو المستخدم يمسك السكول)
+  // بنوقف عشان ما نرجعش نزنّده وهو بيقرا طلب قديم.
+  useEffect(() => {
+    if (authState !== "signedIn" || !activeId || requests.length === 0) {
+      return
+    }
+    // الطلبات لسه بتاعة المحادثة اللي قبلها — نستنى لحد ما تجيب محادثتنا
+    if (contentIdRef.current !== activeId || pinnedContentRef.current === activeId) {
+      return
+    }
+    pinToBottom(() => {
+      pinnedContentRef.current = activeId
+    })
+  }, [activeId, requests.length, authState, pinToBottom])
+
   // كل ما يتضاف طلب جديد: انزل تحت على آخر كارت عشان المستخدم يشوفه فورًا
   // لكن فقط لو المستخدم قريب من الأسفل أصلًا (ما نزعجش لو قارئ رسائل قديمة).
-  // فتح أي محادثة (أي activeId جديد) ينزل لآخرها فورًا مهما كانت المسارات —
-  // مسارات تبديل المشروع والقفز من النشاط لا تضبط shouldScrollToBottomRef،
-  // فتتبع activeId نفسه هو الضمان الوحيد.
   useEffect(() => {
-    const element = workspaceScrollRef.current
-    if (!element || requests.length === 0 || !activeId) {
+    if (requests.length === 0) {
       return
     }
-    if (scrolledForActiveIdRef.current !== activeId || shouldScrollToBottomRef.current) {
-      shouldScrollToBottomRef.current = false
-      scrolledForActiveIdRef.current = activeId
-      // التخطيط يكتمل بعد الرسم — إطار واحد يضمن الارتفاع النهائي قبل النزول
-      requestAnimationFrame(() => {
-        element.scrollTo({ top: element.scrollHeight, behavior: "auto" })
-      })
-      return
-    }
-    const { scrollTop, scrollHeight, clientHeight } = element
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
-    if (isNearBottom) {
-      element.scrollTo({ top: scrollHeight, behavior: "smooth" })
-    }
-  }, [requests.length, activeId])
+    followBottom()
+  }, [requests.length, followBottom])
 
   // حدّث الكارتات طول ما فيه طلب شغّال أو طلبات مستنية في الطابور
   useEffect(() => {
@@ -1188,7 +1200,6 @@ function App() {
     // re-fetches for the new task right after.
     setRequests([])
     setRequestQuestions([])
-    shouldScrollToBottomRef.current = true
     setShowSessions(false)
   }
 
@@ -1378,7 +1389,7 @@ function App() {
         if (modelForNewSession) {
           // ثبّت الموديل المختار على الجلسة الجديدة فور إنشائها
           try {
-            await setSessionModel(sessionId, modelForNewSession)
+            await setSessionModel(sessionId, modelForNewSession, langRef.current)
             setCurrentModel(modelForNewSession)
           } catch {
             // لو التثبيت فشل هنبعته مع أول رسالة كـ override
@@ -1613,7 +1624,7 @@ function App() {
     const key = `${ref.providerID}/${ref.modelID}`
     setSwitchingKey(key)
     try {
-      const result = await setSessionModel(sessionId, ref)
+      const result = await setSessionModel(sessionId, ref, lang)
       setCurrentModel(result.model)
       rememberModelAsProjectDefault(result.model)
       if (!keepOpen) {
@@ -1927,10 +1938,10 @@ function App() {
         </header>
 
         <div className="workspace">
-          <div className="workspace-scroll" ref={workspaceScrollRef}>
+          <div className="workspace-scroll" ref={workspaceScrollRef} onPointerDown={releaseScrollPin}>
             {requests.length > 0 ? (
               <div className="request-stack">
-                <RequestCard requests={requests} sessionId={activeId} title={activeTitle} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={(request) => void handleSkip(request)} onRunNow={(request) => void handleRunNow(request)} onRemove={(request) => void handleRemoveQueued(request)} busyAction={queueAction} t={t} lang={lang} />
+                <RequestCard requests={requests} sessionId={activeId} listRef={requestListRef} title={activeTitle} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={(request) => void handleSkip(request)} onRunNow={(request) => void handleRunNow(request)} onRemove={(request) => void handleRemoveQueued(request)} busyAction={queueAction} t={t} lang={lang} />
               </div>
             ) : (
               <div className="welcome-state">
