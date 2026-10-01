@@ -233,7 +233,6 @@ const ar = {
   gitChangesModified: "مُعدّل",
   gitChangesDeleted: "مُحذوف",
   gitChangesNote: "هذه الحالة من مجلد عمل المشروع — اضغط ↻ للتحديث بعد أي عملية git من الطرفية.",
-<<<<<<< HEAD
   gitCommit: "عمل commit",
   gitPush: "عمل push",
   gitPull: "عمل pull",
@@ -243,13 +242,6 @@ const ar = {
   gitPushConfirmYes: "نعم، اعمل push",
   gitPullConfirm: "تعمل pull للفرع الحالي؟ هيتبعت كطلب جديد في المحادثة.",
   gitPullConfirmYes: "نعم، اعمل pull",
-=======
-  gitCommitPush: "عمل commit و push",
-  gitCommitPushConfirm: "تعمل commit و push لكل الملفات المتغيّرة؟ هيتبعت كطلب جديد في المحادثة.",
-  gitCommitPushConfirmYes: "نعم، ابعَت",
-  gitCommit: "عمل commit فقط",
-  gitPull: "سحب من الفرع البعيد",
->>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
   gitRevertFile: "تراجع عن الملف",
   gitRevertAll: "تراجع عن الكل",
   gitRevertAllConfirm: "تراجع عن كل الملفات المتغيّرة؟ الشغل غير المحفوظ هيضيع نهائيًا ومفيش رجعة.",
@@ -507,7 +499,6 @@ const en: typeof ar = {
   gitChangesModified: "Modified",
   gitChangesDeleted: "Deleted",
   gitChangesNote: "This status comes from the project working tree — tap ↻ to refresh after any git command from the terminal.",
-<<<<<<< HEAD
   gitCommit: "Commit",
   gitPush: "Push",
   gitPull: "Pull",
@@ -517,13 +508,6 @@ const en: typeof ar = {
   gitPushConfirmYes: "Yes, push",
   gitPullConfirm: "Pull the current branch? It will be sent as a new request in the conversation.",
   gitPullConfirmYes: "Yes, pull",
-=======
-  gitCommitPush: "Commit & push",
-  gitCommitPushConfirm: "Commit and push every changed file? It will be sent as a new request in the conversation.",
-  gitCommitPushConfirmYes: "Yes, send",
-  gitCommit: "Commit only",
-  gitPull: "Pull from remote",
->>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
   gitRevertFile: "Revert file",
   gitRevertAll: "Revert all",
   gitRevertAllConfirm: "Revert every changed file? Unsaved work is lost for good and cannot be recovered.",

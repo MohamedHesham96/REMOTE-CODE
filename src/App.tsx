@@ -1995,7 +1995,6 @@ function App() {
             confirmingPush={gitRequests.confirmingPush}
             confirmingPull={gitRequests.confirmingPull}
             onRefresh={() => void refreshGitChanges()}
-<<<<<<< HEAD
             onCommit={() => void gitRequests.commit()}
             onAskCommit={gitRequests.askCommit}
             onCancelCommit={gitRequests.cancelCommit}
@@ -2005,13 +2004,6 @@ function App() {
             onPull={() => void gitRequests.pull()}
             onAskPull={gitRequests.askPull}
             onCancelPull={gitRequests.cancelPull}
-=======
-            onCommitPush={() => void gitRequests.commitPush()}
-            onAskCommitPush={gitRequests.askCommitPush}
-            onCancelCommitPush={gitRequests.cancelCommitPush}
-            onCommit={() => void gitRequests.commit()}
-            onPull={() => void gitRequests.pull()}
->>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
             onAskRevertAll={gitRequests.askRevertAll}
             onRevertAll={() => void gitRequests.revertAll()}
             onCancelRevertAll={gitRequests.cancelRevertAll}

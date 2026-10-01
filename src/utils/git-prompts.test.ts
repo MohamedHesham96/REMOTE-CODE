@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest"
-<<<<<<< HEAD
-import { commitPrompt, revertAllPrompt, revertFilePrompt } from "./git-prompts"
-=======
-import { commitPrompt, commitPushPrompt, pullPrompt, revertAllPrompt, revertFilePrompt } from "./git-prompts"
->>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
+import { commitPrompt, pullPrompt, revertAllPrompt, revertFilePrompt } from "./git-prompts"
 import type { GitChangeFile } from "../types"
 
 function file(path: string, status: GitChangeFile["status"]): GitChangeFile {
