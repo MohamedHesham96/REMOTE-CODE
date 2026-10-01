@@ -1,9 +1,9 @@
 import { useMemo } from "react"
-import { EMPTY_GIT_FILES, GitBranchIcon, GitCommitIcon, GitRefreshIcon, GitRevertIcon, SpinnerIcon, gitStatusMeta, splitChangePath } from "../display"
+import { EMPTY_GIT_FILES, GitBranchIcon, GitCommitIcon, GitCommitOnlyIcon, GitPullIcon, GitRefreshIcon, GitRevertIcon, SpinnerIcon, gitStatusMeta, splitChangePath } from "../display"
 import type { Strings } from "../i18n"
 import type { GitChangeFile, GitChanges } from "../types"
 
-export function GitChangesPanel({ changes, loading, busy, confirming, confirmingPush, onRefresh, onCommitPush, onAskCommitPush, onCancelCommitPush, onAskRevertAll, onRevertAll, onCancelRevertAll, onRevertFile, onClose, t }: {
+export function GitChangesPanel({ changes, loading, busy, confirming, confirmingPush, onRefresh, onCommitPush, onAskCommitPush, onCancelCommitPush, onCommit, onPull, onAskRevertAll, onRevertAll, onCancelRevertAll, onRevertFile, onClose, t }: {
   changes: GitChanges | null
   loading: boolean
   busy: boolean
@@ -13,6 +13,8 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
   onCommitPush: () => void
   onAskCommitPush: () => void
   onCancelCommitPush: () => void
+  onCommit: () => void
+  onPull: () => void
   onAskRevertAll: () => void
   onRevertAll: () => void
   onCancelRevertAll: () => void
@@ -25,7 +27,11 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
   const hasFiles = Boolean(changes?.available) && files.length > 0
   // كل أزرار التحكم بتتقفل لما مفيش ملفات، وبتتقفل كمان وقت أي تأكيد
   // عشان المستخدم ميضربش action تاني وهو بيأكد واحد شغّال.
-  const canAct = hasFiles && !loading && !busy && !confirming && !confirmingPush
+  const idle = !loading && !busy && !confirming && !confirmingPush
+  const canAct = hasFiles && idle
+  // السحب مش محتاج تغييرات محلية — شغله الأساسي على مجلد نضيف، فبيشترط
+  // إن المشروع git بس.
+  const canPull = Boolean(changes?.available) && idle
   const summary = useMemo(() => files.reduce((total, file) => {
     if (file.status === "added") {
       total.added += 1
@@ -57,34 +63,54 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
           </div>
           <div className="git-toolbar-actions">
             <button className="icon-button" onClick={onRefresh} aria-label={t.refreshList} title={t.refreshList} disabled={loading}><GitRefreshIcon /></button>
-            {/* زراري التراجع والـ push بيفضلوا ظاهرين حتى لو مفيش تغييرات:
-                زرار بيختفي وقت ما يبقى مفيش حاجة يعمله المستخدم بيدور عليه
-                وميشوفش إن الأداة موجودة أصلاً. بيتقفلوا بـ canAct بدل ما
-                يتشالوا من الشجرة. */}
+            {/* أزرار الـ git كلها (التراجع، الـ commit، والـ push والسحب) بتفضل
+                ظاهرة حتى لو مفيش تغييرات: زرار بيختفي وقت ما يبقى مفيش حاجة
+                يعمله المستخدم بيدور عليه وميشوفش إن الأداة موجودة أصلاً.
+                بتتقفل بـ canAct/canPull بدل ما تتشال من الشجرة. */}
             {!confirming ? (
-              <button
-                type="button"
-                className="icon-button git-revert-button"
-                disabled={!canAct}
-                onClick={onAskRevertAll}
-                aria-label={t.gitRevertAll}
-                title={t.gitRevertAll}
-              >
-                <GitRevertIcon />
-              </button>
-            ) : null}
-            {!confirmingPush ? (
-              <button
-                type="button"
-                className="icon-button git-commit-button"
-                disabled={!canAct}
-                onClick={onAskCommitPush}
-                aria-busy={busy}
-                aria-label={t.gitCommitPush}
-                title={t.gitCommitPush}
-              >
-                {busy ? <SpinnerIcon /> : <GitCommitIcon />}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="icon-button git-revert-button"
+                  disabled={!canAct}
+                  onClick={onAskRevertAll}
+                  aria-label={t.gitRevertAll}
+                  title={t.gitRevertAll}
+                >
+                  <GitRevertIcon />
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  disabled={!canAct}
+                  onClick={onCommit}
+                  aria-label={t.gitCommit}
+                  title={t.gitCommit}
+                >
+                  <GitCommitOnlyIcon />
+                </button>
+                <button
+                  type="button"
+                  className="icon-button git-commit-button"
+                  disabled={!canAct}
+                  onClick={onAskCommitPush}
+                  aria-busy={busy}
+                  aria-label={t.gitCommitPush}
+                  title={t.gitCommitPush}
+                >
+                  {busy ? <SpinnerIcon /> : <GitCommitIcon />}
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  disabled={!canPull}
+                  onClick={onPull}
+                  aria-label={t.gitPull}
+                  title={t.gitPull}
+                >
+                  <GitPullIcon />
+                </button>
+              </>
             ) : null}
           </div>
         </div>

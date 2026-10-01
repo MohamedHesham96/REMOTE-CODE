@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react"
 import type { Language } from "../i18n"
 import type { GitChangeFile, GitChanges } from "../types"
-import { commitPushPrompt, revertAllPrompt, revertFilePrompt } from "../utils/git-prompts"
+import { commitPrompt, commitPushPrompt, pullPrompt, revertAllPrompt, revertFilePrompt } from "../utils/git-prompts"
 
 export interface GitRequests {
   isOpen: boolean
@@ -14,6 +14,8 @@ export interface GitRequests {
   askCommitPush: () => void
   cancelCommitPush: () => void
   commitPush: () => Promise<void>
+  commit: () => Promise<void>
+  pull: () => Promise<void>
   revertAll: () => Promise<void>
   revertFile: (file: GitChangeFile) => Promise<void>
 }
@@ -41,6 +43,10 @@ export function useGitRequests(
   // نطلب من السطر الأول فيه تغييرات حقيقية، وإلا الطلب هيتنفّذ على مجلد نضيف
   const canRequest = useCallback(() => Boolean(changes?.available) && (changes?.files.length ?? 0) > 0 && !sending, [changes, sending])
 
+  // السحب هو الاستثناء عن قاعدة "لازم فيه تغييرات": جلب التحديثات الجديدة
+  // بيحصل على مجلد نضيف، وهو أكتر حالة بيستعملها المستخدم فيها الزر ده.
+  const canPull = useCallback(() => Boolean(changes?.available) && !sending, [changes, sending])
+
   const commitPush = useCallback(async () => {
     if (!changes || !canRequest()) {
       return
@@ -48,6 +54,22 @@ export function useGitRequests(
     close()
     await send(commitPushPrompt(changes.files, changes.branch, lang))
   }, [canRequest, changes, lang, close, send])
+
+  const commit = useCallback(async () => {
+    if (!changes || !canRequest()) {
+      return
+    }
+    close()
+    await send(commitPrompt(changes.files, changes.branch, lang))
+  }, [canRequest, changes, lang, close, send])
+
+  const pull = useCallback(async () => {
+    if (!changes || !canPull()) {
+      return
+    }
+    close()
+    await send(pullPrompt(changes.branch, lang))
+  }, [canPull, changes, lang, close, send])
 
   const revertAll = useCallback(async () => {
     if (!changes || !canRequest()) {
@@ -92,5 +114,5 @@ export function useGitRequests(
 
   const cancelCommitPush = useCallback(() => setConfirmingPush(false), [])
 
-  return { isOpen, confirming, confirmingPush, show, close, askRevertAll, cancelRevertAll, askCommitPush, cancelCommitPush, commitPush, revertAll, revertFile }
+  return { isOpen, confirming, confirmingPush, show, close, askRevertAll, cancelRevertAll, askCommitPush, cancelCommitPush, commitPush, commit, pull, revertAll, revertFile }
 }

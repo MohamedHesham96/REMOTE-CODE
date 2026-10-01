@@ -1996,6 +1996,8 @@ function App() {
             onCommitPush={() => void gitRequests.commitPush()}
             onAskCommitPush={gitRequests.askCommitPush}
             onCancelCommitPush={gitRequests.cancelCommitPush}
+            onCommit={() => void gitRequests.commit()}
+            onPull={() => void gitRequests.pull()}
             onAskRevertAll={gitRequests.askRevertAll}
             onRevertAll={() => void gitRequests.revertAll()}
             onCancelRevertAll={gitRequests.cancelRevertAll}
