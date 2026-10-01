@@ -14,6 +14,7 @@ import type {
 import { setTimeout as sleep } from "node:timers/promises"
 import { ensureLocalEndpoint } from "./opencode/service-launch.js"
 import { findActiveTool, toolActivity } from "./opencode/activity.js"
+import { unpushedCommitCount } from "./opencode/git-ahead.js"
 import { consoleLang, serverMessage, type ServerLang } from "./i18n.js"
 import type {
   ActiveSession,
@@ -1967,7 +1968,8 @@ export class OpenCodeService {
       const response = await this.requireClient().vcs.status({ location })
       statusFiles = response.data
     } catch {
-      return { branch: "", available: false, files: [] }
+      // مش مستودع git: مفيش commits ولا مفهوم "غير مدفوع" أصلاً
+      return { branch: "", available: false, files: [], unpushed: 0 }
     }
 
     let branch = ""
@@ -1991,9 +1993,14 @@ export class OpenCodeService {
       }))
       .sort((left, right) => left.path.localeCompare(right.path))
 
+    // عدد الـ commits اللي لسه على الفرع المحلي ومش مدفوعة. بيظهر كشارة على
+    // زرار commit & push. بيتحسب بالتوازي مع قراءة الحالة فوق عشان ما
+    // يضيفش تأخير على فتح الدرج، وبيرجع صفر لو مفيش upstream متظبط.
+    const unpushed = await unpushedCommitCount(location.directory)
+
     // مشروع مش مستودع git بيرجّع v2 قائمة فاضية و branch فاضي — نميّزه عن
     // مستودع نضيف عشان الواجهة متقولش "الشجرة نضيفة" لمفيش git أصلًا
-    return { branch, available: branch !== "" || files.length > 0, files }
+    return { branch, available: branch !== "" || files.length > 0, files, unpushed }
   }
 
   async replyPermission(id: string, permissionId: string, response: "once" | "always" | "reject"): Promise<boolean> {

@@ -32,6 +32,15 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
   // السحب مش محتاج تغييرات محلية — شغله الأساسي على مجلد نضيف، فبيشترط
   // إن المشروع git بس.
   const canPull = Boolean(changes?.available) && idle
+  // عدد الـ commits اللي لسه على الفرع المحلي ومش وصلتش للفرع البعيد. صفر
+  // معناه "مفيش حاجة مستنية push" أو "مفيش upstream متظبط" — والاتنين
+  // معناه إننا متكلّمين عن push أصلاً فمفيش حاجة نلفت النظر ليها.
+  const unpushed = changes?.unpushed ?? 0
+  // الرقم في نص الزر (aria-label) كمان: الشارة مرئية للعين بس،
+  // فبدونها قارئ الشاشة هيسمع "commit & push" من غير أي رقم.
+  const pushLabel = unpushed > 0
+    ? `${t.gitCommitPush} — ${unpushed} ${unpushed === 1 ? t.gitUnpushedOne : t.gitUnpushedMany}`
+    : t.gitCommitPush
   const summary = useMemo(() => files.reduce((total, file) => {
     if (file.status === "added") {
       total.added += 1
@@ -91,14 +100,18 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
                 </button>
                 <button
                   type="button"
-                  className="icon-button git-commit-button"
+                  className="icon-button git-push-button"
                   disabled={!canAct}
                   onClick={onAskCommitPush}
                   aria-busy={busy}
-                  aria-label={t.gitCommitPush}
-                  title={t.gitCommitPush}
+                  aria-label={pushLabel}
+                  title={pushLabel}
                 >
                   {busy ? <SpinnerIcon /> : <GitCommitIcon />}
+                  {/* شارة عدد الـ commits غير المدفوعة. بتظهر فوق زرار
+                      commit & push لأنها هي اللي بتدفع، وزرار commit لوحده
+                      مش بيعمل push فالشارة عليه كانت هتكذب. */}
+                  {unpushed > 0 ? <span className="count-badge git-push-badge">{unpushed}</span> : null}
                 </button>
                 <button
                   type="button"

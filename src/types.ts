@@ -289,4 +289,7 @@ export interface GitChanges {
   branch: string
   available: boolean
   files: GitChangeFile[]
+  // عدد الـ commits اللي لسه ما اتدفعتش — بيظهر على زرار commit & push.
+  // صفر معناه "مفيش حاجة مستنية push" أو "مفيش upstream متظبط".
+  unpushed: number
 }

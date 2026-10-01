@@ -1618,8 +1618,14 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .git-revert-button:hover:not(:disabled) { color: var(--red); border-color: var(--red); background: rgba(255, 127, 157, 0.2); }
 .git-commit-button { color: var(--accent-text); border-color: var(--accent-border); background: var(--accent-bg); }
 .git-commit-button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: rgba(99, 179, 237, 0.2); }
-.git-push-button { color: var(--accent-text); border-color: var(--accent-border); background: var(--accent-bg); }
+/* زرار commit & push. `position: relative` على الزرار نفسه لأن
+   `.count-badge` absolute بتتموضع بالنسبة لأقرب سلف positioned، ومن غيره
+   بتنطّ في نص الشريط. ولون الشارة accent مش أصفر زي شارة الملفات المتغيّرة
+   في الشريط العلوي، عشان المستخدم يفرق بين "فيه ملفات مش متعملها commit"
+   (أصفر) و"فيه commits مش متدفوعة" (أزرق) — الاتنين مستقلين عن بعض. */
+.git-push-button { position: relative; overflow: visible; color: var(--accent-text); border-color: var(--accent-border); background: var(--accent-bg); }
 .git-push-button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: rgba(99, 179, 237, 0.2); }
+.git-push-badge { background: var(--accent); color: var(--on-accent); }
 .git-pull-button { color: var(--accent-text); border-color: var(--accent-border); background: var(--accent-bg); }
 .git-pull-button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: rgba(99, 179, 237, 0.2); }
 /* الـ ✕ بتاعة التراجع حمرا دايمًا مش على الـ hover بس — الفعل مدمّر

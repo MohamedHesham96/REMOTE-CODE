@@ -57,6 +57,10 @@ export interface GitChanges {
   branch: string
   available: boolean
   files: GitChangeFile[]
+  // عدد الـ commits على الفرع المحلي اللي لسه ما وصلتش للفرع البعيد. صفر
+  // لما مفيش upstream متظبط — مش معناه "متأكد إنه مفيش"، وده مقصود عشان
+  // ما نعرضش رقم مخترع على مستودع ما بقيناش عارفين حالته.
+  unpushed: number
 }
 
 export interface ResultFile {
