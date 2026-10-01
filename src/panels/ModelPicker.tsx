@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   getVarietyLevels,
   GitRefreshIcon,
@@ -8,10 +8,12 @@ import {
   VARIANT_ORDER,
 } from "../display"
 import type { Strings } from "../i18n"
+import { PINNED_MODELS_LIMIT } from "../constants"
 import type {
   ModelInfo,
   SessionModelRef,
 } from "../types"
+import { loadPinnedModels, modelPinKey, savePinnedModels, togglePinnedModel } from "../utils/storage"
 
 export function ModelPicker({
   models,
@@ -40,6 +42,15 @@ export function ModelPicker({
   // يخلّي التنقل حسب الموفر بدل السكرول الطويل. البحث يفتح الكل تلقائيًا
   // عشان النتائج تبان من غير فتح يدوي.
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  // النماذج المثبتة (بحد أقصى 5) — كاش عرض محلي يظهر قسمًا علويًا ثابتًا
+  // للوصول السريع من غير سكرول في مئات النماذج
+  const [pinnedKeys, setPinnedKeys] = useState<string[]>(() => loadPinnedModels())
+  useEffect(() => {
+    savePinnedModels(pinnedKeys)
+  }, [pinnedKeys])
+  const togglePin = (model: ModelInfo): void => {
+    setPinnedKeys((current) => togglePinnedModel(current, modelPinKey(model.providerID, model.id)))
+  }
   const searching = query.trim().length > 0
   const toggleGroup = (providerID: string): void => {
     setExpanded((previous) => {
@@ -65,10 +76,15 @@ export function ModelPicker({
     )
   }, [models, freeOnly, query])
 
-  // التجميع حسب الموفر مرتبًا أبجديًا — والنماذج داخل كل مجموعة مرتبة بالاسم
+  // التجميع حسب الموفر مرتبًا أبجديًا — والنماذج داخل كل مجموعة مرتبة بالاسم.
+  // المثبتة مستثناة من المجموعات (تظهر في القسم العلوي فقط) عشان مفيش تكرار
   const groups = useMemo(() => {
+    const pinned = new Set(pinnedKeys)
     const map = new Map<string, ModelInfo[]>()
     for (const model of filtered) {
+      if (pinned.has(modelPinKey(model.providerID, model.id))) {
+        continue
+      }
       const list = map.get(model.providerID)
       if (list) {
         list.push(model)
@@ -82,7 +98,30 @@ export function ModelPicker({
         providerID,
         models: [...list].sort((a, b) => a.name.localeCompare(b.name)),
       }))
-  }, [filtered])
+  }, [filtered, pinnedKeys])
+
+  // القسم العلوي بنفس ترتيب التثبيت ("الأحدث أولًا")، ويخضع لنفس الترشيح
+  // (مجاني/بحث) عشان البحث ما يسيبش نتائج قديمة ظاهرة فوق
+  const pinnedModels = useMemo(() => {
+    const byKey = new Map(models.map((model) => [modelPinKey(model.providerID, model.id), model]))
+    const q = query.trim().toLowerCase()
+    const result: ModelInfo[] = []
+    for (const key of pinnedKeys) {
+      const model = byKey.get(key)
+      if (!model) {
+        continue
+      }
+      if (freeOnly && !model.free) {
+        continue
+      }
+      if (q && !`${model.providerID}/${model.id} ${model.name}`.toLowerCase().includes(q)) {
+        continue
+      }
+      result.push(model)
+    }
+    return result
+  }, [models, pinnedKeys, freeOnly, query])
+  const pinnedFull = pinnedKeys.length >= PINNED_MODELS_LIMIT
 
   const totalCount = models.length
   const providerCount = useMemo(() => new Set(models.map((model) => model.providerID)).size, [models])
@@ -101,6 +140,55 @@ export function ModelPicker({
     return a.localeCompare(b)
   }), [currentModel])
   const activeVariant = current?.variant || ""
+
+  // صف النموذج: زر الاختيار + زر التثبيت جنبه — زرّان متجاوران لا متداخلان
+  // (زر جوّه زرّ HTML غير صالح)، والتثبيت شغّال دائمًا لأنه كاش عرض محلي
+  const renderModelRow = (model: ModelInfo) => {
+    const key = `${model.providerID}/${model.id}`
+    const isCurrent = current?.providerID === model.providerID && current?.modelID === model.id
+    const isSwitching = switching === key
+    // عناصر الكتالوج العام (enabled: false) للعرض فقط — المحرك
+    // لا يقدّمها قبل ربط موفرها، فالاختيار معطّل مع شارة توضيحية
+    const unavailable = model.enabled === false
+    const modelVariants = getVarietyLevels(model)
+    const pinned = pinnedKeys.includes(key)
+    const pinDisabled = !pinned && pinnedFull
+    return (
+      <div className="model-row" key={key}>
+        <button
+          className={`model-card${isCurrent ? " selected" : ""}`}
+          disabled={busy || Boolean(switching) || unavailable}
+          title={unavailable ? t.needsConnection : undefined}
+          onClick={() => onSelect(model, "")}
+        >
+          <span className="model-card-body">
+            <strong>{shortModelName(model)}</strong>
+            <small dir="ltr">{isCurrent && activeVariant ? `${key} · ${variantLabel(activeVariant, t)}` : key}</small>
+          </span>
+          <span className="model-card-side">
+            {modelVariants.length > 0 ? (
+              <span className="variant-badge">{isCurrent && activeVariant ? variantLabel(activeVariant, t) : `${modelVariants.length} ${t.varietyOptions}`}</span>
+            ) : null}
+            {model.free ? <span className="free-badge">FREE</span> : null}
+            {unavailable ? <span className="needs-badge">{t.needsConnection}</span> : null}
+            {isCurrent ? <span className="current-badge">{t.current} ✓</span> : null}
+            {isSwitching ? <span className="loader small" /> : null}
+          </span>
+        </button>
+        <button
+          type="button"
+          className={`model-pin${pinned ? " active" : ""}`}
+          aria-pressed={pinned}
+          aria-label={pinned ? t.unpinModel : t.pinModel}
+          title={pinDisabled ? t.pinnedModelsFull : pinned ? t.unpinModel : t.pinModel}
+          disabled={pinDisabled}
+          onClick={() => togglePin(model)}
+        >
+          <span aria-hidden="true">{pinned ? "📌" : "📍"}</span>
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="drawer-backdrop" onClick={onClose}>
@@ -167,6 +255,14 @@ export function ModelPicker({
           <div className="empty-state">{t.noModels}</div>
         ) : (
           <div className="model-list">
+            {pinnedModels.length > 0 ? (
+              <section className="model-group pinned-group" aria-label={t.pinnedModels}>
+                <h3 className="model-group-title" dir="ltr">📌 {t.pinnedModels} <span>({pinnedModels.length}/{PINNED_MODELS_LIMIT})</span></h3>
+                <div className="model-group-models">
+                  {pinnedModels.map((model) => renderModelRow(model))}
+                </div>
+              </section>
+            ) : null}
             {groups.map((group) => {
               const open = searching || expanded.has(group.providerID)
               return (
@@ -182,38 +278,7 @@ export function ModelPicker({
                 </button>
                 {open ? (
                 <div className="model-group-models">
-                {group.models.map((model) => {
-                  const key = `${model.providerID}/${model.id}`
-                  const isCurrent = current?.providerID === model.providerID && current?.modelID === model.id
-                  const isSwitching = switching === key
-                  // عناصر الكتالوج العام (enabled: false) للعرض فقط — المحرك
-                  // لا يقدّمها قبل ربط موفرها، فالاختيار معطّل مع شارة توضيحية
-                  const unavailable = model.enabled === false
-                  const modelVariants = getVarietyLevels(model)
-                  return (
-                    <button
-                      className={`model-card${isCurrent ? " selected" : ""}`}
-                      key={key}
-                      disabled={busy || Boolean(switching) || unavailable}
-                      title={unavailable ? t.needsConnection : undefined}
-                      onClick={() => onSelect(model, "")}
-                    >
-                      <span className="model-card-body">
-                        <strong>{shortModelName(model)}</strong>
-                        <small dir="ltr">{isCurrent && activeVariant ? `${key} · ${variantLabel(activeVariant, t)}` : key}</small>
-                      </span>
-                      <span className="model-card-side">
-                        {modelVariants.length > 0 ? (
-                          <span className="variant-badge">{isCurrent && activeVariant ? variantLabel(activeVariant, t) : `${modelVariants.length} ${t.varietyOptions}`}</span>
-                        ) : null}
-                        {model.free ? <span className="free-badge">FREE</span> : null}
-                        {unavailable ? <span className="needs-badge">{t.needsConnection}</span> : null}
-                        {isCurrent ? <span className="current-badge">{t.current} ✓</span> : null}
-                        {isSwitching ? <span className="loader small" /> : null}
-                      </span>
-                    </button>
-                  )
-                })}
+                {group.models.map((model) => renderModelRow(model))}
                 </div>
                 ) : null}
               </section>

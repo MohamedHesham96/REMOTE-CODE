@@ -1182,6 +1182,14 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .model-group-title { margin: 0; padding: 0; color: var(--text-dimmer); font-size: 11px; font-weight: 800; letter-spacing: 0.03em; text-align: left; }
 .model-group-title span { color: var(--text-faint); font-weight: 700; }
 .model-card { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--surface-card); text-align: right; }
+/* صف النموذج: كارت الاختيار يتمدد وزر التثبيت ثابت جنبه */
+.model-row { display: flex; align-items: stretch; gap: 6px; }
+.model-row .model-card { flex: 1 1 auto; min-width: 0; }
+.model-pin { flex: 0 0 38px; width: 38px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 5px; color: var(--text-faint); background: var(--surface-card); font-size: 15px; cursor: pointer; }
+.model-pin:hover:not(:disabled) { color: var(--text); border-color: rgba(66, 215, 162, 0.5); }
+.model-pin.active { border-color: rgba(66, 215, 162, 0.6); background: rgba(66, 215, 162, 0.1); }
+.model-pin:disabled { opacity: 0.4; cursor: not-allowed; }
+.pinned-group .model-group-title { color: var(--green); }
 .model-card:hover:not(:disabled) { border-color: rgba(66, 215, 162, 0.5); background: rgba(66, 215, 162, 0.07); }
 .model-card.selected { border-color: rgba(66, 215, 162, 0.6); background: rgba(66, 215, 162, 0.1); }
 .model-card-body { min-width: 0; display: grid; gap: 4px; flex: 1; }
