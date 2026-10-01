@@ -106,11 +106,11 @@ export function RequestRow({ request, expanded, onToggle, sessionId, onCopy, onT
       ) : null}
       {queued ? (
         <>
-          <button type="button" className="request-action request-action-run" onClick={onRunNow} disabled={busyAction === request.id || notSentYet} title={t.runNext}>
+          <button type="button" className="request-action request-action-run" onClick={onRunNow} disabled={busyAction === request.id || notSentYet} title={t.runNow}>
             <svg className="request-action-icon" viewBox="0 0 24 24" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M8 4.5v15l12-7.5-12-7.5z" fill="currentColor" stroke="none" />
             </svg>
-            <span className="request-action-label">{t.runNext}</span>
+            <span className="request-action-label">{t.runNow}</span>
           </button>
           <button type="button" className="request-action request-action-remove" onClick={onRemove} disabled={busyAction === request.id} title={t.removeFromQueue}>
             <svg className="request-action-icon" viewBox="0 0 24 24" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">

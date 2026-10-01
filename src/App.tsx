@@ -287,7 +287,11 @@ function App() {
   // سياسة الـ toast: أضيق الحدود — أخطاء + تنبيه خلفية محتاج تدخّل بس.
   // أي نجاح شايفه بعينك (اتنقل، اتمسح، اتنسخ، اتبدّل الموديل) مبيطلعلوش toast.
   const addToast = useCallback((message: string, kind: ToastKind = "info") => {
-    const text = message.trim()
+    // حارس نوع: أي مفتاح ترجمة ناقص أو خطأ متسلسل بيمرّر undefined كان
+    // بيخلّي .trim() ترمي TypeError، والـ catch برّه بيحوّل الخطأ ده نفسه
+    // لـ toast مضلّل ("Cannot read properties of undefined"). الرسالة غير
+    // النصية تتجاهل بأمان بدل ما تكسر مسار الإجراء.
+    const text = typeof message === "string" ? message.trim() : ""
     if (!text) {
       return
     }
@@ -1566,10 +1570,13 @@ function App() {
     setQueueAction(request.id)
     try {
       const result = await runQueuedRequest(id, request.id)
-      if (result.started) {
+      if (result.steered) {
+        // اتحقن جوه المهمة الشغّالة كتوجيه — اتضاف للشغل الجاري من غير مقاطعة
+        addToast(t.queuedSteered, "info")
+      } else if (result.started) {
         // اشتغل فعلًا (مفيش مهمة شغّالة) — شايفه بعينك، من غير toast
       } else if (result.queued) {
-        // اتنقل لأول الطابور وهيتنفّذ بعد المهمة الحالية من غير ما نقاطع OpenCode
+        // السيرفر رفض الحقن فاتنقل لأول الطابور وهيتنفّذ بعد المهمة الحالية
         addToast(t.queuedRunAfterTask, "info")
       } else {
         addToast(t.queuedRunFailed, "error")

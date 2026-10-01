@@ -1,4 +1,7 @@
-const CACHE_NAME = "RemoteCode-shell-v9"
+// رقم النسخة يتغيّر مع كل تعديل بيخص الواجهة: الـ activate بيمسح الكاش القديم
+// ويعيد تخزين الـ shell، فالأجهزة المثبّتة (PWA) ما تفضلش شغّالة على حزمة
+// قديمة من الكاش لما الشبكة تفشل وتخدم "/" المخزّن.
+const CACHE_NAME = "RemoteCode-shell-v10"
 const SHELL = [
   "/",
   "/manifest.webmanifest",

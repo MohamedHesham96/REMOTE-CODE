@@ -1344,7 +1344,11 @@ export class OpenCodeService {
     return { queued: !this.pumpQueue(id) }
   }
 
-  private async dispatchPrompt(id: string, item: QueuedPrompt): Promise<void> {
+  // `delivery` بيحدد مصير الرسالة عند OpenCode: "steer" بيحقنها جوه التنفيذ
+  // الجاري فبيقراها في نفس المهمة من غير مقاطعة، و"queue" بيسيبها في صندوق
+  // الجلسة لحد ما الشغل الحالي يخلص. غيابه = السلوك الافتراضي للسيرفر (اللي
+  // بنعتمد عليه لطابورنا المحلي: بنبعت طلب واحد بس وكل واحد مستقل).
+  private async dispatchPrompt(id: string, item: QueuedPrompt, delivery?: "steer" | "queue"): Promise<void> {
     // سقف زمني بدل الانتظار الأبدي: لو OpenCode معلّق والـ HTTP ما استقرّش،
     // الـ catch في pumpQueue يعيد الطلب أو يسقطه بعد MAX_PROMPT_ATTEMPTS،
     // بدل ما runningSessions يتجمّد والكارت يفضل "شغّال" للأبد.
@@ -1365,7 +1369,7 @@ export class OpenCodeService {
             },
           })
         }
-        await this.requireClient().session.prompt({ sessionID: id, text: item.text })
+        await this.requireClient().session.prompt({ sessionID: id, text: item.text, ...(delivery ? { delivery } : {}) })
       })(),
       PROMPT_DISPATCH_TIMEOUT_MS,
       "Prompt dispatch",
@@ -1464,30 +1468,48 @@ export class OpenCodeService {
     return { removed: true, remaining: queue.length }
   }
 
-  // تقديم طلب مستني ليكون التالي من غير ما نقاطع الشغل الجاري. الطلب بيتحط
-  // أول الطابور، فبيتنفّذ أول ما المهمة الحالية تخلص طبيعي — يعني اتضاف لشغل
-  // نفس المهمة بدل ما نوقف OpenCode. لو مفيش حاجة شغّالة بيتبعت على طول.
-  async runQueued(id: string, requestId: string): Promise<{ started: boolean; queued: boolean; remaining: number }> {
+  // تنفيذ طلب مستني حالًا من غير مقاطعة الشغل الجاري: لو فيه مهمة شغّالة
+  // بنحقن الطلب جواها كتوجيه (steer) فيقراه OpenCode في نفس المهمة؛ ولو
+  // مفيش حاجة شغّالة بنبعته على طول من الطابور. الزرار ده ما يوقفش OpenCode
+  // أبدًا — الفرق الوحيد إن المستني بيتحوّل "شغل جوه المهمة الحالية" أو
+  // "المهمة اللي بعدها".
+  async runQueued(id: string, requestId: string): Promise<{ started: boolean; steered: boolean; queued: boolean; remaining: number }> {
     const queue = this.promptQueues.get(id)
     const target = queuedItemId(requestId)
     const index = queue ? queue.findIndex((item) => item.id === target) : -1
     const item = index < 0 ? undefined : queue?.splice(index, 1)[0]
     if (!queue || !item) {
-      return { started: false, queued: false, remaining: queue?.length ?? 0 }
+      return { started: false, steered: false, queued: false, remaining: queue?.length ?? 0 }
     }
-
-    queue.unshift(item)
-    this.promptQueues.set(id, queue)
     const left = (): number => this.promptQueues.get(id)?.length ?? 0
 
-    if (!this.runningSessions.has(id)) {
-      // مفيش حاجة شغّالة — الطابور واقف أصلًا فبنبعثه على طول
+    // "شغّال" = إما طلب بعتناه وإحنا مستنيين الـ idle، أو OpenCode نفسه busy
+    // (مهمة اتبدأت من برّه، زي تطبيق الديسكتوب). الاتنين معناهم إن فيه تنفيذ
+    // جاري ينفع نحقن جواه.
+    if (!this.runningSessions.has(id) && !this.busySessions.has(id)) {
+      // مفيش حاجة شغّالة — بنرجّعه أول الطابور وبنبعته على طول
+      queue.unshift(item)
+      this.promptQueues.set(id, queue)
       const started = this.pumpQueue(id)
-      return { started, queued: !started, remaining: left() }
+      return { started, steered: false, queued: !started, remaining: left() }
     }
 
-    // فيه مهمة شغّالة: منقاطعهاش. الطلب بقى أول الطابور وهيتنفّذ أول ما تخلص.
-    return { started: false, queued: true, remaining: left() }
+    try {
+      await this.dispatchPrompt(id, item, "steer")
+      // الحقن نشاط جديد ⇒ أحكام "خلص"/"اتجمّد" القديمة بقت ملغية
+      this.finishedRuns.delete(id)
+      this.stalledSessions.delete(id)
+      this.stallWatches.delete(id)
+      return { started: false, steered: true, queued: false, remaining: left() }
+    } catch (error) {
+      // السيرفر رفض الحقن وسط الشغل: منضيعش الطلب — بنرجّعه أول الطابور
+      // فيتنفّذ أول ما المهمة الحالية تخلص بدل ما يروح في رسالة خطأ.
+      console.error("Unable to steer the queued prompt", errorMessage(error))
+      const pending = this.promptQueues.get(id) ?? []
+      pending.unshift(item)
+      this.promptQueues.set(id, pending)
+      return { started: false, steered: false, queued: true, remaining: pending.length }
+    }
   }
 
   // v2 بلا خريطة حالات: `session.active` يرجّع الشغال فعلًا فقط، والباقي

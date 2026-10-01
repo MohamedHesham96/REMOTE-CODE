@@ -10,6 +10,7 @@ const DIRECTORY = process.cwd()
 
 interface FakeClient {
   dispatched: string[]
+  deliveries: string[]
   abortCalls: number
   messages: Array<Record<string, unknown>>
   sessions: Array<Record<string, unknown>>
@@ -32,6 +33,7 @@ function sessionSummary(id: string, directory: string): Record<string, unknown> 
 function createFakeClient(raw: { running: boolean }): FakeClient {
   const fake: FakeClient = {
     dispatched: [],
+    deliveries: [],
     abortCalls: 0,
     messages: [],
     sessions: [sessionSummary(SESSION, DIRECTORY)],
@@ -41,8 +43,9 @@ function createFakeClient(raw: { running: boolean }): FakeClient {
     permission: {},
   }
   fake.session = {
-    prompt: (options: { text?: string }) => {
+    prompt: (options: { text?: string; delivery?: string }) => {
       fake.dispatched.push(options.text ?? "")
+      fake.deliveries.push(options.delivery ?? "")
       return Promise.resolve({ id: "inbox_1", sessionID: SESSION })
     },
     interrupt: () => {
@@ -278,43 +281,65 @@ describe("parallel request queue", () => {
     expect(fake.abortCalls).toBe(0)
   })
 
-  it("promotes a queued request to run next without stopping the running one", async () => {
+  it("steers a queued request into the running task without stopping it", async () => {
     const { service, fake, emit } = createService()
 
     await service.prompt(SESSION, "الأول")
     await service.prompt(SESSION, "التاني")
     await service.prompt(SESSION, "التالت")
 
-    // آخر طلب في الطابور عايز يبقى التالي — بيتقدّم أول الطابور من غير مقاطعة
-    await expect(service.runQueued(SESSION, "queued:q3")).resolves.toEqual({ started: false, queued: true, remaining: 2 })
+    // آخر طلب في الطابور عايز يتنفّذ حالًا — بيتحقن جوه المهمة الشغّالة
+    // كتوجيه (steer) فبيتشال من الطابور من غير ما نوقف OpenCode
+    await expect(service.runQueued(SESSION, "queued:q3")).resolves.toEqual({ started: false, steered: true, queued: false, remaining: 1 })
     expect(fake.abortCalls).toBe(0)
-    expect(fake.dispatched).toEqual(["الأول"])
-
-    // أول ما المهمة الشغّالة تخلص، المقدَّم هو اللي بيتنفّذ
-    emit(idleEvent())
     expect(fake.dispatched).toEqual(["الأول", "التالت"])
+    expect(fake.deliveries).toEqual(["", "steer"])
+
+    // اللي فضل في الطابور (التاني) بيتنفّذ لما المهمة الحالية تخلص
+    emit(idleEvent())
+    expect(fake.dispatched).toEqual(["الأول", "التالت", "التاني"])
   })
 
-  it("sends a promoted request on the next idle only once", async () => {
+  it("steers a queued request immediately and leaves nothing for the next idle", async () => {
     const { service, fake, emit } = createService()
 
     await service.prompt(SESSION, "الأول")
     await service.prompt(SESSION, "التاني")
 
-    await expect(service.runQueued(SESSION, "queued:q2")).resolves.toEqual({ started: false, queued: true, remaining: 1 })
-    expect(fake.dispatched).toEqual(["الأول"])
+    await expect(service.runQueued(SESSION, "queued:q2")).resolves.toEqual({ started: false, steered: true, queued: false, remaining: 0 })
+    expect(fake.dispatched).toEqual(["الأول", "التاني"])
+    expect(fake.deliveries).toEqual(["", "steer"])
 
+    // الطابور فضل فاضي — الـ idle مش هيبعت حاجة تاني
     emit(idleEvent())
     expect(fake.dispatched).toEqual(["الأول", "التاني"])
     emit(idleEvent())
     expect(fake.dispatched).toEqual(["الأول", "التاني"])
   })
 
-  it("ignores run-next for a request that is not queued", async () => {
+  it("falls back to the queue when the steer is rejected mid-run", async () => {
+    const { service, fake, emit } = createService()
+
+    await service.prompt(SESSION, "الأول")
+    await service.prompt(SESSION, "التاني")
+
+    // السيرفر رفض الحقن جوه المهمة الشغّالة: الطلب ما يضيعش ويرجع للطابور
+    const original = fake.session.prompt as (options: { text?: string; delivery?: string }) => Promise<unknown>
+    fake.session.prompt = () => Promise.reject(new Error("cannot steer"))
+    await expect(service.runQueued(SESSION, "queued:q2")).resolves.toEqual({ started: false, steered: false, queued: true, remaining: 1 })
+    expect(fake.abortCalls).toBe(0)
+    expect(fake.dispatched).toEqual(["الأول"])
+
+    fake.session.prompt = original
+    emit(idleEvent())
+    expect(fake.dispatched).toEqual(["الأول", "التاني"])
+  })
+
+  it("ignores run-now for a request that is not queued", async () => {
     const { service, fake } = createService()
 
     await service.prompt(SESSION, "الأول")
-    await expect(service.runQueued(SESSION, "queued:q1")).resolves.toEqual({ started: false, queued: false, remaining: 0 })
+    await expect(service.runQueued(SESSION, "queued:q1")).resolves.toEqual({ started: false, steered: false, queued: false, remaining: 0 })
     expect(fake.abortCalls).toBe(0)
     expect(fake.dispatched).toEqual(["الأول"])
   })
