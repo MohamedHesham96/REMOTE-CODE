@@ -20,6 +20,7 @@ function request(overrides: Partial<SessionRequest> = {}): SessionRequest {
     liveText: "",
     stepsCompleted: 2,
     activeTool: null,
+    usedTools: [],
     todos: [],
     completedTodos: 0,
     totalTodos: 0,
@@ -63,6 +64,22 @@ describe("describeTask", () => {
     expect(view.activity).toBe("يشغّل أمرًا")
     // الحركة مقصورة على الشغل الفعلي — دي اللي بتقول للمستخدم إن في شغل
     expect(view.live).toBe(true)
+  })
+
+  it("carries the current task's used tools so the panel can rotate them", () => {
+    const usedTools = ["يقرأ الملفات", "يشغّل أمرًا"]
+    const view = describeTask(input({
+      requests: [request({ state: "running", usedTools })],
+      status: busy(),
+    }), t)
+    expect(view.usedTools).toEqual(usedTools)
+  })
+
+  it("keeps the used tools visible once the task completes", () => {
+    const usedTools = ["يقرأ الملفات"]
+    const view = describeTask(input({ requests: [request({ usedTools })] }), t)
+    expect(view.phase).toBe("completed")
+    expect(view.usedTools).toEqual(usedTools)
   })
 
   it("keeps a long running tool as running, not waiting", () => {

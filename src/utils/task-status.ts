@@ -32,12 +32,15 @@ export interface TaskStatusView {
   label: string
   // سطر بيقول OpenCode بيعمل إيه دلوقتي، جاهز للعرض ومترجم
   activity: string
+  // أدوات المهمة الحالية بترتيب استخدامها. الواجهة بتقلّب عليها واحدة واحدة
+  // في مرحلة "قيد التنفيذ" بدل ما تعرض قائمة طويلة على شاشة موبايل.
+  usedTools: string[]
   // الحركة المتوهجة تبقى في حالة "قيد التنفيذ" بس
   live: boolean
 }
 
-function view(phase: TaskPhase, label: string, activity: string, live: boolean): TaskStatusView {
-  return { phase, label, activity, live }
+function view(phase: TaskPhase, label: string, activity: string, live: boolean, usedTools: string[] = []): TaskStatusView {
+  return { phase, label, activity, usedTools, live }
 }
 
 export function describeTask(input: TaskStatusInput, t: Strings): TaskStatusView {
@@ -90,10 +93,13 @@ export function describeTask(input: TaskStatusInput, t: Strings): TaskStatusView
     return view("waiting", t.taskPhaseWaiting, t.taskQuietDetail, false)
   }
 
-  // ٧) شغال فعلًا. سطر النشاط من السيرفر هو اللي بيقول الأداة إيه.
+  // ٧) شغال فعلًا. سطر النشاط من السيرفر هو اللي بيقول الأداة إيه، وقائمة
+  // الأدوات المستخدمة بتتقلّب واحدة واحدة في اللوحة.
   if (active) {
-    return view("running", t.taskPhaseRunning, activity || t.workingOnTask, true)
+    return view("running", t.taskPhaseRunning, activity || t.workingOnTask, true, latest?.usedTools ?? [])
   }
 
-  return view("completed", t.taskPhaseCompleted, t.taskCompletedDetail, false)
+  // مكتملة: برضه بنمرّر الأدوات المستخدمة عشان المستخدم يراجع المهمة الحالية
+  // بعد ما تخلص. مراحل الانتظار/الخطأ ليها رسالة أهم، فبتفضل من غير تقليب.
+  return view("completed", t.taskPhaseCompleted, t.taskCompletedDetail, false, latest?.usedTools ?? [])
 }

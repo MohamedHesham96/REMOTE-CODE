@@ -28,9 +28,6 @@ export function RequestCard({ requests, sessionId, listRef, title, canRenameTitl
     <section className={`task-summary task-${latest ? latest.state : "done"}`}>
       <div className="task-summary-top">
         <ConversationTitle title={title} canRename={canRenameTitle} isEditing={isEditingTitle} draft={titleDraft} renaming={renamingTitle} t={t} onStartRename={onStartRename} onCancelRename={onCancelRename} onDraftChange={onTitleDraftChange} onSubmit={onRenameSubmit} onKeyDown={onTitleKeyDown} />
-        <div className="task-summary-meta">
-          <div className="eyebrow">{t.requestsInSession} · {requests.length}</div>
-        </div>
         <TaskStatusPanel view={view} />
       </div>
       <ul className="request-list" ref={listRef}>

@@ -13,7 +13,7 @@ import type {
 } from "@opencode/client"
 import { setTimeout as sleep } from "node:timers/promises"
 import { ensureLocalEndpoint } from "./opencode/service-launch.js"
-import { findActiveTool, toolActivity } from "./opencode/activity.js"
+import { findActiveTool, toolActivity, toolSignature, usedToolActivities } from "./opencode/activity.js"
 import { unpushedCommitCount } from "./opencode/git-ahead.js"
 import { consoleLang, serverMessage, type ServerLang } from "./i18n.js"
 import type {
@@ -1058,7 +1058,7 @@ export class OpenCodeService {
     // والسؤال/الإذن المعلّق انتظار مشروع للمستخدم (كارت ظاهر) مش جمود.
     // (v2 بلا قائمة مهام، فلا todos في البصمة ولا في الكروت.)
     const turnSig = turns
-      .map((turn) => `${turn.updatedAt}:${turn.completedAt}:${turn.texts.join("").length}`)
+      .map((turn) => `${turn.updatedAt}:${turn.completedAt}:${turn.texts.join("").length}:${toolSignature(turn.entries)}`)
       .join(";")
     const sharedTail = [
       turns.length,
@@ -1119,6 +1119,7 @@ export class OpenCodeService {
         liveText,
         stepsCompleted: turn.steps,
         activeTool: activeTool?.name ?? null,
+        usedTools: usedToolActivities(turn.entries, lang),
         // v2 بلا قائمة مهام — الحقول باقية في العقد فارغة
         todos: [],
         completedTodos: 0,
@@ -1141,6 +1142,7 @@ export class OpenCodeService {
         liveText: "",
         stepsCompleted: 0,
         activeTool: null,
+        usedTools: [],
         todos: [],
         completedTodos: 0,
         totalTodos: 0,
@@ -1462,40 +1464,30 @@ export class OpenCodeService {
     return { removed: true, remaining: queue.length }
   }
 
-  // تنفيذ طلب مستني حالًا بدل ما يستنى: بنوقّف الطلب الشغّال دلوقتي وبنبعث
-  // المطلوب ده هو اللي بعده، فبيسبق أي طلب تاني مستني.
-  async runQueued(id: string, requestId: string): Promise<{ started: boolean; remaining: number }> {
+  // تقديم طلب مستني ليكون التالي من غير ما نقاطع الشغل الجاري. الطلب بيتحط
+  // أول الطابور، فبيتنفّذ أول ما المهمة الحالية تخلص طبيعي — يعني اتضاف لشغل
+  // نفس المهمة بدل ما نوقف OpenCode. لو مفيش حاجة شغّالة بيتبعت على طول.
+  async runQueued(id: string, requestId: string): Promise<{ started: boolean; queued: boolean; remaining: number }> {
     const queue = this.promptQueues.get(id)
     const target = queuedItemId(requestId)
     const index = queue ? queue.findIndex((item) => item.id === target) : -1
     const item = index < 0 ? undefined : queue?.splice(index, 1)[0]
     if (!queue || !item) {
-      return { started: false, remaining: queue?.length ?? 0 }
+      return { started: false, queued: false, remaining: queue?.length ?? 0 }
     }
 
-    // هنقله أول الطابور عشان هو ده اللي يتنفذ أول ما الطلب الشغّال يتوقّف
     queue.unshift(item)
     this.promptQueues.set(id, queue)
     const left = (): number => this.promptQueues.get(id)?.length ?? 0
 
     if (!this.runningSessions.has(id)) {
       // مفيش حاجة شغّالة — الطابور واقف أصلًا فبنبعثه على طول
-      this.pumpQueue(id)
-      return { started: true, remaining: left() }
+      const started = this.pumpQueue(id)
+      return { started, queued: !started, remaining: left() }
     }
 
-    // فيه طلب شغّال: نوقّفه ونخلي المطلوب ده هو اللي يكمّل بدل اللي بعده.
-    // الـ skippingSessions بيمنع الـ idle القديم من إنهاء الطابور مرّتين.
-    this.runningSessions.delete(id)
-    this.skippingSessions.add(id)
-    let started = false
-    try {
-      await this.requireClient().session.interrupt({ sessionID: id })
-    } finally {
-      this.skippingSessions.delete(id)
-      started = this.pumpQueue(id)
-    }
-    return { started, remaining: left() }
+    // فيه مهمة شغّالة: منقاطعهاش. الطلب بقى أول الطابور وهيتنفّذ أول ما تخلص.
+    return { started: false, queued: true, remaining: left() }
   }
 
   // v2 بلا خريطة حالات: `session.active` يرجّع الشغال فعلًا فقط، والباقي

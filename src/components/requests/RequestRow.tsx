@@ -6,6 +6,7 @@ import { TodoList } from "./TodoList"
 import { ResultFilesList } from "./ResultFilesList"
 import { CopyButton } from "../CopyButton"
 import { useState, type ReactNode } from "react"
+import { tailPreview } from "../../utils/preview"
 
 export const REQUEST_STATE_LABEL: Record<RequestState, keyof Strings> = {
   queued: "inQueue",
@@ -36,21 +37,31 @@ const COLLAPSED_CHAR_BUDGET = 400
 
 // `trailing` يتلزق آخر النص وقبل زرار "عرض كامل"، عشان مؤشّر الكتابة
 // يبان في مكانه الصح بدل ما يقف ورا الزرار.
-function ExpandableText({ text, maxLines = 6, className = "", trailing = null, t }: { text: string; maxLines?: number; className?: string; trailing?: ReactNode; t: Strings }) {
+//
+// `fromEnd` بيقلب المطوي: بدل ما يعرض أول النص، بيعرض آخره. مستخدم في
+// "النتيجة النهائية" عشان الخلاصة تبان من غير "عرض كامل".
+function ExpandableText({ text, maxLines = 6, className = "", trailing = null, fromEnd = false, t }: { text: string; maxLines?: number; className?: string; trailing?: ReactNode; fromEnd?: boolean; t: Strings }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const lines = text.split("\n")
   const shouldTruncate = lines.length > maxLines || text.length > COLLAPSED_CHAR_BUDGET
-  const displayText = isExpanded || !shouldTruncate ? text : lines.slice(0, maxLines).join("\n") + "…"
+  const collapsed = fromEnd
+    ? "…" + tailPreview(text, maxLines, COLLAPSED_CHAR_BUDGET)
+    : lines.slice(0, maxLines).join("\n") + "…"
+  const displayText = isExpanded || !shouldTruncate ? text : collapsed
 
   if (!shouldTruncate) {
     return <span className={className}>{text}{trailing}</span>
   }
 
+  // من الآخر الجزء المعروض أصلاً هو الآخر، فمفيش line-clamp: لو اتطبّق هيقص
+  // من أول الجزء ويعرض عكس المطلوب.
+  const clamp = !isExpanded && !fromEnd
+
   return (
     <span className={className}>
       <span
-        className={isExpanded ? "expandable-body" : "expandable-body is-collapsed"}
-        style={isExpanded ? undefined : { WebkitLineClamp: maxLines, lineClamp: maxLines }}
+        className={clamp ? "expandable-body is-collapsed" : "expandable-body"}
+        style={clamp ? { WebkitLineClamp: maxLines, lineClamp: maxLines } : undefined}
       >
         {displayText}
         {trailing}
@@ -95,11 +106,11 @@ export function RequestRow({ request, expanded, onToggle, sessionId, onCopy, onT
       ) : null}
       {queued ? (
         <>
-          <button type="button" className="request-action request-action-run" onClick={onRunNow} disabled={busyAction === request.id || notSentYet} title={t.runNow}>
+          <button type="button" className="request-action request-action-run" onClick={onRunNow} disabled={busyAction === request.id || notSentYet} title={t.runNext}>
             <svg className="request-action-icon" viewBox="0 0 24 24" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M8 4.5v15l12-7.5-12-7.5z" fill="currentColor" stroke="none" />
             </svg>
-            <span className="request-action-label">{t.runNow}</span>
+            <span className="request-action-label">{t.runNext}</span>
           </button>
           <button type="button" className="request-action request-action-remove" onClick={onRemove} disabled={busyAction === request.id} title={t.removeFromQueue}>
             <svg className="request-action-icon" viewBox="0 0 24 24" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -154,7 +165,7 @@ export function RequestRow({ request, expanded, onToggle, sessionId, onCopy, onT
               ثابتة فتيجي تحت النص الطويل — المستخدم بيشوفه بعد ما ينزل لآخر الرد.
               جوّه ترويسة فيها العنوان والزرار مع بعض يفضل فوق دايمًا. */}
           {running && request.liveText ? <div className="final-result live-result"><div className="final-result-head"><div className="final-result-label">{t.liveResponse}</div><CopyButton className="copy-result" text={request.liveText} onCopy={onCopy} label={t.copyResult} t={t} /></div><div className="final-result-text"><ExpandableText text={request.liveText} t={t} trailing={<span className="live-cursor" aria-hidden>▍</span>} /></div></div> : null}
-          {request.finalResult && !running ? <div className="final-result"><div className="final-result-head"><div className="final-result-label">{t.finalResult}</div><CopyButton className="copy-result" text={request.finalResult} onCopy={onCopy} label={t.copyResult} t={t} /></div><div className="final-result-text"><ExpandableText text={request.finalResult} t={t} /></div></div> : running && !request.liveText ? <div className="result-pending">{t.resultWillAppear}</div> : null}
+          {request.finalResult && !running ? <div className="final-result"><div className="final-result-head"><div className="final-result-label">{t.finalResult}</div><CopyButton className="copy-result" text={request.finalResult} onCopy={onCopy} label={t.copyResult} t={t} /></div><div className="final-result-text"><ExpandableText text={request.finalResult} fromEnd t={t} /></div></div> : null}
           {sessionId && request.resultFiles.length > 0 ? <ResultFilesList files={request.resultFiles} sessionId={sessionId} onToast={onToast} t={t} /> : null}
           {sessionId && !running && request.resultFiles.length === 0 && request.finalResult ? <div className="result-files-hint">{t.noResultFileHint}</div> : null}
         </div>

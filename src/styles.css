@@ -800,6 +800,8 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .task-summary-top .session-title-row { min-width: 0; display: flex; align-items: center; }
 .task-summary-top h2 { flex: 1 1 0; min-width: 0; overflow: hidden; display: flex; align-items: center; gap: 6px; margin: 0; padding-block: 4px; padding-inline-start: 14px; padding-inline-end: 6px; border: 1px solid var(--accent-border); border-radius: 6px; color: var(--text); background: var(--accent-soft-bg2); font-size: 16px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.3; transition: border-color 0.15s ease, background 0.15s ease; }
 .task-summary-top .session-title-row:hover h2 { border-color: var(--accent); }
+/* الشارة كلها بتفتح التعديل باللمس، فالمؤشر لازم يبيّن إنها قابلة للنقر */
+h2.session-title-editable { cursor: pointer; }
 .session-title-text { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .title-edit { width: 24px; height: 24px; display: grid; place-items: center; flex: 0 0 24px; border: 0; border-radius: 50%; color: var(--text-faint); background: transparent; font-size: 13px; opacity: 0; transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease; }
 .task-summary-top .session-title-row:hover .title-edit,
@@ -1387,7 +1389,7 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
    (تخطّي/حذف) جنب الحالة عشان ما تغطّيش النص */
 .request-row-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 12px 12px 12px 14px; border-radius: inherit; }
 .request-row-head:hover { background: var(--accent-soft-bg3); }
-.request-row-toggle { display: grid; flex: 1 1 auto; min-width: 0; grid-template-columns: 24px auto minmax(0, 1fr) 14px; grid-template-areas: "mark index state caret" "prompt prompt prompt prompt"; align-items: center; gap: 9px; row-gap: 7px; padding: 0; border: 0; color: var(--text-body); background: transparent; font: inherit; text-align: start; cursor: pointer; }
+.request-row-toggle { display: grid; flex: 1 1 auto; min-width: 0; width: 100%; grid-template-columns: 24px auto minmax(0, 1fr) 14px; grid-template-areas: "mark index state caret" "prompt prompt prompt prompt"; align-items: center; gap: 9px; row-gap: 7px; padding: 0; border: 0; color: var(--text-body); background: transparent; font: inherit; text-align: start; cursor: pointer; }
 .request-row-mark { grid-area: mark; width: var(--request-mark-size); height: var(--request-mark-size); display: grid; place-items: center; border: 1px solid var(--accent-border); border-radius: 3px; color: var(--text-faint); background: rgba(139, 124, 255, 0.08); font-size: 12px; font-weight: 700; }
 .request-row-index { grid-area: index; justify-self: start; padding: 3px 8px; border-radius: 6px; color: var(--accent-strong); background: var(--accent-soft-bg3); font-size: 9px; font-weight: 800; white-space: nowrap; }
 .request-row-prompt { grid-area: prompt; min-width: 0; white-space: normal; overflow-wrap: anywhere; color: var(--text); font-size: 13px; font-weight: 650; line-height: 1.6; }
@@ -1429,7 +1431,7 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .task-queued .activity-pulse { background: var(--yellow); box-shadow: 0 0 0 4px rgba(245, 199, 108, 0.12); }
 .task-stopped .activity-pulse { background: var(--red); box-shadow: 0 0 0 4px rgba(239, 105, 105, 0.12); animation: none; }
 [data-theme="dark"] .task-stopped .task-summary-state { color: var(--red); background: rgba(239, 105, 105, 0.1); }
-/* ترويسة المحادثة ("حالة المهمة · الطلبات في المحادثة") ثابتة فوق أثناء
+/* ترويسة المحادثة ("العنوان · لوحة الحالة") ثابتة فوق أثناء
    التمرير: sticky داخل حاوية التمرير، وشايلة حدّ بطاقتها معاها (إطار
    مستدير) فتتحرك ككتلة واحدة بدل نص عائم. الخلفية معتمة في كل الثيمات
    عشان الصفوف تعدّي من تحتها من غير ما تبان من خلالها. وهي عمودية:
@@ -1437,8 +1439,6 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
    والشارة — العنوان جنب الشارة كان يتضيق ويتقص بسرعة، فسطر
    لوحده في الأول يديله العرض كله. */
 .task-summary-top { position: sticky; top: 0; z-index: 3; display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--accent-border); border-radius: 8px; background: var(--grad-summary); }
-.task-summary-meta { display: flex; align-items: center; justify-content: flex-start; gap: 8px; }
-.task-summary-meta .eyebrow { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* ذيل تلاشي تحت الترويسة الثابتة: الصفوف وهي داخلة تحتها تدوب تدريجيًا
    في خلفية البطاقة بدل ما تتقصّ بخط حاد. نفس الخلفية بقناع متدرج. */
 .task-summary-top::after { content: ""; position: absolute; inset-inline: 0; top: calc(100% + 1px); height: 22px; background: var(--grad-summary); -webkit-mask-image: linear-gradient(180deg, black, transparent); mask-image: linear-gradient(180deg, black, transparent); pointer-events: none; }
@@ -1454,11 +1454,14 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
    في الأربعة من غير تعريفات جديدة. والشكل بيحمل المعنى كمان مش اللون
    بس: الدايرة المتوهجة = شغال، الحلقة الفاضية = في انتظار، المعيّن =
    واقف، الدايرة الحمراء = مشكلة. */
-.task-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 10px; min-height: 38px; padding: 7px 10px; border: 1px solid var(--accent-border); border-inline-start: 3px solid var(--accent); border-radius: 7px; background: var(--accent-soft-bg2); }
-.task-panel-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgba(139, 124, 255, 0.12); }
+.task-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 28px; padding: 4px 8px; border: 1px solid var(--accent-border); border-inline-start: 3px solid var(--accent); border-radius: 6px; background: var(--accent-soft-bg2); }
+.task-panel-dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgba(139, 124, 255, 0.12); }
 .task-panel-dot.is-live { animation: pulse 1.2s infinite; }
-.task-panel-label { flex: 0 0 auto; color: var(--accent); font-size: 11px; font-weight: 800; white-space: nowrap; }
-.task-panel-activity { flex: 1 1 160px; min-width: 0; margin: 0; color: var(--task-activity-text); font-size: 12px; font-weight: 650; line-height: 1.5; }
+.task-panel-label { flex: 0 0 auto; color: var(--accent); font-size: 10px; font-weight: 800; white-space: nowrap; }
+.task-panel-activity { flex: 1 1 120px; min-width: 0; margin: 0; color: var(--task-activity-text); font-size: 11px; font-weight: 650; line-height: 1.4; }
+/* عدّاد "الأداة كام من إجمالي الأدوات المستخدمة" — بيوضّح إن السطر بيتقلّب
+   على قائمة مش نص واحد، من غير ما يزحم سطر الحالة. */
+.task-panel-used-count { margin-inline-start: 5px; color: var(--task-activity-text); font-size: 9px; font-weight: 800; opacity: 0.62; }
 /* كل حالة بتاخد لوّنها وشكلها من الـ data-phase.
    الحركة مقصورة على "قيد التنفيذ" وحدها، فأي حالة تانية بتوقف نبض
    الشغل بدل ما تخلّي المستخدم يفتكر إن OpenCode لسه بيشتغل. */
@@ -1533,8 +1536,11 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .live-cursor { display: inline-block; margin-inline-start: 2px; animation: live-blink 1s steps(2, start) infinite; }
 @keyframes live-blink { to { visibility: hidden; } }
 .result-files { margin-top: 18px; padding: 15px; border: 1px solid var(--result-files-border); border-radius: 5px; background: var(--result-files-bg); }
-.result-files-list { display: grid; gap: 8px; margin-top: 12px; }
-.result-file-item { display: flex; align-items: center; gap: 10px; padding: 10px 11px; border: 1px solid var(--border); border-radius: 4px; background: var(--result-file-bg); }
+/* ٣ ملفات بس ظاهرة في القائمة؛ لو المهمة طلّعت أكتر، القائمة نفسها بتتمرّر
+   من غير ما تمدّد الكارت وتزحلق باقي المحتوى. الارتفاع محسوب من صف ثابت
+   (متغيّر واحد) عشان الرقم 3 يفضل واضح ومظبوط مهما اتغيّرت التفاصيل. */
+.result-files-list { --result-file-row: 60px; display: grid; gap: 8px; margin-top: 12px; max-height: calc(3 * var(--result-file-row) + 2 * 8px); overflow-y: auto; overscroll-behavior: auto; }
+.result-file-item { display: flex; align-items: center; gap: 10px; min-height: var(--result-file-row); padding: 10px 11px; border: 1px solid var(--border); border-radius: 4px; background: var(--result-file-bg); }
 .result-file-icon { font-size: 20px; }
 .result-file-body { min-width: 0; flex: 1; display: grid; gap: 3px; }
 .result-file-body strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; direction: ltr; text-align: right; }

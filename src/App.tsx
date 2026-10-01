@@ -1437,6 +1437,7 @@ function App() {
         liveText: "",
         stepsCompleted: 0,
         activeTool: null,
+        usedTools: [],
         todos: [],
         completedTodos: 0,
         totalTodos: 0,
@@ -1565,12 +1566,13 @@ function App() {
     setQueueAction(request.id)
     try {
       const result = await runQueuedRequest(id, request.id)
-      if (!result.started) {
-        addToast(t.queuedRunFailed, "error")
+      if (result.started) {
+        // اشتغل فعلًا (مفيش مهمة شغّالة) — شايفه بعينك، من غير toast
+      } else if (result.queued) {
+        // اتنقل لأول الطابور وهيتنفّذ بعد المهمة الحالية من غير ما نقاطع OpenCode
+        addToast(t.queuedRunAfterTask, "info")
       } else {
-        // اشتغل وشايفه بعينك بيجري — من غير toast
-        // الطلب اللي كان شغّال اتوقّف، فنمنع صوت الإتمام بتاعه
-        abortedRef.current.add(id)
+        addToast(t.queuedRunFailed, "error")
       }
       await refreshRequests(id).catch(() => undefined)
     } catch (error: unknown) {

@@ -3,6 +3,7 @@ import { mkdir, unlink, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
 import { OpenCodeService } from "./opencode.js"
+import { serverMessage } from "./i18n.js"
 
 const SESSION = "ses_test"
 const DIRECTORY = process.cwd()
@@ -277,41 +278,43 @@ describe("parallel request queue", () => {
     expect(fake.abortCalls).toBe(0)
   })
 
-  it("runs a queued request now by stopping the running one", async () => {
-    const { service, fake } = createService()
+  it("promotes a queued request to run next without stopping the running one", async () => {
+    const { service, fake, emit } = createService()
 
     await service.prompt(SESSION, "الأول")
     await service.prompt(SESSION, "التاني")
     await service.prompt(SESSION, "التالت")
 
-    // آخر طلب في الطابور هو اللي عايز ينفّذ حالًا
-    await expect(service.runQueued(SESSION, "queued:q3")).resolves.toEqual({ started: true, remaining: 1 })
-    // اللي كان شغّال اتوقّف، والمطلوب اتبعّ قبل أي طلب تاني مستني
-    expect(fake.abortCalls).toBe(1)
+    // آخر طلب في الطابور عايز يبقى التالي — بيتقدّم أول الطابور من غير مقاطعة
+    await expect(service.runQueued(SESSION, "queued:q3")).resolves.toEqual({ started: false, queued: true, remaining: 2 })
+    expect(fake.abortCalls).toBe(0)
+    expect(fake.dispatched).toEqual(["الأول"])
+
+    // أول ما المهمة الشغّالة تخلص، المقدَّم هو اللي بيتنفّذ
+    emit(idleEvent())
     expect(fake.dispatched).toEqual(["الأول", "التالت"])
   })
 
-  it("does not send twice from the idle of the request it stopped for run-now", async () => {
+  it("sends a promoted request on the next idle only once", async () => {
     const { service, fake, emit } = createService()
 
     await service.prompt(SESSION, "الأول")
     await service.prompt(SESSION, "التاني")
 
-    const running = service.runQueued(SESSION, "queued:q2")
-    // الـ idle بيوصل قبل ما يخلص الإيقاف — لازم ما تبعتش طلب وانت لسه بتوقف
-    emit(idleEvent())
-    await running
+    await expect(service.runQueued(SESSION, "queued:q2")).resolves.toEqual({ started: false, queued: true, remaining: 1 })
+    expect(fake.dispatched).toEqual(["الأول"])
 
+    emit(idleEvent())
     expect(fake.dispatched).toEqual(["الأول", "التاني"])
     emit(idleEvent())
     expect(fake.dispatched).toEqual(["الأول", "التاني"])
   })
 
-  it("ignores run-now for a request that is not queued", async () => {
+  it("ignores run-next for a request that is not queued", async () => {
     const { service, fake } = createService()
 
     await service.prompt(SESSION, "الأول")
-    await expect(service.runQueued(SESSION, "queued:q1")).resolves.toEqual({ started: false, remaining: 0 })
+    await expect(service.runQueued(SESSION, "queued:q1")).resolves.toEqual({ started: false, queued: false, remaining: 0 })
     expect(fake.abortCalls).toBe(0)
     expect(fake.dispatched).toEqual(["الأول"])
   })
@@ -805,6 +808,46 @@ describe("session cleanup and state version", () => {
     ]
     const grown = await service.requests(SESSION)
     expect(grown.version).not.toBe(filled.version)
+  })
+
+  it("lists the tools the task used and refreshes the version when they change", async () => {
+    const { service, fake } = createService()
+
+    function toolMessage(parts: Array<Record<string, unknown>>): Record<string, unknown> {
+      return {
+        id: "msg_a1",
+        type: "assistant",
+        agent: "build",
+        model: { id: "m", providerID: "opencode" },
+        time: { created: 1_100 },
+        content: parts,
+      }
+    }
+
+    fake.messages = [
+      userMessage("msg_u1", "ابحث", 1_000),
+      toolMessage([
+        { type: "tool", id: "call_1", name: "grep", state: { status: "completed" }, time: { created: 1_150, completed: 1_200 } },
+      ]),
+    ]
+    const first = await service.requests(SESSION)
+    expect(first.requests[0]?.usedTools).toEqual([serverMessage("activitySearchingFiles", "ar")])
+
+    // نفس الزمن ونفس النص، بس أداة جديدة ظهرت. بصمة الـ ETag لازم تتغير
+    // وإلا السيرفر رد 304 والواجهة تفضل على قائمة "المستخدم" القديمة.
+    fake.messages = [
+      userMessage("msg_u1", "ابحث", 1_000),
+      toolMessage([
+        { type: "tool", id: "call_1", name: "grep", state: { status: "completed" }, time: { created: 1_150, completed: 1_200 } },
+        { type: "tool", id: "call_2", name: "edit", state: { status: "running" }, time: { created: 1_250 } },
+      ]),
+    ]
+    const second = await service.requests(SESSION)
+    expect(second.requests[0]?.usedTools).toEqual([
+      serverMessage("activitySearchingFiles", "ar"),
+      serverMessage("activityApplyingChanges", "ar"),
+    ])
+    expect(second.version).not.toBe(first.version)
   })
 
   it("streams result files from disk with their real size", async () => {

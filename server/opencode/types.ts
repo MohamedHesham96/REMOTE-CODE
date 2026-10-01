@@ -118,6 +118,9 @@ export interface SessionRequest {
   liveText: string
   stepsCompleted: number
   activeTool: string | null
+  // أدوات المهمة الحالية بترتيب استخدامها ("قائمة المستخدم" في واجهة
+  // الديسكتوب)، مترجمة على السيرفر. الواجهة بتعرضها واحدة واحدة بدل قائمة طويلة.
+  usedTools: string[]
   todos: Todo[]
   completedTodos: number
   totalTodos: number

@@ -75,6 +75,6 @@ export function removeQueuedRequest(id: string, requestId: string): Promise<{ re
   return request<{ removed: boolean; remaining: number }>(`/api/session/${encodeURIComponent(id)}/request/${encodeURIComponent(requestId)}`, { method: "DELETE" })
 }
 
-export function runQueuedRequest(id: string, requestId: string): Promise<{ started: boolean; remaining: number }> {
-  return request<{ started: boolean; remaining: number }>(`/api/session/${encodeURIComponent(id)}/request/${encodeURIComponent(requestId)}/run`, { method: "POST" })
+export function runQueuedRequest(id: string, requestId: string): Promise<{ started: boolean; queued: boolean; remaining: number }> {
+  return request<{ started: boolean; queued: boolean; remaining: number }>(`/api/session/${encodeURIComponent(id)}/request/${encodeURIComponent(requestId)}/run`, { method: "POST" })
 }

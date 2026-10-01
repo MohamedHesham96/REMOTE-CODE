@@ -82,3 +82,42 @@ export function toolActivity(tool: SessionMessageAssistantTool, lang: ServerLang
   }
   return `${serverMessage("usesTool", lang)} ${tool.name}`
 }
+
+// الأدوات اللي المهمة استخدمتها فعلًا بترتيب استخدامها — دي "قائمة المستخدم"
+// اللي واجهة الديسكتوب بتعرضها. بنستبعد streaming لأنه لسه ما اتنفذش، وبنطوي
+// التكرار (نفس الوصف المترجم) عشان الصيغة تفضل قائمة أدوات مميزة مش سجل
+// نداءات. النصوص مترجمة هنا زي حقل activity بالظبط، فالواجهة تعرضها كما هي.
+export function usedToolActivities(entries: SessionMessageAssistant[], lang: ServerLang): string[] {
+  const labels: string[] = []
+  const seen = new Set<string>()
+  for (const entry of entries) {
+    for (const part of entry.content) {
+      if (part.type !== "tool" || part.state.status === "streaming") {
+        continue
+      }
+      const label = toolActivity(part, lang)
+      if (seen.has(label)) {
+        continue
+      }
+      seen.add(label)
+      labels.push(label)
+    }
+  }
+  return labels
+}
+
+// بصمة الأدوات لحساب ETag للطلبات. حالة الأداة بتتغيّر جوه رسالة assistant
+// مفتوحة وقتها.created ثابت، فبصمة النصوص والأوقات لوحدها ما بتلقطش ظهور أداة
+// جديدة أو اكتمالها — والسيرفر كان يرد 304 والواجهة تفضل على قائمة قديمة.
+export function toolSignature(entries: SessionMessageAssistant[]): string {
+  const parts: string[] = []
+  for (const entry of entries) {
+    for (const part of entry.content) {
+      if (part.type !== "tool") {
+        continue
+      }
+      parts.push(`${part.id}:${part.state.status}`)
+    }
+  }
+  return parts.join(",")
+}

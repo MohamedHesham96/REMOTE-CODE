@@ -99,6 +99,7 @@ describe("parallel requests", () => {
     liveText: "",
     stepsCompleted: 0,
     activeTool: null,
+    usedTools: [],
     todos: [],
     completedTodos: 0,
     totalTodos: 0,
@@ -165,14 +166,14 @@ describe("parallel requests", () => {
     }))
   })
 
-  it("runs a queued request now through its card id", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ started: true, remaining: 1 }), {
+  it("promotes a queued request to run next through its card id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ started: false, queued: true, remaining: 1 }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     }))
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(runQueuedRequest("session/id", queued.id)).resolves.toEqual({ started: true, remaining: 1 })
+    await expect(runQueuedRequest("session/id", queued.id)).resolves.toEqual({ started: false, queued: true, remaining: 1 })
     expect(fetchMock).toHaveBeenCalledWith("/api/session/session%2Fid/request/queued%3Aq2/run", expect.objectContaining({
       method: "POST",
       credentials: "include",
