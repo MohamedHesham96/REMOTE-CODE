@@ -46,6 +46,7 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
   const pushLabel = unpushed > 0
     ? `${hasFiles ? t.gitCommitPush : t.gitPush} — ${unpushed} ${unpushed === 1 ? t.gitUnpushedOne : t.gitUnpushedMany}`
     : t.gitCommitPush
+  const pushConfirm = t.gitPushConfirm.replace("{count}", String(unpushed))
   const summary = useMemo(() => files.reduce((total, file) => {
     if (file.status === "added") {
       total.added += 1
@@ -150,13 +151,13 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
             النص بيتبع اللي هيحصل فعلًا: فيه ملفات ⇒ commit و push، وشجرة
             نضيفة ⇒ push بس. تأكيد بيقول "commit" وحاجة مش موجودة بيوهّم. */}
         {confirmingPush ? (
-          <div className="git-confirm" role="alertdialog" aria-label={hasFiles ? t.gitCommitPushConfirm : t.gitPushConfirm}>
-            <p className="git-confirm-text">{hasFiles ? t.gitCommitPushConfirm : t.gitPushConfirm}</p>
+          <div className="git-confirm" role="alertdialog" aria-label={hasFiles ? t.gitCommitPushConfirm : pushConfirm}>
+            <p className="git-confirm-text">{hasFiles ? t.gitCommitPushConfirm : pushConfirm}</p>
             <div className="git-confirm-actions">
               <button type="button" className="git-confirm-cancel" onClick={onCancelCommitPush} disabled={busy}>
                 {t.cancel}
               </button>
-              <button type="button" className="git-confirm-accept" onClick={onCommitPush} disabled={busy || !hasFiles}>
+              <button type="button" className="git-confirm-accept" onClick={onCommitPush} disabled={busy || (!hasFiles && unpushed === 0)}>
                 {t.gitCommitPushConfirmYes}
               </button>
             </div>
