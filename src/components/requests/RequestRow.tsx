@@ -150,8 +150,11 @@ export function RequestRow({ request, expanded, onToggle, sessionId, onCopy, onT
             </div>
           ) : null}
           {running ? <TodoList todos={request.todos} t={t} /> : null}
-          {running && request.liveText ? <div className="final-result live-result"><div className="final-result-label">{t.liveResponse}</div><div className="final-result-text"><ExpandableText text={request.liveText} t={t} trailing={<span className="live-cursor" aria-hidden>▍</span>} /></div><CopyButton className="copy-result" text={request.liveText} onCopy={onCopy} label={t.copyResult} t={t} /></div> : null}
-          {request.finalResult && !running ? <div className="final-result"><div className="final-result-label">{t.finalResult}</div><div className="final-result-text"><ExpandableText text={request.finalResult} t={t} /></div><CopyButton className="copy-result" text={request.finalResult} onCopy={onCopy} label={t.copyResult} t={t} /></div> : running && !request.liveText ? <div className="result-pending">{t.resultWillAppear}</div> : null}
+          {/* زرار النسخ في ترويسة الكارت: على الموبايل القاعدة بتخلّي .copy-result
+              ثابتة فتيجي تحت النص الطويل — المستخدم بيشوفه بعد ما ينزل لآخر الرد.
+              جوّه ترويسة فيها العنوان والزرار مع بعض يفضل فوق دايمًا. */}
+          {running && request.liveText ? <div className="final-result live-result"><div className="final-result-head"><div className="final-result-label">{t.liveResponse}</div><CopyButton className="copy-result" text={request.liveText} onCopy={onCopy} label={t.copyResult} t={t} /></div><div className="final-result-text"><ExpandableText text={request.liveText} t={t} trailing={<span className="live-cursor" aria-hidden>▍</span>} /></div></div> : null}
+          {request.finalResult && !running ? <div className="final-result"><div className="final-result-head"><div className="final-result-label">{t.finalResult}</div><CopyButton className="copy-result" text={request.finalResult} onCopy={onCopy} label={t.copyResult} t={t} /></div><div className="final-result-text"><ExpandableText text={request.finalResult} t={t} /></div></div> : running && !request.liveText ? <div className="result-pending">{t.resultWillAppear}</div> : null}
           {sessionId && request.resultFiles.length > 0 ? <ResultFilesList files={request.resultFiles} sessionId={sessionId} onToast={onToast} t={t} /> : null}
           {sessionId && !running && request.resultFiles.length === 0 && request.finalResult ? <div className="result-files-hint">{t.noResultFileHint}</div> : null}
         </div>

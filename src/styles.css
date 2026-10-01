@@ -1380,17 +1380,17 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
    للحاوية إلى هامش صغير مساوٍ لهامش الهيدر بدل الامتداد من حافة إلى حافة. */
 .request-stack { display: flex; flex-direction: column; height: 100%; min-height: 0; margin: 0 -4px; }
 /* الطلبات كلها جواه كارت واحد على شكل قائمة مهام */
-.request-list { display: grid; gap: 9px; align-content: start; margin: 8px 0 0; padding: 0; list-style: none; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-.request-row { min-width: 0; border: 1px solid var(--border); border-radius: 5px; background: var(--accent-soft-bg2); --request-mark-size: 22px; --request-action-size: 24px; }
-.request-row.is-open { border-color: var(--accent-border); background: var(--surface-tint); }
+.request-list { display: grid; gap: 8px; align-content: start; margin: 8px 0 0; padding: 0; list-style: none; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.request-row { min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--accent-soft-bg2); transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease; --request-mark-size: 22px; --request-action-size: 24px; }
+.request-row.is-open { border-color: var(--accent-border); background: var(--surface-tint); box-shadow: 0 5px 16px rgba(0, 0, 0, 0.08); }
 /* نص الطلب ياخد سطر كامل بعرض الكارت، فوقه رقم الطلب والحالة — والأزرار
    (تخطّي/حذف) جنب الحالة عشان ما تغطّيش النص */
-.request-row-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 11px 10px 11px 13px; border-radius: inherit; }
+.request-row-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 12px 12px 12px 14px; border-radius: inherit; }
 .request-row-head:hover { background: var(--accent-soft-bg3); }
 .request-row-toggle { display: grid; flex: 1 1 auto; min-width: 0; grid-template-columns: 24px auto minmax(0, 1fr) 14px; grid-template-areas: "mark index state caret" "prompt prompt prompt prompt"; align-items: center; gap: 9px; row-gap: 7px; padding: 0; border: 0; color: var(--text-body); background: transparent; font: inherit; text-align: start; cursor: pointer; }
 .request-row-mark { grid-area: mark; width: var(--request-mark-size); height: var(--request-mark-size); display: grid; place-items: center; border: 1px solid var(--accent-border); border-radius: 3px; color: var(--text-faint); background: rgba(139, 124, 255, 0.08); font-size: 12px; font-weight: 700; }
 .request-row-index { grid-area: index; justify-self: start; padding: 3px 8px; border-radius: 6px; color: var(--accent-strong); background: var(--accent-soft-bg3); font-size: 9px; font-weight: 800; white-space: nowrap; }
-.request-row-prompt { grid-area: prompt; min-width: 0; white-space: normal; overflow-wrap: anywhere; font-size: 12px; font-weight: 700; line-height: 1.7; }
+.request-row-prompt { grid-area: prompt; min-width: 0; white-space: normal; overflow-wrap: anywhere; color: var(--text); font-size: 13px; font-weight: 650; line-height: 1.6; }
 .request-row-state { grid-area: state; justify-self: end; padding: 4px 7px; border-radius: 3px; color: var(--todo-muted); background: var(--surface-tint); font-size: 9px; font-weight: 700; white-space: nowrap; }
 .request-row-caret { grid-area: caret; color: var(--text-faint); font-size: 10px; }
 /* أزرار الإجراء (تشغيل/إزالة/تخطّي) تلتصق بسطر العلامة في أعلى الكارت
@@ -1412,11 +1412,12 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .request-action-remove:hover { color: var(--error-text); border-color: var(--red); background: rgba(255, 127, 157, 0.2); }
 .request-row-body { padding: 0 13px 14px; }
 .request-row-body .task-activity { margin-top: 13px; }
+.request-row-running { border-inline-start: 3px solid var(--accent); }
 .request-row-running .request-row-mark { border-color: rgba(169, 158, 255, 0.48); color: var(--accent-strong); background: rgba(139, 124, 255, 0.15); }
 .request-row-running .request-row-state { color: var(--accent-strong); background: rgba(139, 124, 255, 0.11); }
 .request-row-done .request-row-mark { border-color: rgba(66, 215, 162, 0.28); color: var(--green); background: rgba(66, 215, 162, 0.09); }
 .request-row-done .request-row-state { color: var(--green-text); }
-.request-row-queued { opacity: 0.85; }
+.request-row-queued { border-style: dashed; }
 .request-row-queued .request-row-mark { border-color: rgba(245, 199, 108, 0.35); color: var(--yellow); background: rgba(245, 199, 108, 0.12); }
 .request-row-queued .request-row-state { color: var(--yellow); background: rgba(245, 199, 108, 0.12); }
 .request-row-stopped .request-row-mark { border-color: var(--error-border); color: var(--red); background: var(--error-bg); }
@@ -1435,8 +1436,8 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
    عنوان المحادثة أول سطر بعرض البطاقة كاملًا، وتحته سطر الوصف
    والشارة — العنوان جنب الشارة كان يتضيق ويتقص بسرعة، فسطر
    لوحده في الأول يديله العرض كله. */
-.task-summary-top { position: sticky; top: 0; z-index: 3; display: flex; flex-direction: column; align-items: stretch; gap: 10px; margin-bottom: 10px; padding: 10px 14px; border: 1px solid var(--accent-border); border-radius: 6px; background: var(--grad-summary); }
-.task-summary-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.task-summary-top { position: sticky; top: 0; z-index: 3; display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--accent-border); border-radius: 8px; background: var(--grad-summary); }
+.task-summary-meta { display: flex; align-items: center; justify-content: flex-start; gap: 8px; }
 .task-summary-meta .eyebrow { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* ذيل تلاشي تحت الترويسة الثابتة: الصفوف وهي داخلة تحتها تدوب تدريجيًا
    في خلفية البطاقة بدل ما تتقصّ بخط حاد. نفس الخلفية بقناع متدرج. */
@@ -1453,29 +1454,27 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
    في الأربعة من غير تعريفات جديدة. والشكل بيحمل المعنى كمان مش اللون
    بس: الدايرة المتوهجة = شغال، الحلقة الفاضية = في انتظار، المعيّن =
    واقف، الدايرة الحمراء = مشكلة. */
-.task-panel { display: flex; flex-direction: column; gap: 8px; padding: 11px 13px; border: 1px solid var(--accent-border); border-inline-start: 3px solid var(--accent); border-radius: 5px; background: var(--accent-soft-bg2); }
-.task-panel-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.task-panel-dot { width: 11px; height: 11px; flex: 0 0 11px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(139, 124, 255, 0.12); }
+.task-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 10px; min-height: 38px; padding: 7px 10px; border: 1px solid var(--accent-border); border-inline-start: 3px solid var(--accent); border-radius: 7px; background: var(--accent-soft-bg2); }
+.task-panel-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgba(139, 124, 255, 0.12); }
 .task-panel-dot.is-live { animation: pulse 1.2s infinite; }
-.task-panel-label { flex: 0 0 auto; padding: 4px 9px; border-radius: 4px; color: var(--accent); background: rgba(139, 124, 255, 0.12); font-size: 11px; font-weight: 800; white-space: nowrap; }
-.task-panel-eyebrow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
-.task-panel-activity { margin: 0; color: var(--task-activity-text); font-size: 13px; font-weight: 700; line-height: 1.7; }
+.task-panel-label { flex: 0 0 auto; color: var(--accent); font-size: 11px; font-weight: 800; white-space: nowrap; }
+.task-panel-activity { flex: 1 1 160px; min-width: 0; margin: 0; color: var(--task-activity-text); font-size: 12px; font-weight: 650; line-height: 1.5; }
 /* كل حالة بتاخد لوّنها وشكلها من الـ data-phase.
    الحركة مقصورة على "قيد التنفيذ" وحدها، فأي حالة تانية بتوقف نبض
    الشغل بدل ما تخلّي المستخدم يفتكر إن OpenCode لسه بيشتغل. */
 .task-panel[data-phase="running"] { border-color: rgba(139, 124, 255, 0.4); }
 .task-panel[data-phase="waiting"] { border-color: var(--live-stat-border); border-inline-start-color: var(--yellow); }
 .task-panel[data-phase="waiting"] .task-panel-dot { border: 2px solid var(--yellow); background: transparent; box-shadow: none; }
-.task-panel[data-phase="waiting"] .task-panel-label { color: var(--yellow); background: rgba(245, 199, 108, 0.12); }
+.task-panel[data-phase="waiting"] .task-panel-label { color: var(--yellow); }
 .task-panel[data-phase="stuck"] { border-style: dashed; border-inline-start-style: solid; }
 .task-panel[data-phase="stuck"] .task-panel-dot { border-radius: 2px; background: var(--yellow); transform: rotate(45deg); box-shadow: none; }
-.task-panel[data-phase="stuck"] .task-panel-label { color: var(--yellow); background: rgba(245, 199, 108, 0.16); }
+.task-panel[data-phase="stuck"] .task-panel-label { color: var(--yellow); }
 .task-panel[data-phase="error"] { border-color: var(--error-border); border-inline-start-color: var(--red); }
 .task-panel[data-phase="error"] .task-panel-dot { background: var(--red); box-shadow: 0 0 0 4px rgba(239, 105, 105, 0.12); }
-.task-panel[data-phase="error"] .task-panel-label { color: var(--error-text); background: var(--error-bg); }
+.task-panel[data-phase="error"] .task-panel-label { color: var(--error-text); }
 .task-panel[data-phase="completed"] { border-color: var(--green-border); border-inline-start-color: var(--green); }
 .task-panel[data-phase="completed"] .task-panel-dot { background: var(--green); box-shadow: 0 0 0 4px rgba(66, 215, 162, 0.1); }
-.task-panel[data-phase="completed"] .task-panel-label { color: var(--green); background: rgba(66, 215, 162, 0.1); }
+.task-panel[data-phase="completed"] .task-panel-label { color: var(--green); }
 .task-request { margin-top: 21px; padding: 13px 15px; border: 1px solid var(--accent-border); border-right: 3px solid var(--accent); border-radius: 5px; background: var(--accent-soft-bg2); }
 .task-request > span { display: inline-block; padding: 3px 12px; border-radius: 8px; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 800; }
 .final-result-label { color: var(--task-request-label); font-size: 10px; font-weight: 700; }
@@ -1523,6 +1522,12 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .copy-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(66, 215, 162, 0.28); }
 .copy-chip.is-copied { color: var(--green); border-color: var(--green-border); background: var(--green-bg); }
 .copy-result { position: absolute; top: 10px; left: 10px; border: 0; color: var(--copy-result); background: transparent; font-size: 10px; }
+/* ترويسة الرد المباشر: العنوان وزرار النسخ في سطر واحد. زرار النسخ جوّه
+   الترويسة يبقى في أعلى الكارت على كل المقاسات — الخصوصية الأعلى بتكسب
+   على `.copy-result` المطلقة وعلى تعطيله للثابت في ميديا الموبايل، فمش
+   بنحتاج استثناءات. */
+.final-result-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.final-result-head .copy-result { position: static; flex: 0 0 auto; margin: 0; padding: 0; }
 .result-pending { margin-top: 20px; padding: 13px; border-radius: 4px; color: var(--result-pending-text); background: var(--info-box-bg); font-size: 11px; }
 .live-result { border-style: dashed; }
 .live-cursor { display: inline-block; margin-inline-start: 2px; animation: live-blink 1s steps(2, start) infinite; }

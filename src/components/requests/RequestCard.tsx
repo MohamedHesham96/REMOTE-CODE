@@ -4,7 +4,7 @@ import type { SessionRequest, SessionStatus, ToastKind } from "../../types"
 import { describeTask } from "../../utils/task-status"
 import { useNowTick } from "../../hooks/useNowTick"
 import { ConversationTitle } from "./ConversationTitle"
-import { REQUEST_STATE_LABEL, RequestRow } from "./RequestRow"
+import { RequestRow } from "./RequestRow"
 import { TaskStatusPanel } from "./TaskStatusPanel"
 
 // كارت واحد للمحادثة كلها: كل الطلبات قائمة جواه، والطلب الأخير هو المفتوح.
@@ -29,10 +29,9 @@ export function RequestCard({ requests, sessionId, listRef, title, canRenameTitl
       <div className="task-summary-top">
         <ConversationTitle title={title} canRename={canRenameTitle} isEditing={isEditingTitle} draft={titleDraft} renaming={renamingTitle} t={t} onStartRename={onStartRename} onCancelRename={onCancelRename} onDraftChange={onTitleDraftChange} onSubmit={onRenameSubmit} onKeyDown={onTitleKeyDown} />
         <div className="task-summary-meta">
-          <div className="eyebrow">{t.taskStatus} · {t.requestsInSession} [{requests.length}]</div>
-          <span className="task-summary-state">{latest ? t[REQUEST_STATE_LABEL[latest.state]] : t.done}</span>
+          <div className="eyebrow">{t.requestsInSession} · {requests.length}</div>
         </div>
-        <TaskStatusPanel view={view} t={t} />
+        <TaskStatusPanel view={view} />
       </div>
       <ul className="request-list" ref={listRef}>
         {requests.map((request) => (

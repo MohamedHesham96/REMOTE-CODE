@@ -811,6 +811,14 @@ function App() {
     document.title = authState === "signedIn" && selectedProject ? activeTitle : t.appName
   }, [activeTitle, authState, selectedProject, t])
 
+  // تبديل المحادثة يصفّر علامة التثبيت: الشرط تحت بيفترض إن المحادثة
+  // المثبّتة هي الحالية من غير ما يتأكد، فالرجوع لمحادثة نزلنا لآخرها
+  // قبل كده كان بيمنع النزول نهائيًا. التصفير لازم يتسجّل قبل تأثير
+  // التثبيت — التأثيرات بتتنفّذ بنفس ترتيب تعريفها.
+  useEffect(() => {
+    pinnedContentRef.current = null
+  }, [activeId])
+
   // فتح أي محادثة ينزل لآخر كارت المهام — أي تبديل لـ activeId أيًّا كان
   // طريقه (اختيار من القائمة، تبديل مشروع، قفزة من النشاط، مثبّتة، أو رجوع
   // تلقائي بعد الـ refresh). المحتوى بيوصل بعد الفتح على دفعات، فالتثبيت
@@ -827,7 +835,10 @@ function App() {
     pinToBottom(() => {
       pinnedContentRef.current = activeId
     })
-  }, [activeId, requests.length, authState, pinToBottom])
+    // الاعتماد على مصفوفة الطلبات نفسها مش طولها: محادثتين بنفس العدد كانت
+    // requests.length ثابتة فالتأثير ما بيرجعش يشتغل بعد وصول المحتوى،
+    // وحارس contentIdRef كان رفضه أول مرة — فالنزول ما كانش بيحصل خالص.
+  }, [activeId, requests, authState, pinToBottom])
 
   // كل ما يتضاف طلب جديد: انزل تحت على آخر كارت عشان المستخدم يشوفه فورًا
   // لكن فقط لو المستخدم قريب من الأسفل أصلًا (ما نزعجش لو قارئ رسائل قديمة).
