@@ -1,9 +1,17 @@
 import { useMemo } from "react"
+<<<<<<< HEAD
 import { EMPTY_GIT_FILES, GitBranchIcon, GitCommitIcon, GitPullIcon, GitPushIcon, GitRefreshIcon, GitRevertIcon, SpinnerIcon, gitStatusMeta, splitChangePath } from "../display"
 import type { Strings } from "../i18n"
 import type { GitChangeFile, GitChanges } from "../types"
 
 export function GitChangesPanel({ changes, loading, busy, confirming, confirmingCommit, confirmingPush, confirmingPull, onRefresh, onCommit, onAskCommit, onCancelCommit, onPush, onAskPush, onCancelPush, onPull, onAskPull, onCancelPull, onAskRevertAll, onRevertAll, onCancelRevertAll, onRevertFile, onClose, t }: {
+=======
+import { EMPTY_GIT_FILES, GitBranchIcon, GitCommitIcon, GitCommitOnlyIcon, GitPullIcon, GitRefreshIcon, GitRevertIcon, SpinnerIcon, gitStatusMeta, splitChangePath } from "../display"
+import type { Strings } from "../i18n"
+import type { GitChangeFile, GitChanges } from "../types"
+
+export function GitChangesPanel({ changes, loading, busy, confirming, confirmingPush, onRefresh, onCommitPush, onAskCommitPush, onCancelCommitPush, onCommit, onPull, onAskRevertAll, onRevertAll, onCancelRevertAll, onRevertFile, onClose, t }: {
+>>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
   changes: GitChanges | null
   loading: boolean
   busy: boolean
@@ -12,6 +20,7 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
   confirmingPush: boolean
   confirmingPull: boolean
   onRefresh: () => void
+<<<<<<< HEAD
   onCommit: () => void
   onAskCommit: () => void
   onCancelCommit: () => void
@@ -21,6 +30,13 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
   onPull: () => void
   onAskPull: () => void
   onCancelPull: () => void
+=======
+  onCommitPush: () => void
+  onAskCommitPush: () => void
+  onCancelCommitPush: () => void
+  onCommit: () => void
+  onPull: () => void
+>>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
   onAskRevertAll: () => void
   onRevertAll: () => void
   onCancelRevertAll: () => void
@@ -34,9 +50,17 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
   // الـ commit والتراجع محتاجين ملفات متغيّرة، لكن الـ push والـ pull مزامنة
   // فبيفضلوا شغّالين على شجرة نضيفة بعد الـ commit — القفل وقت أي تأكيد بس
   // عشان المستخدم ميضربش action تاني وهو بيأكد واحد شغّال.
+<<<<<<< HEAD
   const confirmingAny = confirming || confirmingCommit || confirmingPush || confirmingPull
   const canAct = hasFiles && !loading && !busy && !confirmingAny
   const canSync = Boolean(changes?.available) && !loading && !busy && !confirmingAny
+=======
+  const idle = !loading && !busy && !confirming && !confirmingPush
+  const canAct = hasFiles && idle
+  // السحب مش محتاج تغييرات محلية — شغله الأساسي على مجلد نضيف، فبيشترط
+  // إن المشروع git بس.
+  const canPull = Boolean(changes?.available) && idle
+>>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
   const summary = useMemo(() => files.reduce((total, file) => {
     if (file.status === "added") {
       total.added += 1
@@ -68,6 +92,7 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
           </div>
           <div className="git-toolbar-actions">
             <button className="icon-button" onClick={onRefresh} aria-label={t.refreshList} title={t.refreshList} disabled={loading}><GitRefreshIcon /></button>
+<<<<<<< HEAD
             {/* زراري التراجع والـ commit والـ push والـ pull بيفضلوا ظاهرين حتى وقت
                 التأكيد: الإخفاء كان بيحرّك التولبار ويلخبط العين، فالزرار المضغوط
                 بيفضل ظاهر بس مقفول بـ canAct زي الباقي. */}
@@ -114,6 +139,57 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
             >
               {busy ? <SpinnerIcon /> : <GitPullIcon />}
             </button>
+=======
+            {/* أزرار الـ git كلها (التراجع، الـ commit، والـ push والسحب) بتفضل
+                ظاهرة حتى لو مفيش تغييرات: زرار بيختفي وقت ما يبقى مفيش حاجة
+                يعمله المستخدم بيدور عليه وميشوفش إن الأداة موجودة أصلاً.
+                بتتقفل بـ canAct/canPull بدل ما تتشال من الشجرة. */}
+            {!confirming ? (
+              <>
+                <button
+                  type="button"
+                  className="icon-button git-revert-button"
+                  disabled={!canAct}
+                  onClick={onAskRevertAll}
+                  aria-label={t.gitRevertAll}
+                  title={t.gitRevertAll}
+                >
+                  <GitRevertIcon />
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  disabled={!canAct}
+                  onClick={onCommit}
+                  aria-label={t.gitCommit}
+                  title={t.gitCommit}
+                >
+                  <GitCommitOnlyIcon />
+                </button>
+                <button
+                  type="button"
+                  className="icon-button git-commit-button"
+                  disabled={!canAct}
+                  onClick={onAskCommitPush}
+                  aria-busy={busy}
+                  aria-label={t.gitCommitPush}
+                  title={t.gitCommitPush}
+                >
+                  {busy ? <SpinnerIcon /> : <GitCommitIcon />}
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  disabled={!canPull}
+                  onClick={onPull}
+                  aria-label={t.gitPull}
+                  title={t.gitPull}
+                >
+                  <GitPullIcon />
+                </button>
+              </>
+            ) : null}
+>>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
           </div>
         </div>
         {/* التراجع عن الكل مدمّر ومش بيرجع — عشان كده بيتأكد جوه الدرج بدل ما ينفّذ طول */}

@@ -241,13 +241,28 @@ function App() {
   // العدّاد على ⚡ واللوحة بياخدوا الرقم من القائمة دي مش من /api/activity
   // لوحدها: الشريط الجانبي بيحكم بـ statuses والطلبات المعلّقة، فلو اعتمدنا
   // على السيرفر بس العدّاد كان هيضيع محادثات شغالة لحد ما الجولة الجاية تجيبها.
+  // دليلان مستقلين بس — حالة السيرفر (busy/retry) وطلب العميل المعلّق. مهم ما
+  // نديش القائمة نفسها (workingSessionIds) هنا: وجودها في استجابة النشاط
+  // السابقة بيخلّيها تنضم لنفسها كـ busy حتى بعد ما السيرفر يشيلها، واللوحة
+  // بتفضل بتعدّ محادثات خالصة للأبد.
+  const busyStatusIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const [id, status] of Object.entries(statuses)) {
+      if (status.type === "busy" || status.type === "retry") {
+        ids.add(id)
+      }
+    }
+    return ids
+  }, [statuses])
+  const pendingRequestIds = useMemo(() => new Set(activeId && requests.some((r) => r.state !== "done" && r.state !== "stopped") ? [activeId] : []), [activeId, requests])
   const activeSessions = useMemo(() => mergeActiveSessions(
     activity,
     sessions,
-    workingSessionIds,
+    busyStatusIds,
+    pendingRequestIds,
     statuses,
     selectedProject ? { worktree: selectedProject.worktree, name: projectName(selectedProject) } : null,
-  ), [activity, sessions, workingSessionIds, statuses, selectedProject])
+  ), [activity, sessions, busyStatusIds, pendingRequestIds, statuses, selectedProject])
 
   // في لوحة "المحادثات النشطة": اللي شغالة دلوقتي، واللي كانت نشطة في آخر ٥ دقايق.
   // لازم يتدّال القائمة المدمجة مش activity: القائمة المدمجة هي اللي بتتعرض تحت
@@ -1980,6 +1995,7 @@ function App() {
             confirmingPush={gitRequests.confirmingPush}
             confirmingPull={gitRequests.confirmingPull}
             onRefresh={() => void refreshGitChanges()}
+<<<<<<< HEAD
             onCommit={() => void gitRequests.commit()}
             onAskCommit={gitRequests.askCommit}
             onCancelCommit={gitRequests.cancelCommit}
@@ -1989,6 +2005,13 @@ function App() {
             onPull={() => void gitRequests.pull()}
             onAskPull={gitRequests.askPull}
             onCancelPull={gitRequests.cancelPull}
+=======
+            onCommitPush={() => void gitRequests.commitPush()}
+            onAskCommitPush={gitRequests.askCommitPush}
+            onCancelCommitPush={gitRequests.cancelCommitPush}
+            onCommit={() => void gitRequests.commit()}
+            onPull={() => void gitRequests.pull()}
+>>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
             onAskRevertAll={gitRequests.askRevertAll}
             onRevertAll={() => void gitRequests.revertAll()}
             onCancelRevertAll={gitRequests.cancelRevertAll}

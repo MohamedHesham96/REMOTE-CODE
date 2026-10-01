@@ -47,6 +47,7 @@ import {
   MAX_FILE_DOWNLOAD_BYTES,
   MAX_PROMPT_ATTEMPTS,
   MAX_STALL_WATCHES,
+  MAX_TRACKED_ROOTS,
   mimeFromName,
   MODELS_CACHE_MS,
   parseModelString,
@@ -55,6 +56,7 @@ import {
   QUEUED_ID_PREFIX,
   queuedItemId,
   QUESTIONS_CACHE_MS,
+  sessionRoots,
   sortVariants,
   STALE_BUSY_GRACE_MS,
   stripMobileSuffix,
@@ -120,6 +122,11 @@ export class OpenCodeService {
   private readonly abortController = new AbortController()
   private readonly listeners = new Set<EventListener>()
   private readonly busySessions = new Set<string>()
+  // جذر كل جلسة ابن: مهمة Task بتيجي كجلسة جديدة ومعها `parentID` على
+  // السلك، فنقدر نعرف أمها من لحظة وجودها من غير ما نستنى استعلام. الخريطة
+  // بتتمسح بـ `session.deleted` بس — فلو مهام فرعية اتعملت من بعد ما
+  // اتصلنا (أو ضاعت منها أحداث) قايمة الجلسات بترجّعها وترنسدها تاني.
+  private readonly rootBySession = new Map<string, string>()
   // طابور الطلبات لكل جلسة: المستخدم يقدر يبعت أكتر من طلب من غير ما يستنى،
   // والطلب اللي بعده يستنى لحد ما يخلص اللي قبله.
   private readonly promptQueues = new Map<string, QueuedPrompt[]>()
@@ -346,6 +353,23 @@ export class OpenCodeService {
     ) {
       this.activityCache = null
     }
+    // مهمة Task بتفتح جلسة ابن ومعها `parentID` — وده أرخص وأسرع مصدر
+    // لخريطة الجذور: الحدث نفسه بييجي قبل أي حالة شغل بتاعة الجلسة دي،
+    // فنعرف أمها من غير ما نستنى استعلام قوائم الجلسات.
+    if (eventType === "session.created") {
+      const created = event.data as { sessionID?: unknown; parentID?: unknown } | undefined
+      if (typeof created?.sessionID === "string" && typeof created.parentID === "string") {
+        this.rememberRoot(created.sessionID, created.parentID)
+      }
+    }
+
+    if (eventType === "session.deleted") {
+      const deleted = event.data as { sessionID?: unknown } | undefined
+      if (typeof deleted?.sessionID === "string") {
+        this.rootBySession.delete(deleted.sessionID)
+      }
+    }
+
     // أحداث الاستمارات (أسئلة المستخدم) تبطل كاش أسئلة جلستها
     if (eventType === "form.created" || eventType === "form.replied" || eventType === "form.cancelled") {
       const sessionId = (event.data as { sessionID?: unknown }).sessionID
@@ -406,6 +430,61 @@ export class OpenCodeService {
   // فالمستخدم ما يشوفش إن خلص وهو لسه فاضل طلبات وراه.
   hasPendingWork(sessionId: string): boolean {
     return this.runningSessions.has(sessionId) || (this.promptQueues.get(sessionId)?.length ?? 0) > 0
+  }
+
+  // نفس خريطة `sessionRoots` بتتسجّل عندنا كمان، عشان جسر الأحداث ياخد
+  // خريطة الجذور من نفس المصدر: مهمة فرعية اتعملت قبل ما السيرفر يتصل
+  // (أو ضاع منها حدث الإنشاء) ماتبقاش جذر لنفسها فيتحوّل صوت الإتمام
+  // لمحادثة مستقلة. مهمة جو مهمة `sessionRoots` بتجمعها على نفس الجذر
+  // فبنخزّن الجذر النهائي مباشرةً.
+  private rememberRoots(rootOf: Map<string, string>): void {
+    for (const [sessionId, root] of rootOf) {
+      if (sessionId !== root) {
+        this.rememberRoot(sessionId, root)
+      }
+    }
+  }
+
+  private rememberRoot(sessionId: string, root: string): void {
+    // إعادة الكتابة بتحدّث ترتيب الإدراج فالعنصر المتحرّك بيفضل حيّ —
+    // فالسقف بيمسح المهمة الأقدم اللي عمرها ما اتشالت بـ session.deleted.
+    if (this.rootBySession.size >= MAX_TRACKED_ROOTS && !this.rootBySession.has(sessionId)) {
+      const oldest = this.rootBySession.keys().next()
+      if (!oldest.done) {
+        this.rootBySession.delete(oldest.value)
+      }
+    }
+    this.rootBySession.set(sessionId, root)
+  }
+
+  // جذر أي جلسة: هي نفسها لو محادثة، أو محادثتها الأم لو مهمة فرعية.
+  // الصعود بيتكرّر (مهمة جو مهمة) مع حدّ ضد الحلقات، بنفس منطق sessionRoots.
+  conversationOf(sessionId: string): string {
+    let root = sessionId
+    const seen = new Set<string>([root])
+    let parent = this.rootBySession.get(root)
+    while (parent && !seen.has(parent)) {
+      seen.add(parent)
+      root = parent
+      parent = this.rootBySession.get(root)
+    }
+    return root
+  }
+
+  // فيه أي جلسة في شجرة الجذر دي شغّالة حالًا؟ الجذر نفسه أو أي مهمة فرعية
+  // من مهامه. لازم الشغل يكون على مستوى المحادثة لا الجلسة: مهمة فرعية
+  // بتخلص ما تعنيش إن المحادثة خلصت طول ما تانية شغّالة.
+  conversationBusy(sessionId: string): boolean {
+    const root = this.conversationOf(sessionId)
+    if (this.busySessions.has(root)) {
+      return true
+    }
+    for (const busy of this.busySessions) {
+      if (this.conversationOf(busy) === root) {
+        return true
+      }
+    }
+    return false
   }
 
   // هل آخر turn لسه فيه رسالة assistant مفتوحة (من غير completed)؟
@@ -628,6 +707,8 @@ export class OpenCodeService {
   }
 
   // جلسات المجلد المختار فقط — هي ما تعرضه قائمة المحادثات.
+  // بترجّع المهام الفرعية كمان لأنها جلسات ابن: نحتاجها عشان نبني خريطة
+  // الجذور، فالإخفاء بيحصل عند العرض مش عند الجلب.
   private async listDirectorySessions(directory: string): Promise<SessionInfo[]> {
     const response = await this.requireClient().session.list({ directory, limit: 200 })
     return response.data
@@ -774,9 +855,14 @@ export class OpenCodeService {
     return project
   }
 
+  // الجذور وحدها: مهمة Task جلسات ابن بتتجمّع في محادثتها الأم، والمستخدم
+  // بيشوف محادثة واحدة مش خمس — نفس اللي بيعمله الديسكتوب (`!e.parentID`).
   async sessions(): Promise<Session[]> {
-    const sessions = await this.listDirectorySessions(this.selectedProjectDirectory)
-    return sessions.map((session) => this.toSession(session))
+    const listed = await this.listDirectorySessions(this.selectedProjectDirectory)
+    const { roots, rootOf } = sessionRoots(listed)
+    this.rememberRoots(rootOf)
+    const rootIds = new Set(roots)
+    return listed.filter((session) => rootIds.has(session.id)).map((session) => this.toSession(session))
   }
 
   async createSession(title?: string, mobile = false): Promise<Session> {
@@ -1421,9 +1507,20 @@ export class OpenCodeService {
       this.listDirectorySessions(this.selectedProjectDirectory).catch(() => [] as SessionInfo[]),
       this.runningSessionIds(),
     ])
+    // `session.active` flags every Task subtask as running on its own, so a
+    // root conversation looks idle while its own subtasks work. The running
+    // set is mapped back onto the roots the sidebar actually lists, and the
+    // children stay out of the map: the contract is one entry per
+    // conversation, exactly like /api/session.
+    const { roots, rootOf } = sessionRoots(sessions)
+    this.rememberRoots(rootOf)
+    const runningRoots = new Set<string>()
+    for (const id of running) {
+      runningRoots.add(rootOf.get(id) ?? id)
+    }
     const statuses: Record<string, SessionStatus> = {}
-    for (const session of sessions) {
-      statuses[session.id] = running.has(session.id) ? { type: "busy" } : { type: "idle" }
+    for (const rootId of roots) {
+      statuses[rootId] = runningRoots.has(rootId) ? { type: "busy" } : { type: "idle" }
     }
     return statuses
   }
@@ -1463,25 +1560,42 @@ export class OpenCodeService {
       }
     }
 
+    // Task subtasks come back in this very list as child sessions, and
+    // `session.active` reports each one as running on its own. Counting them
+    // would show one conversation as five active rows, so every id collapses
+    // onto its root conversation first — both the running poll and the event
+    // flags, or a subtask that only the event stream saw would vanish.
+    const { roots, rootOf } = sessionRoots(sessions)
+    this.rememberRoots(rootOf)
+    const busyRootIds = new Set<string>()
+    for (const id of running) {
+      busyRootIds.add(rootOf.get(id) ?? id)
+    }
+    for (const id of this.busySessions) {
+      busyRootIds.add(rootOf.get(id) ?? id)
+    }
+
+    const byId = new Map(sessions.map((session) => [session.id, session]))
     const items: ActiveSession[] = []
-    for (const session of sessions) {
-      const directory = session.location.directory
-      if (!directory) {
+    for (const rootId of roots) {
+      const session = byId.get(rootId)
+      const directory = session?.location.directory
+      if (!session || !directory) {
         continue
       }
-      const raw: SessionStatus = running.has(session.id) ? { type: "busy" } : { type: "idle" }
+      const raw: SessionStatus = busyRootIds.has(rootId) ? { type: "busy" } : { type: "idle" }
       // نفس حكم /session/status: آخر ردّ خلص فعلًا = جاهزة، حتى لو OpenCode
       // واقف على busy والـ idle ضاع
-      const status = this.effectiveStatus(session.id, raw)
+      const status = this.effectiveStatus(rootId, raw)
       // الـ event stream كمصدر احتياطي: لو حالة الجلسة مش متاحة لسبب ما
       // لكن شفناها شغالة من الأحداث المباشرة
-      const busy = status.type === "busy" || status.type === "retry" || this.busySessions.has(session.id)
+      const busy = status.type === "busy" || status.type === "retry" || this.busySessions.has(rootId)
       if (!busy) {
         continue
       }
       const projectName = folderName(directory)
       items.push({
-        id: session.id,
+        id: rootId,
         title: stripMobileSuffix(session.title || "") || serverMessage("newConversation", lang),
         directory,
         worktree: directory,
@@ -1852,6 +1966,7 @@ export class OpenCodeService {
     this.pendingPermissions.clear()
     this.busySessions.clear()
     this.finishedRuns.clear()
+    this.rootBySession.clear()
     this.client = null
     this.listeners.clear()
   }

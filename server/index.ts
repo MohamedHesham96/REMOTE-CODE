@@ -12,7 +12,7 @@ import { createRateLimiter } from "./utils/rate-limit.js"
 import { OpenCodeConnection } from "./connection.js"
 import { EventHub, pinsEvent } from "./sse/hub.js"
 import { consoleLang, serverMessage } from "./i18n.js"
-import { clientEvent, eventSessionId, isIdleEvent } from "./sse/filter.js"
+import { clientEvent, conversationEvent, eventSessionId, isIdleEvent } from "./sse/filter.js"
 import { securityHeaders } from "./middleware/security.js"
 import { registerStatic } from "./static.js"
 import { registerHealthRoutes } from "./routes/health.js"
@@ -96,16 +96,24 @@ registerFileRoutes(app, routeContext)
 registerPushRoutes(app, routeContext)
 registerEventRoutes(app, routeContext)
 
-// جسر الأحداث: OpenCode → ترشيح → (push + بثّ SSE)
+// جسر الأحداث: OpenCode → تجميع على المحادثة الأم → ترشيح → (push + بثّ SSE)
+// مهمة Task جلسات ابن، وحالتها بتيجي على الـ id بتاعها هي. فلو بتتبلّث
+// كأنها محادثات مستقلة، صوت الإتمام بيرنّ مع كل مهمة فرعية تخلص. فالتجميع
+// بيحوّل الحالة للجذر قبل أي مستهلك — وحدث الـ idle بيتشال لو الشغل لسه
+// جاري في نفس المحادثة (مهمة خلصت وأختها شغّالة).
 // "خلص" بس في طلبات تانية مستنية في الطابور — متعملش لا إشعار ولا تحديث
 // للموبايل، عشان المستخدم ما يشوفش إن الجلسة وقفت وهي في الحقيقة شغالة.
 openCode.onEvent((event: OpenCodeEvent) => {
-  const visibleEvent = clientEvent(event)
+  const conversation = conversationEvent(event, openCode)
+  if (!conversation) {
+    return
+  }
+  const visibleEvent = clientEvent(conversation)
   const queueContinues = visibleEvent
     ? isIdleEvent(visibleEvent) && openCode.hasPendingWork(eventSessionId(visibleEvent))
     : false
   if (!queueContinues) {
-    push.handleEvent(event)
+    push.handleEvent(conversation)
   }
   if (!visibleEvent || queueContinues) {
     return

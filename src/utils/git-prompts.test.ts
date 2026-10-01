@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
+<<<<<<< HEAD
 import { commitPrompt, revertAllPrompt, revertFilePrompt } from "./git-prompts"
+=======
+import { commitPrompt, commitPushPrompt, pullPrompt, revertAllPrompt, revertFilePrompt } from "./git-prompts"
+>>>>>>> 98c21da5e8e1c142310ae293c0cb824998592340
 import type { GitChangeFile } from "../types"
 
 function file(path: string, status: GitChangeFile["status"]): GitChangeFile {
@@ -10,6 +14,25 @@ describe("git prompts", () => {
   it("names the branch in the commit request only when there is one", () => {
     expect(commitPrompt([file("a.ts", "modified")], "main", "en")).toContain("branch 'main'")
     expect(commitPrompt([file("a.ts", "modified")], "", "en")).not.toContain("branch ''")
+  })
+
+  it("keeps the commit-only request local and forbids pushing", () => {
+    const prompt = commitPrompt([file("a.ts", "modified")], "main", "en")
+    expect(prompt).toContain("without pushing")
+    expect(prompt).toContain("branch 'main'")
+    expect(prompt).toContain("- a.ts (modified)")
+    expect(prompt).toContain("Do not push")
+  })
+
+  it("stops at the first conflict on a pull instead of resolving it", () => {
+    const prompt = pullPrompt("main", "en")
+    expect(prompt).toContain("branch 'main'")
+    expect(prompt).toContain("stop and explain it")
+    expect(prompt).toContain("Do not commit or push")
+  })
+
+  it("omits the branch in a pull when there is none", () => {
+    expect(pullPrompt("", "ar")).not.toContain("''")
   })
 
   it("tells the agent to restore a tracked file instead of deleting it", () => {
