@@ -41,6 +41,7 @@ import {
   shortModelName,
 } from "./display"
 import { ACTIVE_GRACE_MS, COMPOSER_MAX_LINES, RECENT_PROJECTS_KEY, emptyConfig } from "./constants"
+import { releases } from "./releases-data"
 import { PanelFallback } from "./components/PanelFallback"
 import { PanelErrorBoundary } from "./components/PanelErrorBoundary"
 import { PermissionCard } from "./components/PermissionCard"
@@ -67,6 +68,9 @@ const ActiveSessionsPanel = lazy(() => import("./panels").then((module) => ({ de
 const GitChangesPanel = lazy(() => import("./panels").then((module) => ({ default: module.GitChangesPanel })))
 const HistoryPanel = lazy(() => import("./panels").then((module) => ({ default: module.HistoryPanel })))
 const PinnedConversationsPanel = lazy(() => import("./panels").then((module) => ({ default: module.PinnedConversationsPanel })))
+// ملاحظات الإصدار: ثابتة ومولّدة من تاريخ Git، فتُحمّل مع اللوحات الكسولة
+// عند فتحها فقط ولا تضيف أي طلب شبكة.
+const ReleaseNotesPanel = lazy(() => import("./panels").then((module) => ({ default: module.ReleaseNotesPanel })))
 // درج الإعدادات: في الإصدار القديم كان inline داخل App.tsx — فكل ما الـ App
 // اترسم، JSX الـ drawer اتبنى ومعاها الـ handlers. lazy() يخليها تتحمّل أول
 // مرة المستخدم يفتح الإعدادات بس.
@@ -207,6 +211,7 @@ function App() {
   const [showHistory, setShowHistory] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
   const [showPinned, setShowPinned] = useState(false)
+  const [showReleases, setShowReleases] = useState(false)
   const [historyTurns, setHistoryTurns] = useState<HistoryTurn[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState("")
@@ -1542,6 +1547,7 @@ function App() {
   const handleShowActivity = useCallback(() => setShowActivity(true), [])
   const handleShowHistory = useCallback(() => setShowHistory(true), [])
   const handleShowPinned = useCallback(() => setShowPinned(true), [])
+  const handleShowReleases = useCallback(() => setShowReleases(true), [])
   const handleShowSettings = useCallback(() => setShowSettings(true), [])
   const handleShowModels = useCallback(() => setShowModels(true), [])
   // `toggleLanguage` و `toggleTheme` و `toggleSound` مستقرة فوق (إلا حذفتها
@@ -2079,6 +2085,7 @@ function App() {
           onShowActivity={handleShowActivity}
           onShowHistory={handleShowHistory}
           onShowPinned={handleShowPinned}
+          onShowReleases={handleShowReleases}
           onShowSettings={handleShowSettings}
           onShowModels={handleShowModels}
           onOpenGitChanges={handleOpenGitChanges}
@@ -2221,6 +2228,18 @@ function App() {
               onSelect={(pin) => { void openPinnedConversation(pin) }}
               onUnpin={(pin) => togglePin(pin)}
               onClose={closePinnedPanel}
+              t={t}
+              lang={lang}
+            />
+          </PanelErrorBoundary>
+        </Suspense>
+      ) : null}
+      {showReleases ? (
+        <Suspense fallback={<PanelFallback />}>
+          <PanelErrorBoundary t={t} panelName="ReleaseNotesPanel" onClose={() => setShowReleases(false)}>
+            <ReleaseNotesPanel
+              releases={releases}
+              onClose={() => setShowReleases(false)}
               t={t}
               lang={lang}
             />

@@ -318,6 +318,21 @@ const ar = {
   themeMetalDesc: "فولاذ مصقول — رمادي بارد بلمعان معدني",
   language: "اللغة",
   languageName: "العربية الفصحى",
+  releaseNotes: "ملاحظات الإصدار",
+  releaseNotesAria: "ما الجديد في التطبيق؟",
+  releaseNotesIntro: "تطوّر RemoteCode إصدارًا بعد إصدار — أهم الميزات والتحسينات والإصلاحات.",
+  releaseLatest: "الأحدث",
+  releaseNotesEmpty: "لا يوجد سجل إصدارات بعد.",
+  releaseCountLabel: "سجل الإصدارات",
+  releases: "إصدارات",
+  releaseChangesLabel: "تغييرًا",
+  releaseCommitsLabel: "commit",
+  releaseCategoryFeatures: "ميزات جديدة",
+  releaseCategoryImprovements: "تحسينات",
+  releaseCategoryFixes: "إصلاحات",
+  releaseCategoryPerformance: "الأداء",
+  releaseCategoryUiux: "الواجهة والتجربة",
+  releaseCategoryTechnical: "تقني",
 };
 
 const en: typeof ar = {
@@ -589,6 +604,21 @@ const en: typeof ar = {
   themeMetalDesc: "Brushed steel — cool grey with a metallic sheen",
   language: "Language",
   languageName: "English",
+  releaseNotes: "Release notes",
+  releaseNotesAria: "What's new in the app?",
+  releaseNotesIntro: "RemoteCode evolves release by release — the key features, improvements, and fixes.",
+  releaseLatest: "Latest",
+  releaseNotesEmpty: "No release history yet.",
+  releaseCountLabel: "release history",
+  releases: "releases",
+  releaseChangesLabel: "changes",
+  releaseCommitsLabel: "commits",
+  releaseCategoryFeatures: "New features",
+  releaseCategoryImprovements: "Improvements",
+  releaseCategoryFixes: "Bug fixes",
+  releaseCategoryPerformance: "Performance",
+  releaseCategoryUiux: "UI & UX",
+  releaseCategoryTechnical: "Technical",
 };
 
 export const strings = { ar, en };

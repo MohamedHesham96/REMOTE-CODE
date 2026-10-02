@@ -12,6 +12,7 @@ interface TopBarProps {
   onShowActivity: () => void
   onShowHistory: () => void
   onShowPinned: () => void
+  onShowReleases: () => void
   onShowSettings: () => void
   onShowModels: () => void
   onOpenGitChanges: () => void
@@ -38,6 +39,7 @@ function TopBarInner({
   onShowActivity,
   onShowHistory,
   onShowPinned,
+  onShowReleases,
   onShowSettings,
   onShowModels,
   onOpenGitChanges,
@@ -120,6 +122,9 @@ function TopBarInner({
             {soundOn ? <SoundOnIcon /> : <SoundMuteIcon />}
           </button>
           <span className="topbar-rail-divider" aria-hidden />
+          {/* ملاحظات الإصدار: مرجع ثابت لما الجديد — بجوار الإعدادات مباشرة
+              لأنها فعل "معلومات عن التطبيق" وليست فعل عمل يومي. */}
+          <button className="icon-button icon-releases" onClick={onShowReleases} aria-label={t.releaseNotesAria} title={`${t.releaseNotesAria} 🚀`}>🚀</button>
           <button className="icon-button icon-settings" onClick={onShowSettings} aria-label={t.settingsAria} title={t.settingsAria}><SettingsIcon /></button>
           <button className="icon-button icon-logout" onClick={onLogout} aria-label={t.logout} title={t.logout}><LogoutIcon /></button>
         </div>
