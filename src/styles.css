@@ -573,7 +573,7 @@
 }
 [data-theme="glass"] .task-summary,
 [data-theme="glass"] .topbar {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 100%), var(--grad-summary);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 100%), linear-gradient(var(--phase-wash, transparent), var(--phase-wash, transparent)), var(--grad-summary);
 }
 [data-theme="glass"] .toast {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 100%), var(--toast-bg);
@@ -1262,7 +1262,7 @@ h2.session-title-editable { cursor: pointer; }
 .project-dropdown-standalone { display: grid; gap: 10px; margin-top: 22px; }
 .project-dropdown-standalone .project-listbox { max-height: min(50vh, 420px); }
 
-.task-summary { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; padding: 8px clamp(14px, 2.5vw, 28px) clamp(18px, 4vw, 28px); border: 1px solid var(--accent-border); border-radius: 8px; background: var(--grad-summary); box-shadow: 0 16px 45px rgba(0, 0, 0, 0.16); }
+.task-summary { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; padding: 8px clamp(14px, 2.5vw, 28px) clamp(18px, 4vw, 28px); border: 1px solid var(--phase-border, var(--accent-border)); border-radius: 8px; background: linear-gradient(var(--phase-wash, transparent), var(--phase-wash, transparent)), var(--grad-summary); box-shadow: 0 16px 45px rgba(0, 0, 0, 0.16); }
 /* سلسلة ارتفاعات محددة لارتفاع النافذة: حاوية التمرير لها ارتفاع فعلي
    (flex:1)، فالستاك ياخذ 100٪ منه بالظبط والبطاقة 100٪ من الستاك —
    من غير ارتفاع محدد الـ flex:1 لا يقيّد والقائمة الداخلية تتمدد بلا
@@ -1325,43 +1325,52 @@ h2.session-title-editable { cursor: pointer; }
    عنوان المحادثة أول سطر بعرض البطاقة كاملًا، وتحته سطر الوصف
    والشارة — العنوان جنب الشارة كان يتضيق ويتقص بسرعة، فسطر
    لوحده في الأول يديله العرض كله. */
-.task-summary-top { position: sticky; top: 0; z-index: 3; display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--accent-border); border-radius: 8px; background: var(--grad-summary); }
+.task-summary-top { position: sticky; top: 0; z-index: 3; display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--phase-border, var(--accent-border)); border-radius: 8px; background: linear-gradient(var(--phase-wash, transparent), var(--phase-wash, transparent)), var(--grad-summary); }
 /* ذيل تلاشي تحت الترويسة الثابتة: الصفوف وهي داخلة تحتها تدوب تدريجيًا
    في خلفية البطاقة بدل ما تتقصّ بخط حاد. نفس الخلفية بقناع متدرج. */
-.task-summary-top::after { content: ""; position: absolute; inset-inline: 0; top: calc(100% + 1px); height: 22px; background: var(--grad-summary); -webkit-mask-image: linear-gradient(180deg, black, transparent); mask-image: linear-gradient(180deg, black, transparent); pointer-events: none; }
-[data-theme="glass"] .task-summary-top { background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 100%), var(--grad-summary); }
-[data-theme="glass"] .task-summary-top::after { background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 100%), var(--grad-summary); }
+.task-summary-top::after { content: ""; position: absolute; inset-inline: 0; top: calc(100% + 1px); height: 22px; background: linear-gradient(var(--phase-wash, transparent), var(--phase-wash, transparent)), var(--grad-summary); -webkit-mask-image: linear-gradient(180deg, black, transparent); mask-image: linear-gradient(180deg, black, transparent); pointer-events: none; }
+[data-theme="glass"] .task-summary-top { background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 100%), linear-gradient(var(--phase-wash, transparent), var(--phase-wash, transparent)), var(--grad-summary); }
+[data-theme="glass"] .task-summary-top::after { background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 100%), linear-gradient(var(--phase-wash, transparent), var(--phase-wash, transparent)), var(--grad-summary); }
+/* كل مرحلة بتحدّد متغيراتها مرة واحدة (نص/نقطة/خط/حد/تعبئة) واللوحة
+   والبطاقة بيستهلكوها، فحالة المهمة بتبان من لون الكارت كله مش من الشارة
+   بس. القيم مشتقة من ألوان الثيم (accent/yellow/red/green) فبتشتغل في
+   الأربعة ثيمات، و color-mix بيدّي تعبئة شفافة من نفس اللون مع fallback
+   rgba للمتصفحات الأقدم. */
+.task-summary { --phase-color: var(--accent); --phase-dot: var(--accent); --phase-line: var(--accent); --phase-border: var(--accent-border); --phase-fill: var(--accent-soft-bg2); --phase-wash: transparent; }
+.task-summary[data-phase="running"] { --phase-wash: color-mix(in srgb, var(--accent) 6%, transparent); }
+.task-summary[data-phase="waiting"],
+.task-summary[data-phase="stuck"] {
+  --phase-color: var(--yellow); --phase-dot: var(--yellow); --phase-line: var(--yellow);
+  --phase-border: rgba(245, 199, 108, 0.35);
+  --phase-border: color-mix(in srgb, var(--yellow) 35%, transparent);
+  --phase-fill: rgba(245, 199, 108, 0.12);
+  --phase-fill: color-mix(in srgb, var(--yellow) 13%, transparent);
+  --phase-wash: rgba(245, 199, 108, 0.05);
+  --phase-wash: color-mix(in srgb, var(--yellow) 6%, transparent);
+}
+.task-summary[data-phase="error"] { --phase-color: var(--error-text); --phase-dot: var(--red); --phase-line: var(--red); --phase-border: var(--error-border); --phase-fill: var(--error-bg); --phase-wash: color-mix(in srgb, var(--red) 6%, transparent); }
+.task-summary[data-phase="completed"] { --phase-color: var(--green); --phase-dot: var(--green); --phase-line: var(--green); --phase-border: var(--green-border); --phase-fill: var(--green-bg); --phase-wash: color-mix(in srgb, var(--green) 6%, transparent); }
 /* لوحة حالة المهمة: أشهر حاجة في الكارت — شارة الحالة على مستوى المحادثة
    وسطر "OpenCode بيعمل إيه دلوقتي". جوّه الترويسة الثابتة عشان تفضل
    قدام العين أثناء التمرير، وتوصّل حالة الكارت من غير فتح أي صف.
-   اللون كله من متغيرات الثيم الموجودة (accent/green/yellow/red) فبتشتغل
-   في الأربعة من غير تعريفات جديدة. والشكل بيحمل المعنى كمان مش اللون
-   بس: الدايرة المتوهجة = شغال، الحلقة الفاضية = في انتظار، المعيّن =
-   واقف، الدايرة الحمراء = مشكلة. */
-.task-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 28px; padding: 4px 8px; border: 1px solid var(--accent-border); border-inline-start: 3px solid var(--accent); border-radius: 6px; background: var(--accent-soft-bg2); }
-.task-panel-dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgba(139, 124, 255, 0.12); }
+   والشكل بيحمل المعنى كمان مش اللون بس: الدايرة المتوهجة = شغال، الحلقة
+   الفاضية = في انتظار، المعيّن = واقف، الدايرة الحمراء = مشكلة. */
+.task-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 28px; padding: 4px 8px; border: 1px solid var(--phase-border, var(--accent-border)); border-inline-start: 3px solid var(--phase-line, var(--accent)); border-radius: 6px; background: var(--phase-fill, var(--accent-soft-bg2)); transition: background 0.18s ease, border-color 0.18s ease; }
+.task-panel-dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--phase-dot, var(--accent)); box-shadow: 0 0 0 3px rgba(139, 124, 255, 0.12); }
 .task-panel-dot.is-live { animation: pulse 1.2s infinite; }
-.task-panel-label { flex: 0 0 auto; color: var(--accent); font-size: 10px; font-weight: 800; white-space: nowrap; }
+.task-panel-label { flex: 0 0 auto; color: var(--phase-color, var(--accent)); font-size: 10px; font-weight: 800; white-space: nowrap; }
 .task-panel-activity { flex: 1 1 120px; min-width: 0; margin: 0; color: var(--task-activity-text); font-size: 11px; font-weight: 650; line-height: 1.4; }
 /* عدّاد "الأداة كام من إجمالي الأدوات المستخدمة" — بيوضّح إن السطر بيتقلّب
    على قائمة مش نص واحد، من غير ما يزحم سطر الحالة. */
 .task-panel-used-count { margin-inline-start: 5px; color: var(--task-activity-text); font-size: 9px; font-weight: 800; opacity: 0.62; }
-/* كل حالة بتاخد لوّنها وشكلها من الـ data-phase.
+/* شكل النقطة بس اللي بيتغيّر لكل مرحلة (اللون جاي من المتغيرات فوق).
    الحركة مقصورة على "قيد التنفيذ" وحدها، فأي حالة تانية بتوقف نبض
    الشغل بدل ما تخلّي المستخدم يفتكر إن OpenCode لسه بيشتغل. */
-.task-panel[data-phase="running"] { border-color: rgba(139, 124, 255, 0.4); }
-.task-panel[data-phase="waiting"] { border-color: var(--live-stat-border); border-inline-start-color: var(--yellow); }
-.task-panel[data-phase="waiting"] .task-panel-dot { border: 2px solid var(--yellow); background: transparent; box-shadow: none; }
-.task-panel[data-phase="waiting"] .task-panel-label { color: var(--yellow); }
+.task-panel[data-phase="waiting"] .task-panel-dot { border: 2px solid var(--phase-dot, var(--yellow)); background: transparent; box-shadow: none; }
 .task-panel[data-phase="stuck"] { border-style: dashed; border-inline-start-style: solid; }
-.task-panel[data-phase="stuck"] .task-panel-dot { border-radius: 2px; background: var(--yellow); transform: rotate(45deg); box-shadow: none; }
-.task-panel[data-phase="stuck"] .task-panel-label { color: var(--yellow); }
-.task-panel[data-phase="error"] { border-color: var(--error-border); border-inline-start-color: var(--red); }
-.task-panel[data-phase="error"] .task-panel-dot { background: var(--red); box-shadow: 0 0 0 4px rgba(239, 105, 105, 0.12); }
-.task-panel[data-phase="error"] .task-panel-label { color: var(--error-text); }
-.task-panel[data-phase="completed"] { border-color: var(--green-border); border-inline-start-color: var(--green); }
-.task-panel[data-phase="completed"] .task-panel-dot { background: var(--green); box-shadow: 0 0 0 4px rgba(66, 215, 162, 0.1); }
-.task-panel[data-phase="completed"] .task-panel-label { color: var(--green); }
+.task-panel[data-phase="stuck"] .task-panel-dot { border-radius: 2px; background: var(--phase-dot, var(--yellow)); transform: rotate(45deg); box-shadow: none; }
+.task-panel[data-phase="error"] .task-panel-dot { background: var(--phase-dot, var(--red)); box-shadow: 0 0 0 4px rgba(239, 105, 105, 0.12); }
+.task-panel[data-phase="completed"] .task-panel-dot { background: var(--phase-dot, var(--green)); box-shadow: 0 0 0 4px rgba(66, 215, 162, 0.1); }
 .final-result-label { color: var(--task-request-label); font-size: 10px; font-weight: 700; }
 .task-activity { display: flex; align-items: center; gap: 10px; margin-top: 19px; padding: 10px 14px; border: 1px solid var(--accent-border); border-radius: 5px; background: var(--accent-soft-bg2); color: var(--task-activity-text); font-size: 13px; font-weight: 700; line-height: 1.7; }
 .activity-pulse { width: 10px; height: 10px; flex: 0 0 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(139, 124, 255, 0.12); animation: pulse 1.2s infinite; }

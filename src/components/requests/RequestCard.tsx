@@ -76,7 +76,7 @@ function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle,
     return map
   }, [requests, onToggle, onSkip, onRunNow, onRemove])
   return (
-    <section className={`task-summary task-${latest ? latest.state : "done"}`}>
+    <section className={`task-summary task-${latest ? latest.state : "done"}`} data-phase={view.phase}>
       <div className="task-summary-top">
         <ConversationTitle title={title} canRename={canRenameTitle} isEditing={isEditingTitle} draft={titleDraft} renaming={renamingTitle} t={t} onStartRename={onStartRename} onCancelRename={onCancelRename} onDraftChange={onTitleDraftChange} onSubmit={onRenameSubmit} onKeyDown={onTitleKeyDown} />
         <TaskStatusPanel view={view} />
