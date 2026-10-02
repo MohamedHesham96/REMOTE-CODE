@@ -59,19 +59,22 @@ function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle,
   // بنبني جدولًا مرتبطًا بـ request.id عبر `useMemo` بدل خريطة قابلة للتعديل.
   // الجدول بيتعاد بناؤه لما الـ callbacks الأب أو قائمة الطلبات تتغير، فكل صف
   // بيشاور على callback ثابت طول ما الـ parent ما مرّرش هوية جديدة.
+  // `onToggle` جزء من نفس الجدول بدل arrow inline في الـ JSX: الـ arrow كان
+  // بياخد مرجعًا جديدًا كل رندر فيكسر memo الصفوف مع كل نبضة `useNowTick`.
+  const onToggle = useCallback((id: string) => setOpenId((current) => (current === id ? null : id)), [])
   const rowCallbacks = useMemo(() => {
-    const map = new Map<string, { onSkip: () => void; onRunNow: () => void; onRemove: () => void }>()
+    const map = new Map<string, { onToggle: () => void; onSkip: () => void; onRunNow: () => void; onRemove: () => void }>()
     for (const request of requests) {
       const captured = request
       map.set(request.id, {
+        onToggle: () => onToggle(captured.id),
         onSkip: () => onSkip(captured),
         onRunNow: () => onRunNow(captured),
         onRemove: () => onRemove(captured),
       })
     }
     return map
-  }, [requests, onSkip, onRunNow, onRemove])
-  const onToggle = useCallback((id: string) => setOpenId((current) => (current === id ? null : id)), [])
+  }, [requests, onToggle, onSkip, onRunNow, onRemove])
   return (
     <section className={`task-summary task-${latest ? latest.state : "done"}`}>
       <div className="task-summary-top">
@@ -81,6 +84,7 @@ function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle,
       <ul className="request-list" ref={listRef}>
         {requests.map((request) => {
           const callbacks = rowCallbacks.get(request.id) ?? {
+            onToggle: () => onToggle(request.id),
             onSkip: () => onSkip(request),
             onRunNow: () => onRunNow(request),
             onRemove: () => onRemove(request),
@@ -90,7 +94,7 @@ function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle,
               key={request.id}
               request={request}
               expanded={request.id === expandedId}
-              onToggle={() => onToggle(request.id)}
+              onToggle={callbacks.onToggle}
               sessionId={sessionId}
               onCopy={onCopy}
               onToast={onToast}

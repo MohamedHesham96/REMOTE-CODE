@@ -832,11 +832,14 @@ export class OpenCodeService {
     return [...projectsByDirectory.values()].sort((left, right) => right.time.updated - left.time.updated)
   }
 
-  async selectedProject(): Promise<Project | null> {
+  // بياخد قائمة المشاريع الجاهزة اختياريًا عشان /api/project ما يحسبش
+  // `projects()` مرتين في نفس الطلب (كل نداء بيقرأ السجل وكل الجلسات). القيمة
+  // الجاهزة هي نفسها اللي كان هيرجّعها `projects()` — فالناتج متطابق.
+  async selectedProject(prefetched?: Project[]): Promise<Project | null> {
     if (!this.selectedProjectId && this.selectedProjectDirectory === this.options.projectDirectory) {
       return null
     }
-    const projects = await this.projects()
+    const projects = prefetched ?? await this.projects()
     return projects.find((project) => directoryKey(project.worktree) === directoryKey(this.selectedProjectDirectory))
       || projects.find((project) => project.id === this.selectedProjectId)
       || null
@@ -1491,18 +1494,24 @@ export class OpenCodeService {
   // v2 بلا خريطة حالات: `session.active` يرجّع الشغال فعلًا فقط، والباقي
   // خامل حكمًا. نبني نفس الخريطة من قائمة جلسات المجلد + النشطين.
   private async runningSessionIds(): Promise<Set<string>> {
-    try {
-      const active = await this.requireClient().session.active()
-      return new Set(Object.keys(active))
-    } catch {
-      return new Set(this.busySessions)
-    }
+    // نداء session.active واحد بيتطلب من statuses و activity و requests في نفس
+    // اللحظة (كل poll ليه مسار)، فبنتشارك نتيجة واحدة بدل N نداءات متطابقة.
+    return this.dedup("running-sessions", async () => {
+      try {
+        const active = await this.requireClient().session.active()
+        return new Set(Object.keys(active))
+      } catch {
+        return new Set(this.busySessions)
+      }
+    })
   }
 
   async statuses(): Promise<Record<string, SessionStatus>> {
     // polls الـ ٤ ثواني من كذا عميل/مصدر لحظيًا تشترك في نتيجة واحدة
     return this.dedup("statuses", async () => {
-      const statuses = await this.rawStatuses()
+      // نسخة قبل التعديل: rawStatuses بقى مشتركًا (dedup) مع مسارات تانية
+      // بتقرا الحالة الخام، فتعديله في مكانه كان هيغيّر حالتها بالغلط.
+      const statuses = { ...await this.rawStatuses() }
       for (const [sessionId, status] of Object.entries(statuses)) {
         statuses[sessionId] = this.effectiveStatus(sessionId, status)
       }
@@ -1512,7 +1521,14 @@ export class OpenCodeService {
 
   // الحالة الخام من OpenCode من غير تعديل الطابور — الـ watchdog محتاجها عشان
   // يفرّق بين "خلص فعلًا" و"خلص مؤقتًا وعندنا طلبات مستنية".
+  // الغلاف بيلغي تكرار النداءات المتزامنة: /requests و /status و /activity
+  // كلهم بيقروا نفس الحالة في نفس اللحظة، فنتشارك لقطة واحدة بدل نداءات متطابقة.
+  // المفتاح مربوط بالمجلد عشان تبديل المشروع ما يخلطش لقطتين مختلفتين.
   private async rawStatuses(): Promise<Record<string, SessionStatus>> {
+    return this.dedup(`raw-statuses:${this.selectedProjectDirectory}`, () => this.computeRawStatuses())
+  }
+
+  private async computeRawStatuses(): Promise<Record<string, SessionStatus>> {
     const [sessions, running] = await Promise.all([
       this.listDirectorySessions(this.selectedProjectDirectory).catch(() => [] as SessionInfo[]),
       this.runningSessionIds(),
@@ -1965,7 +1981,10 @@ export class OpenCodeService {
 
   // حالة git للمشروع الحالي: الملفات المتغيّرة + اسم الفرع.
   // لو المشروع مش مستودع git، بنرجّع available=false بدل ما نرمي خطأ.
-  async gitChanges(): Promise<GitChanges> {
+  // حساب git للفولدر الجاري — غلاف dedup وبعده التصميم الأصلي زي ما هو.
+  // /api/git/changes بيتنادى من فتح الدرج + الـ icon + visibility + الـ SSE،
+  // والنداءات المتزامنة بتتشارك نفس النتيجة بدل N عملية git status/get.
+  private async computeGitChanges(): Promise<GitChanges> {
     const location = this.location()
 
     let statusFiles: Array<{ file: string; additions: number; deletions: number; status: "added" | "deleted" | "modified" }>
@@ -2006,6 +2025,11 @@ export class OpenCodeService {
     // مشروع مش مستودع git بيرجّع v2 قائمة فاضية و branch فاضي — نميّزه عن
     // مستودع نضيف عشان الواجهة متقولش "الشجرة نضيفة" لمفيش git أصلًا
     return { branch, available: branch !== "" || files.length > 0, files, unpushed }
+  }
+
+  async gitChanges(): Promise<GitChanges> {
+    // المفتاح مربوط بالمجلد: تبديل المشروع ما يخلطش حالتين مختلفتين
+    return this.dedup(`git:${this.selectedProjectDirectory}`, () => this.computeGitChanges())
   }
 
   async replyPermission(id: string, permissionId: string, response: "once" | "always" | "reject"): Promise<boolean> {

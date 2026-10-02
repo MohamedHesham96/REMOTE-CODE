@@ -12,6 +12,12 @@ const requestsCache = new Map<string, SessionRequests>()
 // بيخزّن منفصلاً، فالـ dedup هنا بيعمل على الـ resource نفسه).
 const inflightRequests = new Map<string, Promise<SessionRequests>>()
 
+// سقف كاش الـ ETag: مفتاحه id الجلسة، فبلا سقف بيتراكم مع كل محادثة تُفتح في
+// عمر الجلسة (والأجسام معاه). الإخلاء مرتب: نشيل أقدم مفتاح من الكاشين مع
+// بعض عشان مايفضلش ETag من غير جسم — الطلب اللي بعده بيعمل fetch عادي (نفس
+// البيانات من السيرفر). مش بيغيّر أي نتيجة ظاهرة.
+const REQUESTS_ETAG_CACHE_LIMIT = 30
+
 export async function getRequests(id: string, lang: "ar" | "en" = "ar"): Promise<SessionRequests> {
   const key = `${id}:${lang}`
   // dedup: لو في طلب جاري بالفعل لنفس (id, lang)، نرجّع نفس الـ Promise
@@ -48,6 +54,14 @@ export async function getRequests(id: string, lang: "ar" | "en" = "ar"): Promise
     }
     const etag = response.headers.get("ETag")
     if (etag) {
+      if (requestsEtag.size >= REQUESTS_ETAG_CACHE_LIMIT && !requestsEtag.has(key)) {
+        const oldest = requestsEtag.keys().next()
+        if (!oldest.done) {
+          requestsEtag.delete(oldest.value)
+          requestsCache.delete(oldest.value)
+        }
+      }
+      requestsEtag.delete(key)
       requestsEtag.set(key, etag)
     }
     const result = payload as SessionRequests

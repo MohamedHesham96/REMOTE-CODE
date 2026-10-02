@@ -17,6 +17,38 @@ const inflightGets = new Map<string, Promise<unknown>>()
 const etagCache = new Map<string, string>()
 const etagPayloadCache = new Map<string, unknown>()
 
+// سقف للكاشين: مفاتيح المسارات بتزيد مع كل محادثة بتُفتح (model/history لكل
+// جلسة)، فبلا سقف بتتراكم الأجسام الكاملة في الذاكرة مع عمر الجلسة. الإخلاء
+// مرتب: بنطلّع أقدم مفتاح من الاتنين مع بعض، عشان مايفضلش ETag من غير جسم
+// مخزّن — لو حصل كده، طلب لاحق بـ If-None-Match ياخد 304 وميلاقيش جسم فيرمي.
+// الإخلاء نفسه مش بيغيّر أي نتيجة: المفتاح المُبعد بيعمل fetch عادي في المرة
+// الجاية ويجيب نفس البيانات من السيرفر.
+const ETAG_CACHE_LIMIT = 64
+
+function setEtag(path: string, etag: string): void {
+  etagCache.delete(path)
+  etagCache.set(path, etag)
+  if (etagCache.size > ETAG_CACHE_LIMIT) {
+    const oldest = etagCache.keys().next()
+    if (!oldest.done) {
+      etagCache.delete(oldest.value)
+      etagPayloadCache.delete(oldest.value)
+    }
+  }
+}
+
+function setEtagPayload(path: string, payload: unknown): void {
+  if (etagPayloadCache.size >= ETAG_CACHE_LIMIT && !etagPayloadCache.has(path)) {
+    const oldest = etagPayloadCache.keys().next()
+    if (!oldest.done) {
+      etagPayloadCache.delete(oldest.value)
+      etagCache.delete(oldest.value)
+    }
+  }
+  etagPayloadCache.delete(path)
+  etagPayloadCache.set(path, payload)
+}
+
 export function clearEtagCache(): void {
   etagCache.clear()
   etagPayloadCache.clear()
@@ -47,7 +79,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
       .then((payload) => {
         // doRequest بيرمي ApiError لو 304 بتيجي هنا (الـ path ما عندهوش
         // كاش نت خاص) — فده بيتلقط في catch في الأسفل لما بنحتاج.
-        etagPayloadCache.set(path, payload)
+        setEtagPayload(path, payload)
         return payload
       })
       .catch((error) => {
@@ -89,7 +121,7 @@ async function doRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   // يبعت If-None-Match تلقائيًا (المتشغّل في الـ wrapper فوق).
   const etag = response.headers.get("ETag")
   if (etag) {
-    etagCache.set(path, etag)
+    setEtag(path, etag)
   }
 
   if (response.status === 304) {

@@ -1,4 +1,4 @@
-import { memo, useCallback, type RefObject } from "react"
+import { memo, useCallback, useMemo, type RefObject } from "react"
 import { displayTitle, formatDateTime, formatRelative, statusLabel } from "../display"
 import type { Language, Strings } from "../i18n"
 import type { Session, SessionStatus } from "../types"
@@ -27,6 +27,12 @@ interface SessionItemProps {
 // كل صف في السايدبار — كان كل صف بيتعاد رسمه مع كل setState في App
 // (الـ parent عنده 50+ state slot)، فمع عشرات الجلسات تكلفة الـ DOM
 // reconciliation كانت مرتفعة جدًا على الموبايل.
+//
+// لافتة: `formatRelative` بتبني `Intl.RelativeTimeFormat` جديد لو النسخة
+// فوق الساعة مش ↔ دقيقة (المسارين التانيين كاش). القائمة بتعرض عشرات الصفوف
+// في كل رسم، فبنحسب النص مرة واحدة لكل صف عبر memo مفتاحه الوقت واللغة —
+// نفس القيمة اللي كانت بتتحسب في الـ render، من غير بناء Intl متكرر للصفوف
+// اللي وقتها ما اتغيّرش.
 function SessionItemInner({
   session,
   working,
@@ -49,6 +55,8 @@ function SessionItemInner({
   }, [onTogglePin, session])
   const pinLabel = pinned ? t.unpinConversation : t.pinConversation
   const className = `session-item${working ? " is-working" : ""}${pinned ? " is-pinned" : ""}${selected ? " active" : ""}${needsPermission ? " needs-permission" : ""}`
+  const created = session.time.created
+  const relative = useMemo(() => formatRelative(created, lang), [created, lang])
   return (
     <div
       ref={selected ? activeItemRef : undefined}
@@ -63,7 +71,7 @@ function SessionItemInner({
           {working ? <span className="working-spinner" aria-hidden /> : <span className="status-dot" aria-hidden />}
           <span className="session-status">{statusLabel(status, t)}</span>
           <span className="session-meta-dot" aria-hidden />
-          <span className="session-time" title={formatDateTime(session.time.created, lang)}>{formatRelative(session.time.created, lang)}</span>
+          <span className="session-time" title={formatDateTime(session.time.created, lang)}>{relative}</span>
         </span>
       </button>
       <button

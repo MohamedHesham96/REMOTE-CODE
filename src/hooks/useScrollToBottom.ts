@@ -54,7 +54,7 @@ export function useScrollToBottom(targets: ScrollTargets): ScrollToBottom {
   const targetsRef = useRef<ScrollTargets>(targets)
   useEffect(() => {
     targetsRef.current = targets
-  })
+  }, [targets])
   const frameRef = useRef<number | null>(null)
   const onSettledRef = useRef<(() => void) | null>(null)
   // إنهاء التثبيت: يا إما المحتوى استقر يا إما المستخدم مسك السكول — في

@@ -8,7 +8,7 @@ export function registerProjectRoutes(app: Express, ctx: RouteContext): void {
       const projects = await ctx.openCode.projects()
       response.json({
         projects: projects.filter((project) => project.worktree !== "/"),
-        selected: await ctx.openCode.selectedProject(),
+        selected: await ctx.openCode.selectedProject(projects),
       })
     } catch (error) {
       ctx.connection.handleError(error, response, request)

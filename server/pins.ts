@@ -117,6 +117,11 @@ export class PinService {
     return this.pins.map((pin) => ({ ...pin }))
   }
 
+  // عدد المثبّتات الكلي من غير نسخ القائمة — بيتستخدم في حقل `total` بس.
+  count(): number {
+    return this.pins.length
+  }
+
   // مثبّتات مشروع واحد بس. مشروع فاضي/مجهول = قائمة فاضية بالتصميم: أحسن
   // ما نعرضش محادثات مشروع تاني بالغلط.
   listForProject(project: unknown): PinnedConversation[] {

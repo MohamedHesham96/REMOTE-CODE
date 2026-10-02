@@ -85,16 +85,65 @@ const EMPTY_PENDING_IDS: ReadonlySet<string> = new Set()
 // بيلحق مرجع جديد في كل render حتى لو مفيش إذن/سؤال.
 const EMPTY_PERMISSIONS: Permission[] = []
 const EMPTY_QUESTIONS: ConversationQuestionRequest[] = []
+// بديل فارغ لمفتاح إذن مش موجود في خريطة الردود (مستحيل يحدث: الخريطة بتتبني
+// من نفس مصفوفة الأذونات المعروضة) — عشان نوع الـ prop يفضل دالة.
+const NOOP_PERMISSION_REPLY = (): void => {}
 // Set فيه الـ id النشط لوحده — مُجمّع عشان نرجّع نفس المرجع لما activeId
 // ثابت بدل ما نعمل Set جديد كل مرة
 const SINGLE_ACTIVE_ID_SET_CACHE = new Map<string, ReadonlySet<string>>()
+// سقف للكاش: بدونه كان بيكبر مع كل id محادثة اتفتحت في عمر الصفحة (تسريب
+// ذاكرة صغير طويل المدى). الإخلاء مش بيغيّر الناتج — مجرد إعادة حساب.
+const SINGLE_ACTIVE_ID_SET_CACHE_LIMIT = 128
 function singleActiveIdSet(activeId: string): ReadonlySet<string> {
   let cached = SINGLE_ACTIVE_ID_SET_CACHE.get(activeId)
   if (!cached) {
+    if (SINGLE_ACTIVE_ID_SET_CACHE.size >= SINGLE_ACTIVE_ID_SET_CACHE_LIMIT) {
+      const oldest = SINGLE_ACTIVE_ID_SET_CACHE.keys().next()
+      if (!oldest.done) {
+        SINGLE_ACTIVE_ID_SET_CACHE.delete(oldest.value)
+      }
+    }
     cached = new Set([activeId])
     SINGLE_ACTIVE_ID_SET_CACHE.set(activeId, cached)
   }
   return cached
+}
+
+// مقارنة محتوى خرائط الحالة: نفس المفاتيح ونفس النوع لكل مفتاح. الواجهة ما
+// بتفرّقش في الحالة غير بنوعها (idle/busy/retry) — نفس ما بتقارن بيه مستمع
+// الـ SSE. بنستخدمها عشان نرجّع نفس المرجع من setState فلا يقع رندر من غير
+// تغيير حقيقي (poll الحالة كل ٤ ثواني كان بيولّد كائن جديد دايمًا).
+function sameStatusMap(left: Record<string, SessionStatus>, right: Record<string, SessionStatus>): boolean {
+  const keys = Object.keys(left)
+  if (keys.length !== Object.keys(right).length) {
+    return false
+  }
+  for (const key of keys) {
+    if (left[key]?.type !== right[key]?.type) {
+      return false
+    }
+  }
+  return true
+}
+
+// نفس الفكرة لقائمة المحادثات: طالما المحتوى (المعرّف/العنوان/المجلد/الأوقات)
+// ما اتغيّرش، سيب نفس المصفوفة — poll الجلسات كل ١٢ ثانية كان بيولّد مصفوفة
+// جديدة ويعيد رسم الـ App رغم إن مفيش محادثة جديدة.
+function sameSessionList(left: Session[], right: Session[]): boolean {
+  if (left.length !== right.length) {
+    return false
+  }
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i]
+    const b = right[i]
+    if (!a || !b) {
+      return false
+    }
+    if (a.id !== b.id || a.title !== b.title || a.directory !== b.directory || a.time.created !== b.time.created || a.time.updated !== b.time.updated) {
+      return false
+    }
+  }
+  return true
 }
 
 function App() {
@@ -191,7 +240,10 @@ function App() {
   // النافذة والقائمة جوه flex:1). حاوية الشغل بتنزل معاها كمان عشان بطاقات
   // الأسئلة اللي بتظهر تحت الكارت.
   const requestListRef = useRef<HTMLUListElement | null>(null)
-  const { pinToBottom, followBottom, release: releaseScrollPin } = useScrollToBottom([requestListRef, workspaceScrollRef])
+  // مصفوفة ثابتة المرجع: الـ hook بيخزّن آخر مرجع في effect، ولو الـ parent
+  // عمل مصفوفة جديدة كل رندر كان الـ effect اشتغل بلا داعي في كل رسم.
+  const scrollTargets = useMemo(() => [requestListRef, workspaceScrollRef], [])
+  const { pinToBottom, followBottom, release: releaseScrollPin } = useScrollToBottom(scrollTargets)
   // هوية المحتوى المعروض: الـ fetch بيتأخر بعد تبديل المحادثة، فالطلبات اللي
   // على الشاشة ممكن تكون لسه بتاعة المحادثة اللي فاتت. من غير المقارنة دي
   // التثبيت هيستقر على محتوى غلط وميترجعش ينزل للمحادثة الجديدة.
@@ -230,14 +282,20 @@ function App() {
   // ids الشغالة في كل المشاريع (من /api/activity) — عشان جلسة اللاب تبان
   // نشطة فورًا حتى لو statuses الم scoped للمشروع المفتوح لسه ملحقتهاش
   const activityIds = useMemo(() => new Set(activity.map((item) => item.id)), [activity])
+  // هل المحادثة المفتوحة فيها طلب لسه ما خلصش؟ بنحسبها boolean مرة واحدة لكل
+  // تغيّر في الطلبات، ونشيل مصفوفة `requests` من اعتماديات `isSessionWorking`.
+  // من غير كده كانت قوايم السايدبار (active/inactive) بتتبني من جديد مع كل
+  // عيّنة نص حيّ (كل ١.٥ ثانية) رغم إن حكم "شغالة" ما اتغيّرش. الفحص نفسه
+  // بالظبط اللي كان جوه الدالة.
+  const activeHasPendingWork = useMemo(
+    () => activeId ? requests.some((r) => r.state !== "done" && r.state !== "stopped") : false,
+    [activeId, requests],
+  )
   const isSessionWorking = useCallback((id: string) => {
     const status = statuses[id]
-    const isActiveSession = id === activeId
-    const hasRunningOrQueued = isActiveSession
-      ? requests.some((r) => r.state !== "done" && r.state !== "stopped")
-      : false
+    const hasRunningOrQueued = id === activeId ? activeHasPendingWork : false
     return (status?.type === "busy" || status?.type === "retry") || activityIds.has(id) || hasRunningOrQueued
-  }, [statuses, requests, activeId, activityIds])
+  }, [statuses, activeId, activityIds, activeHasPendingWork])
 
   // في طلبات مستنية في الطابور؟ لو أيوه لازم نفضل نحدّث لحد ما تخلص كلها
   const hasQueuedRequests = useMemo(() => requests.some((request) => request.state === "queued"), [requests])
@@ -415,9 +473,10 @@ function App() {
     setLang((current) => (current === "ar" ? "en" : "ar"))
   }, [])
 
-  const toggleTheme = () => {
+  // مرجع مستقر لـ TopBar: بدون useCallback الدالة بتتجدّد كل رندر فيفشل الـ memo
+  const toggleTheme = useCallback(() => {
     setTheme((current) => nextTheme(current))
-  }
+  }, [])
 
   // الجلسة المفتوحة: بننبّه مرة واحدة لما المهمة كلها تخلص فعلًا — مش مع كل
   // خطوة وسيطة. الخطوة الوسيطة بتقفل رسالة assistant واحدة (completedAt يتسجل)
@@ -570,7 +629,7 @@ function App() {
   const refreshStatuses = useCallback(async () => {
     try {
       const nextStatuses = await getStatuses()
-      setRawStatuses(nextStatuses)
+      setRawStatuses((current) => (sameStatusMap(current, nextStatuses) ? current : nextStatuses))
       markFetched("status")
     } catch {
       // Keep last known statuses when the poll fails (offline / reconnecting).
@@ -638,9 +697,9 @@ function App() {
     ])
     markFetched("sessions")
     const sorted = sortSessionsByCreated(nextSessions)
-    setSessions(sorted)
+    setSessions((current) => (sameSessionList(current, sorted) ? current : sorted))
     if (nextStatuses) {
-      setRawStatuses(nextStatuses)
+      setRawStatuses((current) => (sameStatusMap(current, nextStatuses) ? current : nextStatuses))
     }
     setActiveId((current) => {
       // لو في مسودة جديدة (null) نحافظ عليها ومنرجعش لأول جلسة تلقائيًا
@@ -712,8 +771,14 @@ function App() {
     }
   }, [addToast, refreshRequests, refreshGitChanges, selectedProject, t])
 
-  const enterApp = useCallback(async () => {
-    const [nextConfig, projectResponse] = await Promise.all([getConfig(), getProjects()])
+  // بياخد config جاهز اختياريًا عشان مسار الإقلاع ما يعيدش نداء /api/config
+  // (الفحص الأول بيتأكد إن الجلسة صالحة، فبنتشارك نفس الرد مع الدخول بدل ما
+  // نطلبه مرتين). مسار تسجيل الدخول بيسيبها فاضية فيجيبها طازجة زي ما كان.
+  const enterApp = useCallback(async (prefetchedConfig?: AppConfig) => {
+    const [nextConfig, projectResponse] = await Promise.all([
+      prefetchedConfig ? Promise.resolve(prefetchedConfig) : getConfig(),
+      getProjects(),
+    ])
     setConfig(nextConfig)
     setProjects(projectResponse.projects)
     setAuthState("signedIn")
@@ -725,7 +790,7 @@ function App() {
   useEffect(() => {
     let mounted = true
     void getConfig()
-      .then(() => enterApp())
+      .then((config) => enterApp(config))
       .catch((error: unknown) => {
         if (!mounted) {
           return
@@ -1346,23 +1411,25 @@ function App() {
     }
   }
 
-  const startRenamingSession = () => {
+  // مراجع مستقرة لأزرار ترويسة كارت المهمة: بدونها الـ RequestCard الـ memo
+  // بيفشل مع كل ضغطة حرف في الـ composer ويعيد رسم قائمة الطلبات كلها.
+  const startRenamingSession = useCallback(() => {
     if (!activeSession) {
       return
     }
     setTitleDraft(displayTitle(activeSession.title, t))
     setEditingSessionId(activeSession.id)
-  }
+  }, [activeSession, t])
 
-  const cancelRenamingSession = () => {
+  const cancelRenamingSession = useCallback(() => {
     if (renamingTitle) {
       return
     }
     setEditingSessionId(null)
     setTitleDraft("")
-  }
+  }, [renamingTitle])
 
-  const handleRenameSession = async (event: FormEvent<HTMLFormElement>) => {
+  const handleRenameSession = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const title = titleDraft.trim()
     if (!editingSessionId || !title || renamingTitle) {
@@ -1380,14 +1447,14 @@ function App() {
     } finally {
       setRenamingTitle(false)
     }
-  }
+  }, [titleDraft, editingSessionId, renamingTitle, addToast, t])
 
-  const handleSessionTitleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  const handleSessionTitleKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Escape") {
       event.preventDefault()
       cancelRenamingSession()
     }
-  }
+  }, [cancelRenamingSession])
 
   const handleDeleteSession = async (session: Session) => {
     if (!window.confirm(`${t.deleteSessionConfirm} «${displayTitle(session.title, t)}»؟`)) {
@@ -1471,6 +1538,7 @@ function App() {
   // تتجدّد كل رندر، والـ TopBar الـ memo بيفشل في توفير bail-out.
   // المراجع بتتحط بعد تعريف الـ handlers عشان TypeScript يقدر يتأكد منها.
   const handleOpenSessions = useCallback(() => setShowSessions(true), [])
+  const handleCloseSessions = useCallback(() => setShowSessions(false), [])
   const handleShowActivity = useCallback(() => setShowActivity(true), [])
   const handleShowHistory = useCallback(() => setShowHistory(true), [])
   const handleShowPinned = useCallback(() => setShowPinned(true), [])
@@ -1740,7 +1808,7 @@ function App() {
     }
   }, [activeId, queueAction, refreshRequests, addToast, t.queuedRemoveFailed])
 
-  const handlePermission = async (permission: Permission, response: "once" | "always" | "reject") => {
+  const handlePermission = useCallback(async (permission: Permission, response: "once" | "always" | "reject") => {
     try {
       await replyPermission(permission.sessionID, permission.id, response)
       setPermissions((current) => current.filter((item) => item.id !== permission.id))
@@ -1748,7 +1816,29 @@ function App() {
     } catch (error: unknown) {
       addToast(error instanceof Error ? error.message : t.permissionReplyFailed, "error")
     }
-  }
+  }, [addToast, t])
+
+  // خريطة ردود ثابتة لكل كارت إذن: الـ arrow inline كان بياخد مرجعًا جديدًا
+  // كل رندر فيكسر memo كارت الإذن. الخريطة بتتبني من نفس مصفوفة الأذونات
+  // المعروضة، فكل كارت بياخد دالة ثابتة طول ما إذنه ما اتغيّرش.
+  const permissionReplyHandlers = useMemo(() => {
+    const handlers = new Map<string, (response: "once" | "always" | "reject") => void>()
+    for (const permission of activePermissions) {
+      handlers.set(permission.id, (response) => {
+        void handlePermission(permission, response)
+      })
+    }
+    return handlers
+  }, [activePermissions, handlePermission])
+
+  // ردّ سؤال: مرجع مستقر لـ StickyQuestions عشان ما يفقدش الـ memo كل رندر.
+  // بيقرا المحادثة من الـ ref وقت النداء — نفس قيمتها في الرندر دايمًا.
+  const handleQuestionsAnswered = useCallback(() => {
+    const id = activeIdRef.current
+    if (id) {
+      void refreshRequests(id).catch(() => undefined)
+    }
+  }, [refreshRequests])
 
   const displayedModel: SessionModelRef | null = activeId ? currentModel : (pendingModel || projectDefaultModel || currentModel || defaultModel)
   // البحث في قائمة النماذج (هندسة الموديل في التوب بار) كان linear scan
@@ -1810,7 +1900,8 @@ function App() {
     }
   }
 
-  const copyText = (text: string) => {
+  // مرجع مستقر: بيتنقل لكل صف وزر نسخ — تجدّده كان بيكسر memo الصفوف.
+  const copyText = useCallback((text: string) => {
     if (!text) return
     if (navigator.clipboard && window.isSecureContext) {
       void navigator.clipboard.writeText(text)
@@ -1831,7 +1922,7 @@ function App() {
       document.body.removeChild(textarea)
     }
     // النسخ فعل واضح من الزرار — من غير toast
-  }
+  }, [])
 
   const enablePush = async () => {
     if (!config.push.enabled || !config.push.publicKey) {
@@ -1887,7 +1978,8 @@ function App() {
     }
   }
 
-  const toggleSound = () => {
+  // مرجع مستقر لـ TopBar (تجدّده كان بيفشل الـ memo) — بيتغيّر مع soundOn فقط
+  const toggleSound = useCallback(() => {
     const next = !soundOn
     setSoundOn(next)
     setSoundEnabled(next)
@@ -1897,7 +1989,7 @@ function App() {
       // سامع الصوت وشايف الزرار — من غير toast
     }
     // القفل شايفه بعينك في الزرار — من غير toast
-  }
+  }, [soundOn])
 
   const testSound = () => {
     unlockAudio()
@@ -1942,7 +2034,7 @@ function App() {
         selectedId={undefined}
         switchingKey={switchingProject}
         recentPaths={recentProjects}
-        onSelect={(project) => void openProject(project)}
+        onSelect={handleSelectProjectSidebar}
         t={t}
         lang={lang}
       />
@@ -1953,7 +2045,7 @@ function App() {
     <div className="app-shell">
       <Sidebar
         showSessions={showSessions}
-        onClose={() => setShowSessions(false)}
+        onClose={handleCloseSessions}
         eventConnected={eventConnected}
         projects={projects}
         selectedProject={selectedProject}
@@ -2009,7 +2101,7 @@ function App() {
           <div className="workspace-scroll" ref={workspaceScrollRef} onPointerDown={releaseScrollPin}>
             {requests.length > 0 ? (
               <div className="request-stack">
-                <RequestCard requests={requests} sessionId={activeId} listRef={requestListRef} title={activeTitle} status={activeStatus} stalled={activeId ? stalledIds.has(activeId) : false} waitingOnUser={activeId !== null && (requestQuestions.some((question) => question.sessionID === activeId) || permissions.some((permission) => permission.sessionID === activeId))} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={handleSkip} onRunNow={handleRunNow} onRemove={handleRemoveQueued} busyAction={queueAction} t={t} />
+                <RequestCard requests={requests} sessionId={activeId} listRef={requestListRef} title={activeTitle} status={activeStatus} stalled={activeId ? stalledIds.has(activeId) : false} waitingOnUser={activeId !== null && (activeQuestions.length > 0 || activePermissions.length > 0)} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={handleSkip} onRunNow={handleRunNow} onRemove={handleRemoveQueued} busyAction={queueAction} t={t} />
               </div>
             ) : (
               <div className="welcome-state">
@@ -2022,13 +2114,13 @@ function App() {
               </div>
             )}
             {activeId ? (
-              <StickyQuestions questions={activeQuestions} sessionId={activeId} onAnswered={() => void refreshRequests(activeId).catch(() => undefined)} t={t} />
+              <StickyQuestions questions={activeQuestions} sessionId={activeId} onAnswered={handleQuestionsAnswered} t={t} />
             ) : null}
           </div>
 
           {activePermissions.length > 0 ? (
             <div className="permissions-stack">
-              {activePermissions.map((permission) => <PermissionCard key={permission.id} permission={permission} onReply={(response) => void handlePermission(permission, response)} t={t} />)}
+              {activePermissions.map((permission) => <PermissionCard key={permission.id} permission={permission} onReply={permissionReplyHandlers.get(permission.id) ?? NOOP_PERMISSION_REPLY} t={t} />)}
             </div>
           ) : null}
 
