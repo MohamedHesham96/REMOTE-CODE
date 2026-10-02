@@ -83,7 +83,6 @@ function SidebarInner({
         <span className="connection-label">{eventConnected ? t.connectedLive : t.reconnecting}</span>
       </div>
       <ProjectDropdown
-        variant="sidebar"
         projects={projects}
         selectedId={selectedProject?.worktree}
         switchingKey={switchingProject}

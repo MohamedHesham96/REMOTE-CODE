@@ -1066,24 +1066,9 @@ function App() {
         void refreshRequests(event.properties.sessionID)
       }
     }
-    if (event.type === "todo.updated") {
-      if (event.properties.sessionID === activeIdRef.current) {
-        void refreshRequests(event.properties.sessionID)
-      } else {
-        // شغل على جلسة خلفية (غالبًا من اللاب) — حدّث النشطة مدمجًا لا فوريًا
-        requestActivityRefresh()
-      }
-    }
     // النص الحي للرد الجاري: أي جزء جديد من رسالة opencode يحدّث كارت
     // الطلب الشغّال فورًا (بخنق 1.5 ثانية عشان الأحداث بتيجي متتالية بسرعة).
-    if (
-      event.type === "message.updated"
-      || event.type === "message.part.updated"
-      || event.type === "message.part.removed"
-      || event.type === "message.removed"
-      || event.type === "session.diff"
-      || event.type === "session.compacted"
-    ) {
+    if (event.type === "message.part.updated" || event.type === "session.diff") {
       const sessionID = (event.properties as { sessionID?: unknown }).sessionID
       if (typeof sessionID === "string") {
         if (sessionID === activeIdRef.current) {
@@ -1108,9 +1093,7 @@ function App() {
         }
       }
     }
-    if (
-      (event.type === "question.asked" || event.type === "question.v2.asked")
-    ) {
+    if (event.type === "question.asked") {
       // صوت واهتزاز بس من غير toast — كارت السؤال هو الإشارة نفسها
       notifyAttention()
       // سؤال من أي جلسة (حتى اللاب) يحدّث النشطة — مدمجًا (حدث نادر لكن حرج،
@@ -1134,9 +1117,7 @@ function App() {
           void refreshRequests(sessionID).catch(() => undefined)
         }, delay)
       }
-    } else if (
-      (event.type === "question.replied" || event.type === "question.rejected" || event.type === "question.v2.replied" || event.type === "question.v2.rejected")
-    ) {
+    } else if (event.type === "question.replied" || event.type === "question.rejected") {
       const sessionID = event.properties.sessionID
       // نفس الجلب المتكرر: ردّ من جهاز تاني ضاع جلبه كان هيسيب كارت شبحًا للأبد
       const retryDelays = [1500, 4000]
@@ -1579,9 +1560,6 @@ function App() {
         stepsCompleted: 0,
         activeTool: null,
         usedTools: [],
-        todos: [],
-        completedTodos: 0,
-        totalTodos: 0,
         resultFiles: [],
         startedAt: now,
         completedAt: 0,
@@ -2031,7 +2009,7 @@ function App() {
           <div className="workspace-scroll" ref={workspaceScrollRef} onPointerDown={releaseScrollPin}>
             {requests.length > 0 ? (
               <div className="request-stack">
-                <RequestCard requests={requests} sessionId={activeId} listRef={requestListRef} title={activeTitle} status={activeStatus} stalled={activeId ? stalledIds.has(activeId) : false} waitingOnUser={activeId !== null && (requestQuestions.some((question) => question.sessionID === activeId) || permissions.some((permission) => permission.sessionID === activeId))} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={handleSkip} onRunNow={handleRunNow} onRemove={handleRemoveQueued} busyAction={queueAction} t={t} lang={lang} />
+                <RequestCard requests={requests} sessionId={activeId} listRef={requestListRef} title={activeTitle} status={activeStatus} stalled={activeId ? stalledIds.has(activeId) : false} waitingOnUser={activeId !== null && (requestQuestions.some((question) => question.sessionID === activeId) || permissions.some((permission) => permission.sessionID === activeId))} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={handleSkip} onRunNow={handleRunNow} onRemove={handleRemoveQueued} busyAction={queueAction} t={t} />
               </div>
             ) : (
               <div className="welcome-state">

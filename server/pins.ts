@@ -127,24 +127,6 @@ export class PinService {
     return this.pins.filter((pin) => pin.projectKey === key).map((pin) => ({ ...pin }))
   }
 
-  // ملخص المشاريع اللي فيها مثبّتات — للعدادات/tests.
-  projects(): Array<{ projectKey: string; name: string; count: number }> {
-    const byProject = new Map<string, { projectKey: string; name: string; count: number }>()
-    for (const pin of this.pins) {
-      if (!pin.projectKey) {
-        continue
-      }
-      const entry = byProject.get(pin.projectKey) || {
-        projectKey: pin.projectKey,
-        name: pin.projectName || pin.worktree,
-        count: 0,
-      }
-      entry.count += 1
-      byProject.set(pin.projectKey, entry)
-    }
-    return [...byProject.values()].sort((left, right) => right.count - left.count)
-  }
-
   // يشترك في تغييرات المثبّتات (بثّ SSE للأجهزة كلها) ويرجّع دالة فك.
   subscribe(listener: PinListener): () => void {
     this.listeners.add(listener)

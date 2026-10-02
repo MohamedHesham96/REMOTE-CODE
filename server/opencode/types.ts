@@ -17,13 +17,6 @@ export interface Project {
 
 export type SessionStatus = { type: "idle" } | { type: "busy" } | { type: "retry" }
 
-// v2 بلا قائمة مهام — الحقل باقٍ في العقد فارغًا حتى لا تتغير الواجهة.
-export interface Todo {
-  id: string
-  content: string
-  status: "pending" | "in_progress" | "completed" | "cancelled"
-}
-
 export interface EnginePermission {
   id: string
   sessionID: string
@@ -58,10 +51,7 @@ export interface ResultFile {
   name: string
   mime: string
   path: string
-  url: string
   downloadUrl: string
-  source: "attachment" | "output"
-  size?: number
 }
 
 export interface ConversationQuestionOption {
@@ -89,7 +79,6 @@ export interface HistoryTurn {
   prompt: string
   finalResult: string
   createdAt: number
-  completedAt: number
   steps: number
   files: ResultFile[]
 }
@@ -111,9 +100,6 @@ export interface SessionRequest {
   // أدوات المهمة الحالية بترتيب استخدامها ("قائمة المستخدم" في واجهة
   // الديسكتوب)، مترجمة على السيرفر. الواجهة بتعرضها واحدة واحدة بدل قائمة طويلة.
   usedTools: string[]
-  todos: Todo[]
-  completedTodos: number
-  totalTodos: number
   resultFiles: ResultFile[]
   startedAt: number
   completedAt: number

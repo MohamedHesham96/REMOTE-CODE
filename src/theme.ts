@@ -6,22 +6,16 @@ export const THEMES: AppTheme[] = ["glass", "dark", "hacker", "metal"]
 
 const THEME_KEY = "opencode-theme"
 
-export const THEME_META: Record<AppTheme, { label: string; icon: string; description: string }> = {
-  glass: { label: "نهاري", icon: "☀", description: "وضع فاتح — زجاج سائل بأسلوب Apple" },
-  dark: { label: "داكن", icon: "☾", description: "وضع داكن — أريح للعين ليلًا" },
-  hacker: { label: "هاكر", icon: "👾", description: "طرفية خضراء كلاسيكية — جمال المصفوفة" },
-  metal: { label: "معدني", icon: "🔩", description: "فولاذ مصقول — رمادي بارد بلمعان معدني" },
+export const THEME_META: Record<AppTheme, { icon: string }> = {
+  glass: { icon: "☀" },
+  dark: { icon: "☾" },
+  hacker: { icon: "👾" },
+  metal: { icon: "🔩" },
 }
 
 export function getSavedTheme(): AppTheme {
   try {
     const raw = localStorage.getItem(THEME_KEY)
-    if (raw === "light" || raw === "purity" || raw === "transparent") {
-      return "glass"
-    }
-    if (raw === "ocean" || raw === "glass-dark") {
-      return "dark"
-    }
     if (raw && (THEMES as string[]).includes(raw)) {
       return raw as AppTheme
     }

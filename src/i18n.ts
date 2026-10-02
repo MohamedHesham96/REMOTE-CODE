@@ -3,9 +3,9 @@ export type Language = "ar" | "en";
 
 const LANG_KEY = "opencode-language";
 
-const LANGUAGE_META: Record<Language, { label: string; short: string; dir: "rtl" | "ltr" }> = {
-  ar: { label: "العربية", short: "ع", dir: "rtl" },
-  en: { label: "English", short: "EN", dir: "ltr" },
+const LANGUAGE_META: Record<Language, { dir: "rtl" | "ltr" }> = {
+  ar: { dir: "rtl" },
+  en: { dir: "ltr" },
 };
 
 export function getSavedLanguage(): Language {
@@ -63,14 +63,11 @@ const ar = {
   share: "مشاركة",
   copy: "نسخ",
   copied: "تم النسخ",
-  change: "تغيير",
   ok: "حسنًا",
-  back: "رجوع",
   searchModelsPlaceholder: "ابحث في النماذج المتاحة من OpenCode…",
   searchModelsAria: "البحث عن نموذج",
   refreshList: "تحديث القائمة",
   refreshFromOpencode: "تحديث من OpenCode",
-  currentModel: "النموذج الحالي",
   chooseModel: "اختر نموذجًا",
   freeOnly: "المجانية فقط",
   loadingModels: "جارٍ تحميل النماذج من OpenCode…",
@@ -91,12 +88,6 @@ const ar = {
   varietyMinimal: "أدنى",
   secondsShort: "ث",
   minutesShort: "د",
-  todoCompleted: "مكتملة",
-  todoInProgress: "قيد التنفيذ",
-  todoCancelled: "ملغاة",
-  todoPending: "متبقية",
-  planTitle: "خطة التنفيذ",
-  planAutoUpdate: "تُحدَّث تلقائيًا",
   activeNow: "نشط الآن",
   conversation: "محادثة",
   conversations: "محادثات",
@@ -346,14 +337,11 @@ const en: typeof ar = {
   share: "Share",
   copy: "Copy",
   copied: "Copied",
-  change: "Change",
   ok: "OK",
-  back: "Back",
   searchModelsPlaceholder: "Search available models from OpenCode…",
   searchModelsAria: "Search for a model",
   refreshList: "Refresh list",
   refreshFromOpencode: "Refresh from OpenCode",
-  currentModel: "Current model",
   chooseModel: "Choose a model",
   freeOnly: "Free only",
   loadingModels: "Loading models from OpenCode…",
@@ -374,12 +362,6 @@ const en: typeof ar = {
   varietyMinimal: "Minimal",
   secondsShort: "s",
   minutesShort: "m",
-  todoCompleted: "Completed",
-  todoInProgress: "In progress",
-  todoCancelled: "Cancelled",
-  todoPending: "Pending",
-  planTitle: "Execution plan",
-  planAutoUpdate: "Updates automatically",
   activeNow: "Active now",
   conversation: "conversation",
   conversations: "conversations",

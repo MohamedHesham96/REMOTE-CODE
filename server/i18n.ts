@@ -149,10 +149,6 @@ const messages = {
     ar: "حدث خطأ في OpenCode. افتح التطبيق للتفاصيل.",
     en: "An error occurred in OpenCode. Open the app for details.",
   },
-  pushTestBody: {
-    ar: "الإشعارات تعمل بنجاح",
-    en: "Notifications are working",
-  },
   // سطور السجل والطرفية (console) — نفس المفاتيح باللغتين، والاختيار عبر
   // consoleLang(). الرسائل التي تحتاج قيمًا متغيرة تستخدم {name}
   // ويستبدلها المنادي بـ replace.

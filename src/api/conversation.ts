@@ -44,7 +44,7 @@ export async function getRequests(id: string, lang: "ar" | "en" = "ar"): Promise
     }
     if (!response.ok) {
       const data = payload as { message?: string; error?: string } | undefined
-      throw new ApiError(data?.message || `Request failed (${response.status})`, response.status, data?.error)
+      throw new ApiError(data?.message || `Request failed (${response.status})`, response.status)
     }
     const etag = response.headers.get("ETag")
     if (etag) {

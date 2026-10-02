@@ -12,16 +12,6 @@ export function registerPushRoutes(app: Express, ctx: RouteContext): void {
     }
   })
 
-  app.post("/api/push/test", async (request, response) => {
-    try {
-      await ctx.push.test(request.body)
-      response.json({ ok: true })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Push test failed"
-      response.status(400).json({ error: "PUSH_TEST_FAILED", message })
-    }
-  })
-
   app.delete("/api/push/subscribe", async (request, response) => {
     const endpoint = typeof request.body?.endpoint === "string" ? request.body.endpoint : ""
     await ctx.push.unregister(endpoint)

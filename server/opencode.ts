@@ -5,7 +5,6 @@ import { basename as pathBasename, isAbsolute, resolve } from "node:path"
 import { OpenCode, type OpenCodeClient, type OpenCodeEvent } from "@opencode/client"
 import { Service } from "@opencode/client/service"
 import type {
-  FileDiffInfo,
   FormInfo,
   SessionInfo,
   SessionMessageAssistant,
@@ -991,7 +990,6 @@ export class OpenCodeService {
       prompt: turn.prompt,
       finalResult: turn.texts.join("\n\n"),
       createdAt: turn.createdAt,
-      completedAt: turn.completedAt || turn.createdAt,
       steps: turn.steps,
       files: this.collectResultFiles(id, turn.entries, lang),
     }))
@@ -1111,10 +1109,6 @@ export class OpenCodeService {
         stepsCompleted: turn.steps,
         activeTool: activeTool?.name ?? null,
         usedTools: usedToolActivities(turn.entries, lang),
-        // v2 بلا قائمة مهام — الحقول باقية في العقد فارغة
-        todos: [],
-        completedTodos: 0,
-        totalTodos: 0,
         resultFiles: this.collectResultFiles(id, turn.entries, lang),
         startedAt: turn.createdAt,
         completedAt: turn.completedAt,
@@ -1134,9 +1128,6 @@ export class OpenCodeService {
         stepsCompleted: 0,
         activeTool: null,
         usedTools: [],
-        todos: [],
-        completedTodos: 0,
-        totalTodos: 0,
         resultFiles: [],
         startedAt: item.queuedAt,
         completedAt: 0,
@@ -1200,7 +1191,6 @@ export class OpenCodeService {
       mime: string
       path: string
       url: string
-      source: ResultFile["source"]
     }): void => {
       const key = entry.path ? `path:${entry.path.toLowerCase()}` : `url:${entry.url}`
       if (!entry.path && !entry.url) {
@@ -1217,9 +1207,7 @@ export class OpenCodeService {
         name: entry.name || fileFallback,
         mime: entry.mime || mimeFromName(entry.name),
         path: entry.path,
-        url: entry.url,
         downloadUrl,
-        source: entry.source,
       })
     }
 
@@ -1228,16 +1216,14 @@ export class OpenCodeService {
         if (part.type !== "tool" || (part.state.status !== "completed" && part.state.status !== "error")) {
           continue
         }
-        const content = part.state.status === "completed" || part.state.status === "error"
-          ? part.state.content
-          : []
+        const content = part.state.content
         for (const item of content ?? []) {
           if (item.type !== "file") {
             continue
           }
           const { path, url } = this.filePathFromUri(item.uri)
           const name = item.name || (path ? fileNameFromPath(path, fileFallback) : fileNameFromPath(url, fileFallback))
-          pushFile({ id: `${part.id}:${item.uri}`, name, mime: item.mime || mimeFromName(name), path, url, source: "attachment" })
+          pushFile({ id: `${part.id}:${item.uri}`, name, mime: item.mime || mimeFromName(name), path, url })
         }
       }
       for (const filePath of entry.snapshot?.files ?? []) {
@@ -1251,7 +1237,6 @@ export class OpenCodeService {
           mime: mimeFromName(name),
           path: filePath,
           url: "",
-          source: "output",
         })
       }
     }
@@ -1976,17 +1961,6 @@ export class OpenCodeService {
     await this.requireClient().session.form.cancel({ sessionID: sessionId, formID: requestId })
     this.invalidateQuestions(sessionId)
     return true
-  }
-
-  async diff(id: string): Promise<FileDiffInfo[]> {
-    const files = await this.requireClient().session.diff({ sessionID: id })
-    return files.map((file) => ({
-      file: file.file,
-      patch: file.patch,
-      additions: file.additions,
-      deletions: file.deletions,
-      status: file.status,
-    }))
   }
 
   // حالة git للمشروع الحالي: الملفات المتغيّرة + اسم الفرع.

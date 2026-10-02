@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react"
-import type { Language, Strings } from "../../i18n"
+import type { Strings } from "../../i18n"
 import type { SessionRequest, SessionStatus, ToastKind } from "../../types"
 import { describeTask } from "../../utils/task-status"
 import { useNowTick } from "../../hooks/useNowTick"
@@ -43,10 +43,9 @@ interface RequestCardProps {
   stalled: boolean
   waitingOnUser: boolean
   t: Strings
-  lang: Language
 }
 
-function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle, isEditingTitle, titleDraft, renamingTitle, onStartRename, onCancelRename, onTitleDraftChange, onRenameSubmit, onTitleKeyDown, onCopy, onToast, onSkip, onRunNow, onRemove, busyAction, status, stalled, waitingOnUser, t, lang }: RequestCardProps) {
+function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle, isEditingTitle, titleDraft, renamingTitle, onStartRename, onCancelRename, onTitleDraftChange, onRenameSubmit, onTitleKeyDown, onCopy, onToast, onSkip, onRunNow, onRemove, busyAction, status, stalled, waitingOnUser, t }: RequestCardProps) {
   const [openId, setOpenId] = useState<string | null>(null)
   const latest = requests[requests.length - 1]
   // الطلب الشغّال هو المفتوح افتراضيًا؛ بعد ما يخلص آخر طلب هو اللي يفضل مفتوح.
@@ -100,7 +99,6 @@ function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle,
               onRemove={callbacks.onRemove}
               busyAction={busyAction}
               t={t}
-              lang={lang}
             />
           )
         })}

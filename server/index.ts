@@ -178,5 +178,3 @@ void start().catch((error) => {
   console.error(error instanceof Error ? error.message : error)
   process.exitCode = 1
 })
-
-export { app, openCode, pins, push }

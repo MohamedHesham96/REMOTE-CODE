@@ -141,11 +141,6 @@ export function samePath(left: string | undefined | null, right: string | undefi
   return result
 }
 
-// للاختبارات فقط
-export function _resetSamePathCacheForTesting(): void {
-  samePathCache.clear()
-}
-
 export function statusLabel(status: SessionStatus | undefined, t: Strings): string {
   if (!status) {
     return t.statusReady

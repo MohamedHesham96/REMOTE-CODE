@@ -2,7 +2,6 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
-    readonly code?: string,
   ) {
     super(message)
     this.name = "ApiError"
@@ -18,14 +17,9 @@ const inflightGets = new Map<string, Promise<unknown>>()
 const etagCache = new Map<string, string>()
 const etagPayloadCache = new Map<string, unknown>()
 
-export function clearEtagCache(path?: string): void {
-  if (path === undefined) {
-    etagCache.clear()
-    etagPayloadCache.clear()
-    return
-  }
-  etagCache.delete(path)
-  etagPayloadCache.delete(path)
+export function clearEtagCache(): void {
+  etagCache.clear()
+  etagPayloadCache.clear()
 }
 
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -112,7 +106,7 @@ async function doRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (!response.ok) {
     const data = payload as { message?: string; error?: string } | undefined
-    throw new ApiError(data?.message || `Request failed (${response.status})`, response.status, data?.error)
+    throw new ApiError(data?.message || `Request failed (${response.status})`, response.status)
   }
 
   return payload as T
