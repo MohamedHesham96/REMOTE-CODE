@@ -14,6 +14,7 @@ import { setTimeout as sleep } from "node:timers/promises"
 import { ensureLocalEndpoint } from "./opencode/service-launch.js"
 import { findActiveTool, toolActivity, toolSignature, usedToolActivities } from "./opencode/activity.js"
 import { unpushedCommitCount } from "./opencode/git-ahead.js"
+import { collectResultFiles } from "./opencode/result-files.js"
 import { consoleLang, serverMessage, type ServerLang } from "./i18n.js"
 import type {
   ActiveSession,
@@ -24,7 +25,6 @@ import type {
   ModelInfo,
   Project,
   RequestState,
-  ResultFile,
   ServiceOptions,
   Session,
   SessionModelRef,
@@ -38,7 +38,6 @@ import {
   directoryKey,
   errorDetail,
   errorMessage,
-  fileNameFromPath,
   folderName,
   HEALTHCHECK_TIMEOUT_MS,
   isDefaultTitle,
@@ -994,7 +993,7 @@ export class OpenCodeService {
       finalResult: turn.texts.join("\n\n"),
       createdAt: turn.createdAt,
       steps: turn.steps,
-      files: this.collectResultFiles(id, turn.entries, lang),
+      files: collectResultFiles(id, turn.entries, lang, this.selectedProjectDirectory),
     }))
 
     // الأحدث أولًا عشان مراجعة النتائج القديمة تبقى أسهل
@@ -1112,7 +1111,7 @@ export class OpenCodeService {
         stepsCompleted: turn.steps,
         activeTool: activeTool?.name ?? null,
         usedTools: usedToolActivities(turn.entries, lang),
-        resultFiles: this.collectResultFiles(id, turn.entries, lang),
+        resultFiles: collectResultFiles(id, turn.entries, lang, this.selectedProjectDirectory),
         startedAt: turn.createdAt,
         completedAt: turn.completedAt,
         updatedAt: turn.updatedAt,
@@ -1160,91 +1159,6 @@ export class OpenCodeService {
       .map((part) => part.text.trim())
       .filter(Boolean)
       .join("\n")
-  }
-
-  // ملفات النتيجة من محتوى v2: مرفقات file داخل الأدوات المكتملة، وملفات
-  // الـ snapshot للرسالة (بديل patch في v1). الـ uri بصيغة file:// يُحوَّل
-  // لمسار، وhttp(s) يُترك رابطًا.
-  private filePathFromUri(uri: string): { path: string; url: string } {
-    const trimmed = (uri || "").trim()
-    if (/^file:\/\//i.test(trimmed)) {
-      try {
-        return { path: resolve(decodeURIComponent(trimmed.replace(/^file:\/\/\/?/i, ""))), url: "" }
-      } catch {
-        return { path: "", url: "" }
-      }
-    }
-    if (/^https?:\/\//i.test(trimmed)) {
-      return { path: "", url: trimmed }
-    }
-    return { path: trimmed, url: "" }
-  }
-
-  private collectResultFiles(
-    sessionId: string,
-    messages: SessionMessageAssistant[],
-    lang: ServerLang = "ar",
-  ): ResultFile[] {
-    const files = new Map<string, ResultFile>()
-    const fileFallback = serverMessage("fileFallback", lang)
-
-    const pushFile = (entry: {
-      id: string
-      name: string
-      mime: string
-      path: string
-      url: string
-    }): void => {
-      const key = entry.path ? `path:${entry.path.toLowerCase()}` : `url:${entry.url}`
-      if (!entry.path && !entry.url) {
-        return
-      }
-      if (files.has(key)) {
-        return
-      }
-      const downloadUrl = entry.path
-        ? `/api/session/${encodeURIComponent(sessionId)}/file?path=${encodeURIComponent(entry.path)}`
-        : entry.url
-      files.set(key, {
-        id: entry.id,
-        name: entry.name || fileFallback,
-        mime: entry.mime || mimeFromName(entry.name),
-        path: entry.path,
-        downloadUrl,
-      })
-    }
-
-    for (const entry of messages) {
-      for (const part of entry.content) {
-        if (part.type !== "tool" || (part.state.status !== "completed" && part.state.status !== "error")) {
-          continue
-        }
-        const content = part.state.content
-        for (const item of content ?? []) {
-          if (item.type !== "file") {
-            continue
-          }
-          const { path, url } = this.filePathFromUri(item.uri)
-          const name = item.name || (path ? fileNameFromPath(path, fileFallback) : fileNameFromPath(url, fileFallback))
-          pushFile({ id: `${part.id}:${item.uri}`, name, mime: item.mime || mimeFromName(name), path, url })
-        }
-      }
-      for (const filePath of entry.snapshot?.files ?? []) {
-        if (typeof filePath !== "string" || !filePath.trim()) {
-          continue
-        }
-        const name = fileNameFromPath(filePath, fileFallback)
-        pushFile({
-          id: `${entry.id}:${filePath}`,
-          name,
-          mime: mimeFromName(name),
-          path: filePath,
-          url: "",
-        })
-      }
-    }
-
-    return [...files.values()].slice(-20)
   }
 
   private async sessionDirectory(sessionId: string): Promise<string> {
