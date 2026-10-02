@@ -764,7 +764,7 @@ h1 { margin-bottom: 12px; font-size: clamp(25px, 4vw, 34px); line-height: 1.35; 
 .main-panel { min-width: 0; min-height: 0; height: 100%; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 /* الهيدر بنفس بطاقة المهمة الأب: نفس الحد الكامل والخلفية والظل والاستدارة
    مع هامش جانبي صغير حتى يقرأ كجزء من نفس المجموعة. */
-.topbar { min-height: 84px; flex: 0 0 auto; display: flex; align-items: center; gap: 15px; margin: calc(12px + env(safe-area-inset-top)) 8px 0; padding: 14px clamp(14px, 2.5vw, 28px); border: 1px solid var(--accent-border); border-radius: 1px; background: var(--grad-summary); box-shadow: 0 16px 45px rgba(0, 0, 0, 0.16); }
+.topbar { min-height: 84px; flex: 0 0 auto; display: flex; align-items: center; gap: 15px; margin: calc(8px + env(safe-area-inset-top)) 8px 0; padding: 14px clamp(14px, 2.5vw, 28px); border: 1px solid var(--accent-border); border-radius: 1px; background: var(--grad-summary); box-shadow: 0 16px 45px rgba(0, 0, 0, 0.16); }
 .current-session { min-width: 0; flex: 1; }
 /* غلاف شفاف بلا كروم بطاقة: الـ topbar نفسه هو البطاقة الآن،
    فالبطانة الداخلية كانت هتعمل بطاقة جوّه بطاقة. عنوان المحادثة
@@ -963,7 +963,9 @@ h2.session-title-editable { cursor: pointer; }
 /* الهامش الأفقي هنا = هامش .composer-wrap بالظبط. الكارت الكبير وكروت
    الأسئلة وطلبات الإذن لازم ياخدوا نفس العرض مع صندوق الكتابة تحتهم، فلو
    اتغيّر واحد فيهم لازم يتغيّر التلاتة. */
-.workspace-scroll { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: auto; padding: 8px 12px 14px; }
+/* المسافات الرأسية مضغوطة عن قصد: الهيدر فوق والـ composer تحت لازم يبقوا
+   قريبين من الكارت الكبير بدل ما يبانوا منفصلين بفراغ كبير. */
+.workspace-scroll { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: auto; padding: 4px 12px 6px; }
 .welcome-state { max-width: 690px; margin: clamp(35px, 10vh, 110px) auto 0; text-align: center; }
 .welcome-orb { width: 84px; height: 84px; display: grid; place-items: center; margin: 0 auto 24px; padding: 0; overflow: hidden; border-radius: 1px; background: linear-gradient(145deg, #1e1b4b, #0b1020); border: 1px solid rgba(255, 255, 255, 0.16); box-shadow: 0 0 60px rgba(110, 94, 255, 0.35), 0 16px 38px rgba(0, 0, 0, 0.45), 0 0 0 5px rgba(139, 124, 255, 0.08); animation: orb-float 3.5s ease-in-out infinite; }
 .welcome-orb img { width: 100%; height: 100%; display: block; border-radius: inherit; object-fit: cover; }
@@ -1029,7 +1031,7 @@ h2.session-title-editable { cursor: pointer; }
 .question-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .question-actions .button-primary { flex: 1; }
 
-.composer-wrap { flex: 0 0 auto; padding: 8px 12px max(10px, env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--composer-wrap-bg); backdrop-filter: blur(12px); }
+.composer-wrap { flex: 0 0 auto; padding: 6px 12px max(10px, env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--composer-wrap-bg); backdrop-filter: blur(12px); }
 .composer { width: 100%; padding: 5px 8px; border: 1px solid var(--accent-border); border-radius: 1px; background: var(--composer-bg); box-shadow: 0 8px 35px rgba(0,0,0,0.16); display: flex; align-items: center; gap: 8px; }
 .composer:focus-within { border-color: rgba(139,124,255,0.62); box-shadow: 0 0 0 3px rgba(139,124,255,0.1); }
 .composer textarea { flex: 1; min-width: 0; width: auto; min-height: 22px; overflow: hidden; align-self: center; resize: none; border: 0; outline: 0; color: var(--text); background: transparent; line-height: 1.5; font-size: 15px; font-weight: 500; padding: 0; direction: rtl; text-align: right; vertical-align: middle; }
@@ -1627,7 +1629,7 @@ html[dir="ltr"] .request-row.request-row-running { box-shadow: inset 3px 0 0 0 v
   .session-title-form input { font-size: 13px; }
   .title-edit { width: 22px; height: 22px; flex-basis: 22px; }
   .title-action { width: 26px; height: 26px; flex-basis: 26px; }
-  .workspace-scroll { padding: 8px 12px 12px; }
+  .workspace-scroll { padding: 4px 12px 6px; }
   .composer-wrap { padding-right: 12px; padding-left: 12px; }
   .composer-hint { display: none; }
   .composer { padding: 5px 8px; border-radius: 1px; }
