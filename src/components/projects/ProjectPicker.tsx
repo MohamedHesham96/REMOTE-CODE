@@ -1,16 +1,21 @@
-import { useEffect, useRef, useState } from "react"
+import { memo, useEffect, useRef, useState } from "react"
 import { projectName, samePath } from "../../display"
 import type { Language, Strings } from "../../i18n"
 import type { Project } from "../../types"
 import { useSortedProjects } from "../../hooks/useSortedProjects"
 
-export function ProjectOptionRows({ items, selectedId, switchingKey, onSelect, t }: {
+// memo: قائمة المشاريع ممكن تكون عشرات العناصر، ومع كل تحديث للـ
+// `projects` (poll, SSE)، الـ parent بيعيد الرسم فكل صف كان يتعاد رسمه
+// بدون داعٍ.
+interface ProjectOptionRowsProps {
   items: Project[]
   selectedId?: string
   switchingKey: string | null
   onSelect: (project: Project) => void
   t: Strings
-}) {
+}
+
+function ProjectOptionRowsInner({ items, selectedId, switchingKey, onSelect, t }: ProjectOptionRowsProps) {
   return (
     <div className="project-listbox" role="listbox" aria-label={t.projects}>
       {items.map((project) => {
@@ -42,8 +47,10 @@ export function ProjectOptionRows({ items, selectedId, switchingKey, onSelect, t
   )
 }
 
+export const ProjectOptionRows = memo(ProjectOptionRowsInner)
+
 // Dropdown سريع لتبديل المشاريع: زر يعرض الحالي + قائمة منسدلة ببحث فوري
-export function ProjectDropdown({ projects, selectedId, switchingKey, recentPaths, onSelect, variant, t, lang }: {
+interface ProjectDropdownProps {
   projects: Project[]
   selectedId?: string
   switchingKey: string | null
@@ -52,7 +59,12 @@ export function ProjectDropdown({ projects, selectedId, switchingKey, recentPath
   variant: "sidebar" | "compact"
   t: Strings
   lang: Language
-}) {
+}
+
+//
+// memo: موجود في السايدبار اللي بيتعاد رسمه مع كل تحديث للمحادثات.
+// من غير memo، القائمة والبحث كانوا بيتعاد رسمهم مع كل تغيير حالة.
+function ProjectDropdownInner({ projects, selectedId, switchingKey, recentPaths, onSelect, variant, t, lang }: ProjectDropdownProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const boxRef = useRef<HTMLDivElement | null>(null)
@@ -185,7 +197,11 @@ export function ProjectDropdown({ projects, selectedId, switchingKey, recentPath
   )
 }
 
-export function ProjectPicker({ projects, selectedId, switchingKey, recentPaths, onSelect, onCancel, t, lang }: {
+export const ProjectDropdown = memo(ProjectDropdownInner)
+
+// memo: شاشة اختيار المشروع الكاملة — مع `memo` إعادة الرسم محصورة في
+// تغيير `projects` أو `query`، مش في كل تحديث للمحادثات النشطة.
+function ProjectPickerInner({ projects, selectedId, switchingKey, recentPaths, onSelect, onCancel, t, lang }: {
   projects: Project[]
   selectedId?: string
   switchingKey: string | null
@@ -228,3 +244,5 @@ export function ProjectPicker({ projects, selectedId, switchingKey, recentPaths,
     </main>
   )
 }
+
+export const ProjectPicker = memo(ProjectPickerInner)

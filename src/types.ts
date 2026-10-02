@@ -31,7 +31,7 @@ export interface Permission {
   pattern?: string | string[]
 }
 
-export interface ServerEventBase {
+interface ServerEventBase {
   properties: {
     sessionID: string
     [key: string]: unknown

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { addPin, forgetPins, getPins, mergePins, removePin } from "./api"
-import { getRequests, getStatuses, rejectQuestion, removeQueuedRequest, renameSession, replyQuestion, runQueuedRequest, sendMessage, skipRunningRequest } from "./api"
+import { getRequests, getStatuses, listPermissions, rejectQuestion, removeQueuedRequest, renameSession, replyQuestion, runQueuedRequest, sendMessage, skipRunningRequest } from "./api"
+import { clearEtagCache } from "./api/http"
 import type { PinnedConversation, Session, SessionRequest, SessionRequests, SessionStatus } from "./types"
 
 function pin(id: string, overrides: Partial<PinnedConversation> = {}): PinnedConversation {
@@ -273,6 +274,41 @@ describe("request efficiency", () => {
     const second = await getRequests("session/etag")
     expect(second).toBe(first)
     expect(seen[1]?.["If-None-Match"]).toBe('W/"abc-9"')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("generic ETag handling in request()", () => {
+  it("sends If-None-Match after the first successful response and reuses the cached payload on 304", async () => {
+    clearEtagCache()
+    const payload = [{ id: "perm_1", sessionID: "s1", title: "Allow read?" }]
+    const seen: Array<Record<string, string>> = []
+    let callNumber = 0
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      const headers = new Headers(init?.headers)
+      const recorded: Record<string, string> = {}
+      headers.forEach((value, key) => {
+        recorded[key.toLowerCase()] = value
+      })
+      seen.push(recorded)
+      callNumber += 1
+      if (callNumber === 1) {
+        return Promise.resolve(new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ETag: 'W/"perm-v1"' },
+        }))
+      }
+      return Promise.resolve(new Response(null, { status: 304 }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const first = await listPermissions()
+    expect(first).toEqual(payload)
+    expect(seen[0]).not.toHaveProperty("if-none-match")
+
+    const second = await listPermissions()
+    expect(second).toBe(first)
+    expect(seen[1]?.["if-none-match"]).toBe('W/"perm-v1"')
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

@@ -17,7 +17,7 @@ export interface ScrollToBottom {
 }
 
 // تحت السطر ده (بالبكسل) بنعتبر المستخدم "قريب من الأسفل"
-export const NEAR_BOTTOM_PX = 100
+const NEAR_BOTTOM_PX = 100
 
 function scrollToBottom(element: HTMLElement): void {
   // نزول فوري (auto) مش smooth: ده تثبيت لفتح محادثة، والأنيميشن بيخلّي

@@ -31,27 +31,22 @@ import {
 } from "./api"
 import type { ActiveSession, AppConfig, AuthState, ClientEvent, ConversationQuestionRequest, GitChanges, HistoryTurn, ModelInfo, Permission, PinnedConversation, Project, Session, SessionModelRef, SessionRequest, SessionRequests, SessionStatus, Toast, ToastKind } from "./types"
 import { isSoundEnabled, playAttentionSound, playCompletionSound, setSoundEnabled, unlockAudio, vibrate } from "./sound"
-import { applyTheme, getSavedTheme, nextTheme, saveTheme, themeDescription, themeLabel, THEMES, THEME_META, type AppTheme } from "./theme"
+import { applyTheme, getSavedTheme, nextTheme, saveTheme, themeLabel, THEME_META, type AppTheme } from "./theme"
 import { applyLanguage, getSavedLanguage, getStrings, saveLanguage, type Language } from "./i18n"
 import {
   displayTitle,
-  formatDateTime,
-  formatRelative,
-  GitBranchIcon,
   getVarietyLevels,
-  LogoutIcon,
   projectName,
   samePath,
-  SettingsIcon,
   shortModelName,
-  SoundMuteIcon,
-  SoundOnIcon,
-  statusLabel,
 } from "./display"
 import { ACTIVE_GRACE_MS, COMPOSER_MAX_LINES, RECENT_PROJECTS_KEY, emptyConfig } from "./constants"
 import { PanelFallback } from "./components/PanelFallback"
+import { PanelErrorBoundary } from "./components/PanelErrorBoundary"
 import { PermissionCard } from "./components/PermissionCard"
-import { ProjectDropdown, ProjectPicker } from "./components/projects/ProjectPicker"
+import { ProjectPicker } from "./components/projects/ProjectPicker"
+import { Sidebar } from "./components/Sidebar"
+import { TopBar } from "./components/TopBar"
 import { StickyQuestions } from "./components/requests/StickyQuestions"
 import { RequestCard } from "./components/requests/RequestCard"
 import { useActivityGrace } from "./hooks/useActivityGrace"
@@ -72,11 +67,34 @@ const ActiveSessionsPanel = lazy(() => import("./panels").then((module) => ({ de
 const GitChangesPanel = lazy(() => import("./panels").then((module) => ({ default: module.GitChangesPanel })))
 const HistoryPanel = lazy(() => import("./panels").then((module) => ({ default: module.HistoryPanel })))
 const PinnedConversationsPanel = lazy(() => import("./panels").then((module) => ({ default: module.PinnedConversationsPanel })))
+// درج الإعدادات: في الإصدار القديم كان inline داخل App.tsx — فكل ما الـ App
+// اترسم، JSX الـ drawer اتبنى ومعاها الـ handlers. lazy() يخليها تتحمّل أول
+// مرة المستخدم يفتح الإعدادات بس.
+const SettingsDrawer = lazy(() => import("./panels").then((module) => ({ default: module.SettingsDrawer })))
 
 interface InstallPrompt {
   preventDefault: () => void
   prompt: () => Promise<void>
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>
+}
+
+// Set فاضي مُجمّع عشان نرجّع نفس المرجع من useMemo لو مفيش طلب معلّق
+// في الجلسة — `mergeActiveSessions` بياخد Set فاضي في حالة عدم النشاط
+const EMPTY_PENDING_IDS: ReadonlySet<string> = new Set()
+// مصفوفات فاضية مُجمّعة كمَراجع مستقرة لـ useMemo — `filter` الفاضي كان
+// بيلحق مرجع جديد في كل render حتى لو مفيش إذن/سؤال.
+const EMPTY_PERMISSIONS: Permission[] = []
+const EMPTY_QUESTIONS: ConversationQuestionRequest[] = []
+// Set فيه الـ id النشط لوحده — مُجمّع عشان نرجّع نفس المرجع لما activeId
+// ثابت بدل ما نعمل Set جديد كل مرة
+const SINGLE_ACTIVE_ID_SET_CACHE = new Map<string, ReadonlySet<string>>()
+function singleActiveIdSet(activeId: string): ReadonlySet<string> {
+  let cached = SINGLE_ACTIVE_ID_SET_CACHE.get(activeId)
+  if (!cached) {
+    cached = new Set([activeId])
+    SINGLE_ACTIVE_ID_SET_CACHE.set(activeId, cached)
+  }
+  return cached
 }
 
 function App() {
@@ -268,7 +286,37 @@ function App() {
     }
     return ids
   }, [statuses])
-  const pendingRequestIds = useMemo(() => new Set(activeId && requests.some((r) => r.state !== "done" && r.state !== "stopped") ? [activeId] : []), [activeId, requests])
+  // Set ده بيتعمل من `requests` و`activeId` فقط. كان بيتمدّد عبر كل تحديث
+  // للـ requests أثناء الكتابة الحية (كل 1.5 ثانية) حتى لو activeId ما اتغيّرش،
+  // فبنحسبه مرة واحدة بس هنا ونمرره للـ `mergeActiveSessions`.
+  const pendingRequestIds = useMemo(() => {
+    if (!activeId) {
+      return EMPTY_PENDING_IDS
+    }
+    const hasPending = requests.some((r) => r.state !== "done" && r.state !== "stopped")
+    return hasPending ? singleActiveIdSet(activeId) : EMPTY_PENDING_IDS
+  }, [activeId, requests])
+  // ممرّرات PermissionCard/ StickyQuestions: نفس الفلتر كان بيتنفّذ مرتين
+  // في JSX (مرة لطول الفحص، مرة للـ map). نحسبه مرة واحدة في useMemo عشان
+  // مرجع المصفوفة يثبت عبر الـ renders اللي ما بتغيرش `activeId`/`permissions`/
+  // `requestQuestions`.
+  const activePermissions = useMemo(
+    () => activeId ? permissions.filter((permission) => permission.sessionID === activeId) : EMPTY_PERMISSIONS,
+    [permissions, activeId],
+  )
+  const activeQuestions = useMemo(
+    () => activeId ? requestQuestions.filter((question) => question.sessionID === activeId) : EMPTY_QUESTIONS,
+    [requestQuestions, activeId],
+  )
+  // Set فيه ids الجلسات اللي عندها إذن معلق — بنستخدمه في القائمة الجانبية
+  // بدل `permissions.some(...)` اللي كان بيمشي O(N·M) في كل صف.
+  const permissionSessionIds = useMemo(() => {
+    const set = new Set<string>()
+    for (const permission of permissions) {
+      set.add(permission.sessionID)
+    }
+    return set
+  }, [permissions])
   const activeSessions = useMemo(() => mergeActiveSessions(
     activity,
     sessions,
@@ -507,7 +555,15 @@ function App() {
       }
       return updated
     })
-    setRawStatuses((current) => ({ ...current, [id]: next.status }))
+    // نفس قواعد session.status/event: لو الحالة الفعلية ماتغيرتش متعملش ref
+    // جديد للـ rawStatuses عشان الـ useSettledStatuses والـ effect بتاع باقي الجلسات
+    // ما يشتغلوش على كل poll عادي.
+    setRawStatuses((current) => {
+      if (current[id]?.type === next.status?.type) {
+        return current
+      }
+      return { ...current, [id]: next.status }
+    })
     setPermissions(nextPermissions)
   }, [])
 
@@ -720,12 +776,18 @@ function App() {
 
   // القائمة حية من opencode نفسه — بتتغير حسب المتاح فعلًا (نعيد تحميلها مع كل مشروع/فتح للقائمة)
   const loadModels = useCallback(async (silent = false) => {
+    // تحميل النماذج في كل focus كان يضرب /api/models حتى لو حصل، refreshSessions
+    // كمان جابها من غير فائدة. القائمة نادرًا بتتغير في عمر الجلسة الواحدة.
+    if (silent && isFresh("models")) {
+      return
+    }
     if (!silent) {
       setModelsLoading(true)
     }
     try {
       const list = await getModels()
       setModels(list)
+      markFetched("models")
     } catch (error: unknown) {
       if (!silent) {
         addToast(error instanceof Error ? error.message : t.modelsLoadFailed, "error")
@@ -735,7 +797,7 @@ function App() {
         setModelsLoading(false)
       }
     }
-  }, [addToast, t])
+  }, [addToast, t, isFresh, markFetched])
 
   // تحميل قائمة الموديلات الكاملة بعد الدخول واختيار المشروع
   useEffect(() => {
@@ -968,7 +1030,17 @@ function App() {
 
   const handleOpenCodeEvent = useCallback((event: ClientEvent) => {
     if (event.type === "session.status") {
-      setRawStatuses((current) => ({ ...current, [event.properties.sessionID]: event.properties.status }))
+      // نفس الحالة اللي عندنا بالفعل (نفس النوع) — مفيش داعي ننتج ref جديد
+      // للـ rawStatuses، والـ useSettledStatuses والـ effect بتاع باقي الجلسات
+      // هيتجنّبوا أي عمل. ده كاسد صرف حقيقي أثناء الكتابة الفورية لما
+      // opencode يبعت نفس الحالة تاني وتاني.
+      const incomingType = event.properties.status?.type
+      setRawStatuses((current) => {
+        if (current[event.properties.sessionID]?.type === incomingType) {
+          return current
+        }
+        return { ...current, [event.properties.sessionID]: event.properties.status }
+      })
       // حالة شغل اتغيرت في أي مشروع — حدّث شريط "شغال الآن" فورًا
       void refreshActivity()
       // جلسة من اللاب أول مرة نشوفها busy وهي مش في قائمة المشروع المفتوح:
@@ -982,7 +1054,13 @@ function App() {
       }
     }
     if (event.type === "session.idle") {
-      setRawStatuses((current) => ({ ...current, [event.properties.sessionID]: { type: "idle" } }))
+      // نفس قاعدة session.status فوق: لو الجلسة أصلًا idle متعملش ref جديد
+      setRawStatuses((current) => {
+        if (current[event.properties.sessionID]?.type === "idle") {
+          return current
+        }
+        return { ...current, [event.properties.sessionID]: { type: "idle" } }
+      })
       void refreshActivity()
       if (event.properties.sessionID === activeIdRef.current) {
         void refreshRequests(event.properties.sessionID)
@@ -1039,13 +1117,17 @@ function App() {
       // والكارت نفسه يتحدث فوريًا أدناه فلا يضيع التنبيه)
       requestActivityRefresh()
       const sessionID = event.properties.sessionID
-      // جلب متكرر بفواصل متزايدة (فيبوناتشي) عشان نغطي أي توقيت ضايع:
-      // جلب أولي ممكن يت رمى بسبب ticket guard، أو يفشل بسبب شبكة ضعيفة،
-      // أو يرجع فاضي بسبب كاش قديم. الفواصل المتزايدة تمنع العاصفة وتغطي
-      // أي تأخير في المحرك أو الشبكة.
-      const retryDelays = [500, 1000, 2000, 3000, 5000, 8000]
-      // نستدعي refreshRequests دائمًا، حتى لو لم يتطابق معرف الجلسة.
-      // هذا يضمن تحديث الأسئلة حتى لو كان هناك مشكلة في تطابق معرفات الجلسات.
+      // جلب متكرر بفواصل متزايدة عشان نغطي أي توقيت ضايع: جلب أولي ممكن
+      // يُرمى بسبب ticket guard، أو يفشل بسبب شبكة ضعيفة، أو يرجع فاضي
+      // بسبب كاش قديم. الفواصل المتزايدة تمنع العاصفة وتغطي أي تأخير في
+      // المحرك أو الشبكة.
+      //
+      // كان 6 محاولات ([500, 1000, 2000, 3000, 5000, 8000] = 19.5 ثانية، 7 طلبات)
+      // على كل سؤال/رد.مع in-flight dedup الجديد في `getRequests`، المحاولة
+      // الإضافية بتلحق نفس الـ Promise لو الطلب الحالي قائم — فالفايدة العملية
+      // من المحاولات 4–6 صفر. نخلّي محاولتين فقط ([1500, 4000]) لتغطية
+      // ticket-guard races على فترات متزايدة.
+      const retryDelays = [1500, 4000]
       void refreshRequests(sessionID).catch(() => undefined)
       for (const delay of retryDelays) {
         window.setTimeout(() => {
@@ -1057,7 +1139,7 @@ function App() {
     ) {
       const sessionID = event.properties.sessionID
       // نفس الجلب المتكرر: ردّ من جهاز تاني ضاع جلبه كان هيسيب كارت شبحًا للأبد
-      const retryDelays = [500, 1000, 2000, 3000, 5000, 8000]
+      const retryDelays = [1500, 4000]
       void refreshRequests(sessionID).catch(() => undefined)
       for (const delay of retryDelays) {
         window.setTimeout(() => {
@@ -1356,7 +1438,7 @@ function App() {
   // تبديل التثبيت: بيغيّر حالة واحدة بس (المحادثة دي) من غير ما يمس الباقي.
   // هنا بيانات العرض بس — المشروع ومعرّفه الثابت هما مسؤولية الـ hook
   // (المشروع المفتوح دلوقتي)، فمش ممكن المثبّتة تطلع في لوحة مشروع تاني.
-  // والمخزّن على سيرفر واحد عشان كل الأجهزة والتطبيقات التانية تشوفها فورًا.
+  // والمخزّن على سيرفر واحد عشان كل الأجهزة والتطبيقات التانية تشوفها فورًا。
   const handlePinSession = (session: Session) => {
     togglePin({
       id: session.id,
@@ -1368,6 +1450,53 @@ function App() {
       projectName: "",
     })
   }
+
+  // مراجع (refs) لأحدث نسخ من handlers عشان نبني wrappers مستقرة لـ
+  // SessionItem. الـ memo على SessionItem بيشتغل على تغيّر المرجع؛ لو مررنا
+  // الكولباك نفسه بتغير كل رندر، كل صف بيعيد الرسم. الـ ref handlers
+  // بتتجدد مع كل رندر لكن المرجع اللي في الـ ref بيقرأه الكولباك المستقر
+  // بيكون هو الأحدث وقت النقر.
+  const selectSessionRef = useRef(selectSession)
+  selectSessionRef.current = selectSession
+  const handleDeleteSessionRef = useRef(handleDeleteSession)
+  handleDeleteSessionRef.current = handleDeleteSession
+  const handlePinSessionRef = useRef(handlePinSession)
+  handlePinSessionRef.current = handlePinSession
+  const handleSelectSessionItem = useCallback((id: string) => {
+    void selectSessionRef.current(id)
+  }, [])
+  const handleDeleteSessionItem = useCallback((session: Session) => {
+    void handleDeleteSessionRef.current(session)
+  }, [])
+  const handleTogglePinItem = useCallback((session: Session) => {
+    handlePinSessionRef.current(session)
+  }, [])
+
+  // مراجع (refs) لـ openProject + handleNewSession عشان نبني wrappers
+  // مستقرة للـ Sidebar. بدون ده الـ Sidebar بيستلم callbacks جديدة كل
+  // رندر، فالـ memo عليه بيفشل وكل رندراه بيعيد بناء شجرة كاملة.
+  const openProjectRef = useRef(openProject)
+  openProjectRef.current = openProject
+  const handleNewSessionRef = useRef<() => Promise<void>>(handleNewSession)
+  handleNewSessionRef.current = handleNewSession
+  const handleSelectProjectSidebar = useCallback((project: Project) => {
+    void openProjectRef.current(project)
+  }, [])
+  const handleNewSessionSidebar = useCallback(() => {
+    void handleNewSessionRef.current()
+  }, [])
+
+  // Stable wrappers للـ TopBar عشان نفس السبب: handlers زي handleAbort/handleSend
+  // تتجدّد كل رندر، والـ TopBar الـ memo بيفشل في توفير bail-out.
+  // المراجع بتتحط بعد تعريف الـ handlers عشان TypeScript يقدر يتأكد منها.
+  const handleOpenSessions = useCallback(() => setShowSessions(true), [])
+  const handleShowActivity = useCallback(() => setShowActivity(true), [])
+  const handleShowHistory = useCallback(() => setShowHistory(true), [])
+  const handleShowPinned = useCallback(() => setShowPinned(true), [])
+  const handleShowSettings = useCallback(() => setShowSettings(true), [])
+  const handleShowModels = useCallback(() => setShowModels(true), [])
+  // `toggleLanguage` و `toggleTheme` و `toggleSound` مستقرة فوق (إلا حذفتها
+  // في الأعلى عشان تتشارك مع سطر الذيل. التوب بار بياخدها مباشرة).
 
   // فتح محادثة مثبّتة: اللوحة بتعرض مثبّتات المشروع المفتوح بس، فبنختارها
   // على طول. الفروع اللي ورا guards دي بتخدم الحالة النادرة لمثبّتة لسه ما
@@ -1501,11 +1630,6 @@ function App() {
   // يفضلوا في مكان واحد بدل ما App يوزّعهم
   const gitRequests = useGitRequests(gitChanges, sending, langRef.current, sendPrompt)
 
-  const openGitChanges = useCallback(() => {
-    gitRequests.show()
-    void refreshGitChanges()
-  }, [gitRequests, refreshGitChanges])
-
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter يبعت على الديسكتوب بس. على الموبايل سيبه يسلك سطر جديد عادي.
     // isComposing: لو المستخدم بيكمّل كلمة بلغة تانية (إixes عربي/إنجليزي)
@@ -1550,7 +1674,20 @@ function App() {
     }
   }
 
-  const handleSkip = async (request: SessionRequest) => {
+  // stable wrappers للـ TopBar (مراجع على handlers المتجدّدة): نفس اللي عملناه
+  // فوق لـ selectSession/handleDelete/handlePin. بدون ده الـ TopBar بيتسلم
+  // callbacks جديدة كل رندر ويفشل الـ memo.
+  const handleLogoutRef = useRef<() => Promise<void>>(handleLogout)
+  handleLogoutRef.current = handleLogout
+  const handleLogoutTop = useCallback(() => {
+    void handleLogoutRef.current()
+  }, [])
+  const handleOpenGitChanges = useCallback(() => {
+    gitRequests.show()
+    void refreshGitChanges()
+  }, [gitRequests, refreshGitChanges])
+
+  const handleSkip = useCallback(async (request: SessionRequest) => {
     if (!activeId || queueAction) {
       return
     }
@@ -1568,9 +1705,9 @@ function App() {
     } finally {
       setQueueAction(null)
     }
-  }
+  }, [activeId, queueAction, refreshRequests, addToast, t.skipFailed])
 
-  const handleRunNow = async (request: SessionRequest) => {
+  const handleRunNow = useCallback(async (request: SessionRequest) => {
     if (!activeId || queueAction) {
       return
     }
@@ -1596,9 +1733,9 @@ function App() {
     } finally {
       setQueueAction(null)
     }
-  }
+  }, [activeId, queueAction, refreshRequests, addToast, t.queuedSteered, t.queuedRunAfterTask, t.queuedRunFailed])
 
-  const handleRemoveQueued = async (request: SessionRequest) => {
+  const handleRemoveQueued = useCallback(async (request: SessionRequest) => {
     if (!activeId || queueAction) {
       return
     }
@@ -1623,7 +1760,7 @@ function App() {
     } finally {
       setQueueAction(null)
     }
-  }
+  }, [activeId, queueAction, refreshRequests, addToast, t.queuedRemoveFailed])
 
   const handlePermission = async (permission: Permission, response: "once" | "always" | "reject") => {
     try {
@@ -1636,6 +1773,15 @@ function App() {
   }
 
   const displayedModel: SessionModelRef | null = activeId ? currentModel : (pendingModel || projectDefaultModel || currentModel || defaultModel)
+  // البحث في قائمة النماذج (هندسة الموديل في التوب بار) كان linear scan
+  // في كل render — بنحسبه مرة واحدة ونرجّع نفس المرجع طول ما المدخلات ما اتغيرتش.
+  const displayedModelName = useMemo(() => {
+    if (!displayedModel) {
+      return t.defaultModel
+    }
+    const found = models.find((m) => m.providerID === displayedModel.providerID && m.id === displayedModel.modelID)
+    return found ? shortModelName(found) : displayedModel.modelID
+  }, [models, displayedModel, t.defaultModel])
 
   // أي اختيار موديل/مستوى تفكير بيتحفظ كافتراضي للمشروع — عشان المحادثات
   // الجاية تبدأ بيه من غير ما تعيد اختياره كل مرة
@@ -1781,44 +1927,9 @@ function App() {
     vibrate([180, 100, 180, 100, 320])
   }
 
-  // صف المحادثة في القائمة الجانبية — نفس الشكل بالظبط في المجموعتين
-  // (نشطة / غير نشطة) عشان التثبيت والحذف يفضلوا بنفس السلوك في كل مكان
-  const renderSessionItem = (session: Session, working: boolean) => {
-    const pinned = isPinned(session.id)
-    const selected = session.id === activeId
-    const needsPermission = permissions.some((permission) => permission.sessionID === session.id)
-    const pinLabel = pinned ? t.unpinConversation : t.pinConversation
-    return (
-      <div
-        ref={selected ? activeSessionItemRef : undefined}
-        className={`session-item${working ? " is-working" : ""}${pinned ? " is-pinned" : ""}${selected ? " active" : ""}${needsPermission ? " needs-permission" : ""}`}
-        key={session.id}
-      >
-        <button className="session-select" onClick={() => void selectSession(session.id)} aria-current={selected ? "true" : undefined}>
-          <span className="session-title-row">
-            <span className="session-title">{displayTitle(session.title, t)}</span>
-            {needsPermission ? <span className="permission-badge">{t.needsPermission}</span> : null}
-          </span>
-          <span className="session-meta">
-            {working ? <span className="working-spinner" aria-hidden /> : <span className="status-dot" aria-hidden />}
-            <span className="session-status">{statusLabel(statuses[session.id], t)}</span>
-            <span className="session-meta-dot" aria-hidden />
-            <span className="session-time" title={formatDateTime(session.time.created, lang)}>{formatRelative(session.time.created, lang)}</span>
-          </span>
-        </button>
-        <button
-          className={`session-pin${pinned ? " is-on" : ""}`}
-          onClick={(event) => { event.stopPropagation(); handlePinSession(session) }}
-          aria-pressed={pinned}
-          aria-label={pinLabel}
-          title={pinLabel}
-        >
-          <span className={pinned ? "pin-on" : "pin-off"} aria-hidden>📌</span>
-        </button>
-        <button className="session-delete" onClick={() => void handleDeleteSession(session)} aria-label={t.deleteSession}>⌫</button>
-      </div>
-    )
-  }
+  // صف المحادثة في القائمة الجانبية — مرر لـ SessionItem ككولباكز مستقرة
+  // (memoized) عشان كل صف يعمل bail-out لما بياناته ما تتغيرش، بدل ما
+  // الـ App كله يعيد رسم 50+ صف في كل setState.
 
   if (authState === "loading") {
     return <div className="center-screen"><div className="loader" /><p>{t.connectingToOpencode}</p></div>
@@ -1862,133 +1973,65 @@ function App() {
 
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${showSessions ? "sidebar-open" : ""}`}>
-        <div className="sidebar-top">
-          <div className="brand"><span className="brand-mark small"><img src="/icon.svg" alt="RemoteCode" /></span><span>RemoteCode</span></div>
-          <button className="icon-button mobile-only" onClick={() => setShowSessions(false)} aria-label={t.closeMenu}>×</button>
-        </div>
-        <div className="connection-state" role="status">
-          <span className={`status-dot ${eventConnected ? "online" : "offline"}`} />
-          <span className="connection-label">{eventConnected ? t.connectedLive : t.reconnecting}</span>
-        </div>
-        <ProjectDropdown
-          variant="sidebar"
-          projects={projects}
-          selectedId={selectedProject?.worktree}
-          switchingKey={switchingProject}
-          recentPaths={recentProjects}
-          onSelect={(project) => void openProject(project)}
-          t={t}
-          lang={lang}
-        />
-        <button className="new-session" onClick={() => void handleNewSession()}><span>＋</span> {t.newConversation}</button>
-        <div className="session-list">
-          {sessions.length === 0 ? (
-            <div className="empty-state">{t.noSessionsYet}</div>
-          ) : (
-            <>
-              {sidebarActiveSessions.length > 0 ? (
-                <section className="session-group" aria-label={t.activeConversations}>
-                  <div className="session-group-header">
-                    <span className="session-group-title"><span aria-hidden>⚡</span> {t.active}</span>
-                    <span className="session-group-count" aria-label={`${sidebarActiveSessions.length} ${sidebarActiveSessions.length === 1 ? t.conversation : t.conversations}`}>{sidebarActiveSessions.length}</span>
-                  </div>
-                  {sidebarActiveSessions.map((session) => renderSessionItem(session, true))}
-                </section>
-              ) : null}
-              <section className="session-group" aria-label={t.inactiveConversations}>
-                <div className="session-group-header">
-                  <span className="session-group-title"><span aria-hidden>💤</span> {t.inactive}</span>
-                  <span className="session-group-count" aria-label={`${sidebarInactiveSessions.length} ${sidebarInactiveSessions.length === 1 ? t.conversation : t.conversations}`}>{sidebarInactiveSessions.length}</span>
-                </div>
-                {sidebarInactiveSessions.length === 0 ? (
-                  <div className="session-group-empty">{t.noInactiveConversations}</div>
-                ) : (
-                  sidebarInactiveSessions.map((session) => renderSessionItem(session, false))
-                )}
-              </section>
-            </>
-          )}
-        </div>
-      </aside>
+      <Sidebar
+        showSessions={showSessions}
+        onClose={() => setShowSessions(false)}
+        eventConnected={eventConnected}
+        projects={projects}
+        selectedProject={selectedProject}
+        switchingProject={switchingProject}
+        recentProjects={recentProjects}
+        onSelectProject={handleSelectProjectSidebar}
+        onNewSession={handleNewSessionSidebar}
+        sessionsCount={sessions.length}
+        activeSessionsCount={sidebarActiveSessions.length}
+        inactiveSessionsCount={sidebarInactiveSessions.length}
+        activeSessions={sidebarActiveSessions}
+        inactiveSessions={sidebarInactiveSessions}
+        activeId={activeId}
+        isPinned={isPinned}
+        permissionSessionIds={permissionSessionIds}
+        statuses={statuses}
+        activeSessionItemRef={activeSessionItemRef}
+        onSelectSession={handleSelectSessionItem}
+        onTogglePin={handleTogglePinItem}
+        onDeleteSession={handleDeleteSessionItem}
+        t={t}
+        lang={lang}
+      />
 
       <main className="main-panel">
-        <header className="topbar">
-          <div className="current-session">
-            <div className="session-head">
-              <div className="topbar-project-row">
-                <div className="project-name-badge" title={selectedProject ? projectName(selectedProject) : undefined}>
-                  <span aria-hidden>📁</span>
-                  <span className="compact-trigger-name">{switchingProject ? t.opening : selectedProject ? projectName(selectedProject) : "—"}</span>
-                </div>
-                <button className="new-chat-top" type="button" onClick={() => void handleNewSession()} disabled={!selectedProject} title={t.newConversation} aria-label={t.newConversation}>
-                  <span aria-hidden>＋</span>
-                  <span className="new-chat-top-label">{t.newConversation}</span>
-                </button>
-                <div className="model-bar">
-                  <button className="model-pill" onClick={() => setShowModels(true)} title={t.modelInUse}>
-                    <span className="model-pill-id">
-                      <span aria-hidden>🤖</span>
-                      <span className="model-pill-name" dir="ltr">
-                        {displayedModel ? (() => {
-                          const model = models.find((m) => m.providerID === displayedModel.providerID && m.id === displayedModel.modelID);
-                          return model ? shortModelName(model) : displayedModel.modelID;
-                        })() : t.defaultModel}
-                      </span>
-                    </span>
-                    {displayedModel?.variant && (
-                      <span className="model-pill-variant">
-                        <span className="model-pill-variant-value" dir="ltr">{displayedModel.variant}</span>
-                      </span>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="topbar-rail">
-            <button className="icon-button mobile-only" onClick={() => setShowSessions(true)} aria-label={t.openSessions}>☰</button>
-            <span className="topbar-rail-divider mobile-only" aria-hidden />
-            <div className="topbar-actions">
-              <button className="icon-button activity-button icon-activity" onClick={() => setShowActivity(true)} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activeSessions.length > 0 ? <span className="count-badge">{activeSessions.length}</span> : null}</button>
-              {/* ترتيب الأزرار مقصود: زر الـ git جنب زر "النشطة" عشان متابعة الملفات
-                  والرجوع لأقوى محادثة شغّالة يبقوا في نفس السطر من الذهن، والمثبّتة
-                  تاني وراهم عشان الشريط يفضل مقسوم: حالة ← ملفات ← مرجع. */}
-              <button className="icon-button activity-button git-button icon-git" onClick={openGitChanges} aria-label={t.gitChangesAria} title={`${t.gitChangesAria} ⑂`}><GitBranchIcon />{gitChangedCount > 0 ? <span className="count-badge">{gitChangedCount}</span> : null}</button>
-              <button
-                className="icon-button icon-pinned"
-                onClick={() => setShowPinned(true)}
-                aria-label={t.pinnedConversations}
-                title={`${t.pinnedConversations} — ${selectedProject ? projectName(selectedProject) : t.unknownProject} 📌`}
-              >
-                <span aria-hidden>📌</span>
-                {projectPins.length > 0 ? <span className="count-badge">{projectPins.length}</span> : null}
-              </button>
-              <button className="icon-button icon-history" onClick={() => setShowHistory(true)} aria-label={t.historyAria} title={`${t.historyAria} 🕘`}>🕘</button>
-              <span className="topbar-rail-divider" aria-hidden />
-              <button className="icon-button icon-theme" onClick={toggleTheme} aria-label={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`} title={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`}><span aria-hidden>{THEME_META[theme].icon}</span></button>
-              <button className="icon-button lang-button icon-lang" onClick={toggleLanguage} aria-label={t.language} title={t.language}><span className="lang-globe" aria-hidden>🌐</span><span className={`lang-code${lang === "ar" ? "" : " lang-ar"}`}>{lang === "ar" ? "EN" : "ع"}</span></button>
-              <button
-                className={`icon-button ${soundOn ? "icon-sound" : "icon-muted"}`}
-                onClick={toggleSound}
-                aria-pressed={soundOn}
-                aria-label={soundOn ? t.mute : t.unmute}
-                title={soundOn ? t.mute : t.unmute}
-              >
-                {soundOn ? <SoundOnIcon /> : <SoundMuteIcon />}
-              </button>
-              <span className="topbar-rail-divider" aria-hidden />
-              <button className="icon-button icon-settings" onClick={() => setShowSettings(true)} aria-label={t.settingsAria} title={t.settingsAria}><SettingsIcon /></button>
-              <button className="icon-button icon-logout" onClick={() => void handleLogout()} aria-label={t.logout} title={t.logout}><LogoutIcon /></button>
-            </div>
-          </div>
-        </header>
+        <TopBar
+          selectedProject={selectedProject}
+          switchingProject={switchingProject}
+          onOpenSessions={handleOpenSessions}
+          onNewSession={handleNewSessionSidebar}
+          onShowActivity={handleShowActivity}
+          onShowHistory={handleShowHistory}
+          onShowPinned={handleShowPinned}
+          onShowSettings={handleShowSettings}
+          onShowModels={handleShowModels}
+          onOpenGitChanges={handleOpenGitChanges}
+          onToggleTheme={toggleTheme}
+          onToggleLanguage={toggleLanguage}
+          onToggleSound={toggleSound}
+          onLogout={handleLogoutTop}
+          activeSessionsCount={activeSessions.length}
+          gitChangedCount={gitChangedCount}
+          projectPinsCount={projectPins.length}
+          displayedModelName={displayedModelName}
+          displayedModel={displayedModel}
+          theme={theme}
+          soundOn={soundOn}
+          lang={lang}
+          t={t}
+        />
 
         <div className="workspace">
           <div className="workspace-scroll" ref={workspaceScrollRef} onPointerDown={releaseScrollPin}>
             {requests.length > 0 ? (
               <div className="request-stack">
-                <RequestCard requests={requests} sessionId={activeId} listRef={requestListRef} title={activeTitle} status={activeStatus} stalled={activeId ? stalledIds.has(activeId) : false} waitingOnUser={activeId !== null && (requestQuestions.some((question) => question.sessionID === activeId) || permissions.some((permission) => permission.sessionID === activeId))} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={(request) => void handleSkip(request)} onRunNow={(request) => void handleRunNow(request)} onRemove={(request) => void handleRemoveQueued(request)} busyAction={queueAction} t={t} lang={lang} />
+                <RequestCard requests={requests} sessionId={activeId} listRef={requestListRef} title={activeTitle} status={activeStatus} stalled={activeId ? stalledIds.has(activeId) : false} waitingOnUser={activeId !== null && (requestQuestions.some((question) => question.sessionID === activeId) || permissions.some((permission) => permission.sessionID === activeId))} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={handleSkip} onRunNow={handleRunNow} onRemove={handleRemoveQueued} busyAction={queueAction} t={t} lang={lang} />
               </div>
             ) : (
               <div className="welcome-state">
@@ -2001,13 +2044,13 @@ function App() {
               </div>
             )}
             {activeId ? (
-              <StickyQuestions questions={requestQuestions.filter((question) => question.sessionID === activeId)} sessionId={activeId} onAnswered={() => void refreshRequests(activeId).catch(() => undefined)} t={t} />
+              <StickyQuestions questions={activeQuestions} sessionId={activeId} onAnswered={() => void refreshRequests(activeId).catch(() => undefined)} t={t} />
             ) : null}
           </div>
 
-          {permissions.filter((permission) => permission.sessionID === activeId).length > 0 ? (
+          {activePermissions.length > 0 ? (
             <div className="permissions-stack">
-              {permissions.filter((permission) => permission.sessionID === activeId).map((permission) => <PermissionCard key={permission.id} permission={permission} onReply={(response) => void handlePermission(permission, response)} t={t} />)}
+              {activePermissions.map((permission) => <PermissionCard key={permission.id} permission={permission} onReply={(response) => void handlePermission(permission, response)} t={t} />)}
             </div>
           ) : null}
 
@@ -2040,106 +2083,122 @@ function App() {
 
       {showActivity ? (
         <Suspense fallback={<PanelFallback />}>
-          <ActiveSessionsPanel
-            items={activeSessions}
-            recent={activityRecent}
-            graceLeft={activityGraceLeft}
-            activeId={activeId}
-            jumpingId={jumpingId}
-            onJump={(item) => { setShowActivity(false); void jumpToActivitySession(item) }}
-            onClose={() => setShowActivity(false)}
-            t={t}
-            lang={lang}
-          />
+          <PanelErrorBoundary t={t} panelName="ActiveSessionsPanel" onClose={() => setShowActivity(false)}>
+            <ActiveSessionsPanel
+              items={activeSessions}
+              recent={activityRecent}
+              graceLeft={activityGraceLeft}
+              activeId={activeId}
+              jumpingId={jumpingId}
+              onJump={(item) => { setShowActivity(false); void jumpToActivitySession(item) }}
+              onClose={() => setShowActivity(false)}
+              t={t}
+              lang={lang}
+            />
+          </PanelErrorBoundary>
         </Suspense>
       ) : null}
       {gitRequests.isOpen ? (
         <Suspense fallback={<PanelFallback />}>
-          <GitChangesPanel
-            changes={gitChanges}
-            loading={gitLoading}
-            busy={sending}
-            confirming={gitRequests.confirming}
-            confirmingPush={gitRequests.confirmingPush}
-            onRefresh={() => void refreshGitChanges()}
-            onCommitPush={() => void gitRequests.commitPush()}
-            onAskCommitPush={gitRequests.askCommitPush}
-            onCancelCommitPush={gitRequests.cancelCommitPush}
-            onCommit={() => void gitRequests.commit()}
-            onPull={() => void gitRequests.pull()}
-            onAskRevertAll={gitRequests.askRevertAll}
-            onRevertAll={() => void gitRequests.revertAll()}
-            onCancelRevertAll={gitRequests.cancelRevertAll}
-            onRevertFile={(file) => void gitRequests.revertFile(file)}
-            onClose={gitRequests.close}
-            t={t}
-          />
+          <PanelErrorBoundary t={t} panelName="GitChangesPanel" onClose={gitRequests.close}>
+            <GitChangesPanel
+              changes={gitChanges}
+              loading={gitLoading}
+              busy={sending}
+              confirming={gitRequests.confirming}
+              confirmingPush={gitRequests.confirmingPush}
+              onRefresh={() => void refreshGitChanges()}
+              onCommitPush={() => void gitRequests.commitPush()}
+              onAskCommitPush={gitRequests.askCommitPush}
+              onCancelCommitPush={gitRequests.cancelCommitPush}
+              onCommit={() => void gitRequests.commit()}
+              onPull={() => void gitRequests.pull()}
+              onAskRevertAll={gitRequests.askRevertAll}
+              onRevertAll={() => void gitRequests.revertAll()}
+              onCancelRevertAll={gitRequests.cancelRevertAll}
+              onRevertFile={(file) => void gitRequests.revertFile(file)}
+              onClose={gitRequests.close}
+              t={t}
+            />
+          </PanelErrorBoundary>
         </Suspense>
       ) : null}
       {showHistory ? (
         <Suspense fallback={<PanelFallback />}>
-          <HistoryPanel
-            turns={historyTurns}
-            loading={historyLoading}
-            error={historyError}
-            sessionId={activeId}
-            onClose={() => setShowHistory(false)}
-            onCopy={copyText}
-            onRetry={() => void loadHistory()}
-            t={t}
-            lang={lang}
-          />
+          <PanelErrorBoundary t={t} panelName="HistoryPanel" onClose={() => setShowHistory(false)}>
+            <HistoryPanel
+              turns={historyTurns}
+              loading={historyLoading}
+              error={historyError}
+              sessionId={activeId}
+              onClose={() => setShowHistory(false)}
+              onCopy={copyText}
+              onRetry={() => void loadHistory()}
+              t={t}
+              lang={lang}
+            />
+          </PanelErrorBoundary>
         </Suspense>
       ) : null}
       {showPinned ? (
         <Suspense fallback={<PanelFallback />}>
-          <PinnedConversationsPanel
-            pins={projectPins}
-            activeId={activeId}
-            projectName={selectedProject ? projectName(selectedProject) : ""}
-            statuses={statuses}
-            onSelect={(pin) => { void openPinnedConversation(pin) }}
-            onUnpin={(pin) => togglePin(pin)}
-            onClose={closePinnedPanel}
-            t={t}
-            lang={lang}
-          />
+          <PanelErrorBoundary t={t} panelName="PinnedConversationsPanel" onClose={closePinnedPanel}>
+            <PinnedConversationsPanel
+              pins={projectPins}
+              activeId={activeId}
+              projectName={selectedProject ? projectName(selectedProject) : ""}
+              statuses={statuses}
+              onSelect={(pin) => { void openPinnedConversation(pin) }}
+              onUnpin={(pin) => togglePin(pin)}
+              onClose={closePinnedPanel}
+              t={t}
+              lang={lang}
+            />
+          </PanelErrorBoundary>
         </Suspense>
       ) : null}
       {showModels ? (
         <Suspense fallback={<PanelFallback />}>
-          <ModelPicker
-            models={models}
-            loading={modelsLoading}
-            current={displayedModel}
-            busy={isBusy}
-            switching={switchingKey}
-            onSelect={(model, variant) => void handleSelectModel(model, variant)}
-            onRefresh={() => void loadModels()}
-            onClose={() => setShowModels(false)}
-            t={t}
-          />
+          <PanelErrorBoundary t={t} panelName="ModelPicker" onClose={() => setShowModels(false)}>
+            <ModelPicker
+              models={models}
+              loading={modelsLoading}
+              current={displayedModel}
+              busy={isBusy}
+              switching={switchingKey}
+              onSelect={(model, variant) => void handleSelectModel(model, variant)}
+              onRefresh={() => void loadModels()}
+              onClose={() => setShowModels(false)}
+              t={t}
+            />
+          </PanelErrorBoundary>
         </Suspense>
       ) : null}
       {showSettings ? (
-        <div className="drawer-backdrop" onClick={() => setShowSettings(false)}>
-          <aside className="drawer settings-drawer" onClick={(event) => event.stopPropagation()}>
-            <div className="drawer-header"><div><div className="eyebrow">{t.settings}</div><h2>{t.settingsDetails}</h2></div><button className="icon-button" onClick={() => setShowSettings(false)} aria-label={t.close}>×</button></div>
-            <div className="settings-list">
-              <div className="setting-row"><div><strong>{t.project}</strong><small>📁 {projectName(selectedProject)} · {t.projectSwitchHint}</small></div><button className="button button-secondary" onClick={() => setShowSettings(false)}>{t.ok} ✓</button></div>
-              <div className="setting-row"><div><strong>{t.opencode}</strong><small>{config.openCode.version === "connected" ? t.connected : config.openCode.version}</small></div><span className="status-pill success">{t.connected}</span></div>
-              <div className="setting-row"><div><strong>{t.statusStream}</strong><small>{eventConnected ? t.realtimeWorking : t.offline}</small></div><span className={`status-pill ${eventConnected ? "success" : "warning"}`}>{eventConnected ? t.active : t.inactive}</span></div>
-              <div className="setting-row"><div><strong>{t.phoneNotifications}</strong><small>{config.secureContext ? t.pushViaHttps : t.pushNeedsHttps}</small></div>{pushState === "enabled" ? <button className="button button-ghost" onClick={() => void disablePush()}>{t.disable}</button> : <button className="button button-secondary" onClick={() => void enablePush()}>{t.enable}</button>}</div>
-              <div className="setting-row setting-row-theme"><div><strong>🌓 {t.appearance}</strong><small>{themeDescription(theme, t)}</small></div><div className="theme-picker" role="radiogroup" aria-label={t.appearance}>{THEMES.map((value) => <button key={value} type="button" role="radio" aria-checked={theme === value} className={`theme-option${theme === value ? " active" : ""}`} onClick={() => setTheme(value)}><span className="theme-option-icon" aria-hidden>{THEME_META[value].icon}</span><span>{themeLabel(value, t)}</span></button>)}</div></div>
-              <div className="setting-row"><div><strong>🌐 {t.language}</strong><small>{t.languageName}</small></div><div className="theme-picker" role="radiogroup" aria-label={t.language}><button type="button" role="radio" aria-checked={lang === "ar"} className={`theme-option${lang === "ar" ? " active" : ""}`} onClick={() => setLang("ar")}><span>ع</span><span>العربية</span></button><button type="button" role="radio" aria-checked={lang === "en"} className={`theme-option${lang === "en" ? " active" : ""}`} onClick={() => setLang("en")}><span>EN</span><span>English</span></button></div></div>
-              <div className="setting-row"><div><strong>🔔 {t.taskDoneSound}</strong><small>{soundOn ? t.soundOnDesc : t.soundOffDesc}</small></div><div style={{ display: "flex", gap: 6 }}><button className="button button-secondary" onClick={testSound}>{t.tryIt} 🔊</button><button className={`button ${soundOn ? "button-ghost" : "button-primary"}`} onClick={toggleSound}>{soundOn ? t.mute : t.enable}</button></div></div>
-              {installPrompt ? <button className="button button-secondary button-wide" onClick={() => void installApp()}>{t.installApp}</button> : null}
-              {pushState === "unsupported" ? <div className="info-box">{t.pushUnsupported}</div> : null}
-              {pushState === "blocked" ? <div className="info-box">{t.pushBlocked}</div> : null}
-              {!config.secureContext ? <div className="warning-box">{t.pushNeedsSecure}</div> : null}
-            </div>
-          </aside>
-        </div>
+        <Suspense fallback={<PanelFallback />}>
+          <PanelErrorBoundary t={t} panelName="SettingsDrawer" onClose={() => setShowSettings(false)}>
+            <SettingsDrawer
+              open
+              onClose={() => setShowSettings(false)}
+              t={t}
+              config={config}
+              projectName={selectedProject ? projectName(selectedProject) : ""}
+              eventConnected={eventConnected}
+              pushState={pushState}
+              onEnablePush={() => void enablePush()}
+              onDisablePush={() => void disablePush()}
+              installPromptAvailable={installPrompt !== null}
+              onInstallApp={() => void installApp()}
+              theme={theme}
+              onThemeChange={(value) => setTheme(value)}
+              lang={lang}
+              onLangChange={(value) => setLang(value)}
+              soundOn={soundOn}
+              onTestSound={testSound}
+              onToggleSound={toggleSound}
+            />
+          </PanelErrorBoundary>
+        </Suspense>
       ) : null}
 
       <div className="toast-stack" aria-live="polite">

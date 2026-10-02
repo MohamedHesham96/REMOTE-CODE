@@ -3,7 +3,7 @@ export type Language = "ar" | "en";
 
 const LANG_KEY = "opencode-language";
 
-export const LANGUAGE_META: Record<Language, { label: string; short: string; dir: "rtl" | "ltr" }> = {
+const LANGUAGE_META: Record<Language, { label: string; short: string; dir: "rtl" | "ltr" }> = {
   ar: { label: "العربية", short: "ع", dir: "rtl" },
   en: { label: "English", short: "EN", dir: "ltr" },
 };
@@ -48,6 +48,7 @@ export function localeOf(lang: Language): string {
 
 const ar = {
   appName: "RemoteCode",
+  panelLoadFailed: "تعذّر فتح هذه اللوحة",
   statusReady: "جاهز",
   statusBusy: "يعمل الآن",
   statusRetry: "إعادة المحاولة",
@@ -330,6 +331,7 @@ const ar = {
 
 const en: typeof ar = {
   appName: "RemoteCode",
+  panelLoadFailed: "This panel could not be opened",
   statusReady: "Ready",
   statusBusy: "Working now",
   statusRetry: "Retrying",

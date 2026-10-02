@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react"
+import { memo, useState, type ReactElement } from "react"
 import { QuestionCard } from "./QuestionCard"
 import type { Strings } from "../../i18n"
 import type { ConversationQuestionRequest } from "../../types"
@@ -14,7 +14,10 @@ interface StickyQuestionsProps {
 // المستخدم رجع يقرأ رسائل قديمة يقدر يصغّره لشريط رفيع بدل ما يفضل
 // مغطي المحادثة وهو طالع نازل. سؤال جديد (ids مختلفة) يفتحه تلقائيًا
 // لأن الانتباه للجديد أهم من حالة الطيّ القديمة.
-export function StickyQuestions({ questions, sessionId, onAnswered, t }: StickyQuestionsProps): ReactElement | null {
+//
+// memo: بيتنفّذ داخل كارت المحادثة، فمع `useNowTick` و`refreshRequests`
+// كل ثانية كان بيتعاد حساب `idsKey` والـ render حتى لو مفيش أسئلة.
+function StickyQuestionsInner({ questions, sessionId, onAnswered, t }: StickyQuestionsProps): ReactElement | null {
   const [collapsed, setCollapsed] = useState(false)
   const idsKey = questions.map((question) => question.id).join(",")
   const [prevKey, setPrevKey] = useState(idsKey)
@@ -49,3 +52,5 @@ export function StickyQuestions({ questions, sessionId, onAnswered, t }: StickyQ
     </div>
   )
 }
+
+export const StickyQuestions = memo(StickyQuestionsInner)

@@ -1,6 +1,10 @@
 import { request } from "./http"
 import type { ConversationQuestionAnswers, Permission } from "../types"
 
+// كاش ETag العام في http.ts بيتكفّل: لما السيرفر يبعت ETag للـ permissions
+// (انضم للمجموعة)، الـ GET التالي يبعت If-None-Match تلقائيًا ولو رجع
+// 304 بيرجع نفس المرجع من الكاش — React يعمل bail-out ومفيش setPermissions
+// بدون تغيير حقيقي.
 export function listPermissions(): Promise<Permission[]> {
   return request<Permission[]>("/api/permission")
 }

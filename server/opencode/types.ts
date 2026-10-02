@@ -1,11 +1,3 @@
-import type {
-  FormInfo,
-  OpenCodeClient,
-  OpenCodeEvent,
-  SessionInfo,
-  SessionMessageInfo,
-} from "@opencode/client"
-
 // الأشكال السلكية (wire) التي يتكلم بها `/api/*` مع الواجهة ثابتة منذ v1،
 // فطبقة المحرك تترجم إليها بدل كشف أنواع المحرك الخام. بهذا لا تتغير
 // الواجهة ولا الاختبارات السلوكية مع تبديل المحرك تحتها.
@@ -38,8 +30,6 @@ export interface EnginePermission {
   title: string
   pattern?: string
 }
-
-export type { FormInfo, OpenCodeClient, OpenCodeEvent, SessionInfo, SessionMessageInfo }
 
 export interface ServiceOptions {
   projectDirectory: string

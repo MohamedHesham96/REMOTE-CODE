@@ -2,6 +2,57 @@ import { DEFAULT_MODEL_KEY, LAST_SESSION_KEY, PINNED_MODELS_KEY, PINNED_MODELS_L
 import type { PinnedConversation, Session, SessionModelRef, SessionRequest } from "../types"
 import { normalizeProjectPath } from "./paths"
 
+// كاش ذاكرة للقراءات من localStorage: الـ writers في الأسفل بتقرأ القيمة
+// الحالية عشان تعدّل عليها (read-modify-write)، فبنخزّن آخر قيمة محلّلة
+// محليًا عشان نتجنّب JSON.parse في كل كتابة. الكتابة الأولى بتحمّل من
+// localStorage، والكتابات اللاحقة بتقرأ من الكاش. لو مفاتيح تانية من
+// تاب تاني عدّلت الـ localStorage، الصفحة دي هتشوف القيمة القديمة — مقبول
+// لأن الـ API نفسه كاش الـ server هو مصدر الحقيقة للمثبّتات.
+const localStoreCache: Record<string, unknown> = {}
+
+function readLocalJSONRaw(key: string): unknown {
+  if (key in localStoreCache) {
+    return localStoreCache[key]
+  }
+  let value: unknown
+  try {
+    const raw = localStorage.getItem(key)
+    value = raw ? JSON.parse(raw) : undefined
+  } catch {
+    value = undefined
+  }
+  localStoreCache[key] = value
+  return value
+}
+
+function writeLocalJSON(key: string, value: unknown): void {
+  localStoreCache[key] = value
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // ignore — localStorage ممتلئ أو موقوف
+  }
+}
+
+function dropLocalCache(key: string): void {
+  delete localStoreCache[key]
+}
+
+// مسح الكاش لمفتاح واحد — بنستخدمه في الـ readers اللي بتحتاج تتجاوز
+// الكاش (مثل `loadDefaultModels` لما البيانات تكون قابلة للتلف).
+function invalidateLocalCache(key: string): void {
+  dropLocalCache(key)
+}
+
+// للاختبارات فقط: مسح كامل للكاش عشان كل `it` يبدأ من localStorage نظيف.
+// الـ tests بتعمل vi.stubGlobal("localStorage", ...) في beforeEach، فالكاش
+// لازم يتعاد ضبطه عشان ما يلوثش بين الـ test cases.
+export function _resetLocalCacheForTesting(): void {
+  for (const key of Object.keys(localStoreCache)) {
+    delete localStoreCache[key]
+  }
+}
+
 export function sortSessionsByCreated(list: Session[]): Session[] {
   const sorted = [...list].sort((a, b) => (b.time.created - a.time.created) || (b.time.updated - a.time.updated))
   // نفس المحادثة مستحيل تظهر مرتين في القائمة الجانبية: إرسال مزدوج سريع
@@ -26,53 +77,37 @@ export function isRequestsEmpty(candidate: SessionRequest[] | null): boolean {
 }
 
 export function loadLastSessions(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem(LAST_SESSION_KEY)
-    if (!raw) {
-      return {}
-    }
-    const parsed = JSON.parse(raw) as unknown
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {}
-    }
-    const result: Record<string, string> = {}
-    for (const [worktree, sessionId] of Object.entries(parsed)) {
-      if (typeof sessionId === "string" && sessionId) {
-        result[normalizeProjectPath(worktree)] = sessionId
-      }
-    }
-    return result
-  } catch {
+  const parsed = readLocalJSONRaw(LAST_SESSION_KEY)
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     return {}
   }
+  const result: Record<string, string> = {}
+  for (const [worktree, sessionId] of Object.entries(parsed)) {
+    if (typeof sessionId === "string" && sessionId) {
+      result[normalizeProjectPath(worktree)] = sessionId
+    }
+  }
+  return result
 }
 
 export function saveLastSession(worktree: string, sessionId: string): void {
   const key = normalizeProjectPath(worktree)
-  try {
-    const all = loadLastSessions()
-    if (all[key] === sessionId) {
-      return
-    }
-    all[key] = sessionId
-    localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(all))
-  } catch {
-    // ignore
+  const all = loadLastSessions()
+  if (all[key] === sessionId) {
+    return
   }
+  all[key] = sessionId
+  writeLocalJSON(LAST_SESSION_KEY, all)
 }
 
 export function forgetLastSession(worktree: string): void {
   const key = normalizeProjectPath(worktree)
-  try {
-    const all = loadLastSessions()
-    if (all[key] === undefined) {
-      return
-    }
-    delete all[key]
-    localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(all))
-  } catch {
-    // ignore
+  const all = loadLastSessions()
+  if (all[key] === undefined) {
+    return
   }
+  delete all[key]
+  writeLocalJSON(LAST_SESSION_KEY, all)
 }
 
 // ── الموديل الافتراضي لكل مشروع ──
@@ -103,26 +138,18 @@ export function normalizeModelRef(value: unknown): SessionModelRef | null {
 }
 
 export function loadDefaultModels(): Record<string, SessionModelRef> {
-  try {
-    const raw = localStorage.getItem(DEFAULT_MODEL_KEY)
-    if (!raw) {
-      return {}
-    }
-    const parsed = JSON.parse(raw) as unknown
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {}
-    }
-    const result: Record<string, SessionModelRef> = {}
-    for (const [worktree, value] of Object.entries(parsed)) {
-      const ref = normalizeModelRef(value)
-      if (ref) {
-        result[normalizeProjectPath(worktree)] = ref
-      }
-    }
-    return result
-  } catch {
+  const parsed = readLocalJSONRaw(DEFAULT_MODEL_KEY)
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     return {}
   }
+  const result: Record<string, SessionModelRef> = {}
+  for (const [worktree, value] of Object.entries(parsed)) {
+    const ref = normalizeModelRef(value)
+    if (ref) {
+      result[normalizeProjectPath(worktree)] = ref
+    }
+  }
+  return result
 }
 
 export function loadDefaultModel(worktree: string): SessionModelRef | null {
@@ -135,17 +162,13 @@ export function saveDefaultModel(worktree: string, model: SessionModelRef): void
   if (!key || !ref) {
     return
   }
-  try {
-    const all = loadDefaultModels()
-    const current = all[key]
-    if (current && current.providerID === ref.providerID && current.modelID === ref.modelID && (current.variant || "") === (ref.variant || "")) {
-      return
-    }
-    all[key] = ref
-    localStorage.setItem(DEFAULT_MODEL_KEY, JSON.stringify(all))
-  } catch {
-    // ignore
+  const all = loadDefaultModels()
+  const current = all[key]
+  if (current && current.providerID === ref.providerID && current.modelID === ref.modelID && (current.variant || "") === (ref.variant || "")) {
+    return
   }
+  all[key] = ref
+  writeLocalJSON(DEFAULT_MODEL_KEY, all)
 }
 
 export function loadRecentProjects(): string[] {
@@ -282,34 +305,48 @@ export function pinsForProject(pins: PinnedConversation[], worktree: string | nu
 }
 
 export function loadPinnedConversations(): PinnedConversation[] {
-  try {
-    const raw = localStorage.getItem(PINNED_SESSIONS_KEY)
-    if (!raw) {
-      return []
-    }
-    return normalizePinnedConversations(JSON.parse(raw) as unknown)
-  } catch {
-    return []
-  }
+  const parsed = readLocalJSONRaw(PINNED_SESSIONS_KEY)
+  return normalizePinnedConversations(parsed)
 }
 
 export function savePinnedConversations(pins: PinnedConversation[]): void {
   const next = normalizePinnedConversations(pins)
-  try {
-    // ما نكتبش نفس القيمة: التقاط غير ضروري في كل render
-    const current = localStorage.getItem(PINNED_SESSIONS_KEY)
-    if (current === JSON.stringify(next)) {
-      return
-    }
-    localStorage.setItem(PINNED_SESSIONS_KEY, JSON.stringify(next))
-  } catch {
-    // ignore
+  // ما نكتبش نفس القيمة: التقاط غير ضروري في كل render
+  const current = readLocalJSONRaw(PINNED_SESSIONS_KEY)
+  if (sameNormalized(current, next)) {
+    return
   }
+  writeLocalJSON(PINNED_SESSIONS_KEY, next)
+}
+
+// مقارنة سريعة بين الشكلين الطبيعي والمُخزّن: لو نفس الطول والـ ids بنفس
+// الترتيب، نعتبرهم متطابقين (الترتيب محفوظ في `normalizePinnedConversations`).
+function sameNormalized(left: unknown, right: PinnedConversation[]): boolean {
+  if (!left || typeof left !== "object" || Array.isArray(left) === false) {
+    return false
+  }
+  const arr = left as unknown[]
+  if (arr.length !== right.length) {
+    return false
+  }
+  for (let i = 0; i < arr.length; i += 1) {
+    const a = arr[i] as PinnedConversation | undefined
+    const b = right[i]
+    if (!a || !b || a.id !== b.id || a.title !== b.title || a.created !== b.created) {
+      return false
+    }
+  }
+  return true
 }
 
 // هل النسخة المحفوظة بالشكل القديم (array من ids مجرّدة)؟ بنستخدمها مرة واحدة
 // عشان نعرف إننا لازم نرفعها للسيرفر — بعد أول مزامنة بتتخزّن بالشكل الجديد.
 export function hasLegacyPinnedFormat(): boolean {
+  // الـ cache بيتخطّى التحقق من الشكل القديم — البيانات اللي مرّت عبر
+  // `loadPinnedConversations` أو `savePinnedConversations` محوَّلة بالفعل،
+  // فالـ legacy check ده بيشوف الـ raw localStorage مباشرة عشان يقرر هل
+  // محتاج ترقية.
+  invalidateLocalCache(PINNED_SESSIONS_KEY)
   try {
     const raw = localStorage.getItem(PINNED_SESSIONS_KEY)
     if (!raw) {

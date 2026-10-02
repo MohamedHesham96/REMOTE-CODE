@@ -72,28 +72,6 @@ import {
   withTimeout,
 } from "./opencode/utils.js"
 
-// إعادة تصدير للتوافق: الاستيراد من "./opencode.js" ما زال يعطي نفس الأنواع.
-export type {
-  ActiveSession,
-  ConversationQuestion,
-  ConversationQuestionOption,
-  ConversationQuestionRequest,
-  GitChangeFile,
-  GitChanges,
-  HistoryTurn,
-  ModelInfo,
-  Project,
-  RequestState,
-  ResultFile,
-  ServiceOptions,
-  Session,
-  SessionModelRef,
-  SessionRequest,
-  SessionRequests,
-  SessionStatus,
-  Todo,
-} from "./opencode/types.js"
-
 // نص مُرمَّز داخلي مش نص للمستخدم — الراوت بيمرّره لـ serverMessage
 // ليترجم حسب لغة الطلب، فـ opencode.ts ما فيهوش نصوص مترجمة.
 // الترجمة مكانها server/i18n.ts مع باقي رسائل العقد.
@@ -167,6 +145,11 @@ export class OpenCodeService {
   private promptSeq = 0
   private queueWatchdog: NodeJS.Timeout | null = null
   private readonly pendingPermissions = new Map<string, EnginePermission>()
+  // عدّاد زيادات الأذونات: أي add/delete بيرفعها ببطء. ده نسخة بسيطة لكنها
+  // كافية للـ ETag لأن الإضافات/الإزافات نادرة. الزيادات الكبيرة (مثلاً
+  // 10 إضافات في ثانية) بتنتج ETag مختلف في كل واحدة، وده مرغوب — العميل
+  // يحدّث فورًا ولا يخدم ببيانات قديمة.
+  private permissionsVersion = 0
   private readonly mobileSessions = new Set<string>()
   private readonly mobileSessionsPath = resolve(process.cwd(), "data", "mobile-sessions.json")
   private eventsStarted = false
@@ -405,11 +388,14 @@ export class OpenCodeService {
         title: typeof data.message === "string" && data.message.trim() ? data.message : data.action,
         pattern: data.resources.join(", "),
       })
+      this.permissionsVersion += 1
     }
 
     if (eventType === "permission.replied") {
       const replied = event.data as unknown as { requestID: string }
-      this.pendingPermissions.delete(replied.requestID)
+      if (this.pendingPermissions.delete(replied.requestID)) {
+        this.permissionsVersion += 1
+      }
     }
 
     if (eventType === "session.status") {
@@ -2051,12 +2037,18 @@ export class OpenCodeService {
   async replyPermission(id: string, permissionId: string, response: "once" | "always" | "reject"): Promise<boolean> {
     await this.requireClient().permission.reply({ sessionID: id, requestID: permissionId, decision: response })
 
-    this.pendingPermissions.delete(permissionId)
+    if (this.pendingPermissions.delete(permissionId)) {
+      this.permissionsVersion += 1
+    }
     return true
   }
 
   permissions(): EnginePermission[] {
     return [...this.pendingPermissions.values()]
+  }
+
+  permissionsVersionValue(): string {
+    return this.permissionsVersion.toString()
   }
 
   close(): void {

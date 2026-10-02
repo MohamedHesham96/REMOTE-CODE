@@ -1,7 +1,7 @@
 import type { Strings } from "../../i18n"
 import type { Todo } from "../../types"
 
-export function todoPresentation(status: string, t: Strings): { className: string; label: string; mark: string } {
+function todoPresentation(status: string, t: Strings): { className: string; label: string; mark: string } {
   const normalized = status.toLowerCase().replace(/-/g, "_")
   if (normalized === "completed") {
     return { className: "todo-completed", label: t.todoCompleted, mark: "✓" }

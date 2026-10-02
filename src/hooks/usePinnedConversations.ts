@@ -14,6 +14,27 @@ import {
 } from "../utils/storage"
 import { createPinSyncGate } from "../utils/pin-sync"
 
+// مقارنة سريعة بين قائمتي مثبّتات: لو الطول نفسه والـ ids بنفس الترتيب،
+// نعتبرهم متطابقين. ده كافٍ لأن قائمة المثبّتات مرتبة (الأحدث تثبيتًا
+// أولًا) ومعرّفة بمعرّف الجلسة، والـ SSE بيضم نفس البيانات غالبًا.
+// بديل `JSON.stringify` اللي كان بيتنفّذ على كل بثّ سيرفر.
+function samePinList(left: PinnedConversation[], right: PinnedConversation[]): boolean {
+  if (left === right) {
+    return true
+  }
+  if (left.length !== right.length) {
+    return false
+  }
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i]
+    const b = right[i]
+    if (!a || !b || a.id !== b.id || a.title !== b.title || a.created !== b.created || a.worktree !== b.worktree || a.directory !== b.directory) {
+      return false
+    }
+  }
+  return true
+}
+
 interface PinnedConversations {
   // كل المثبّتات في كل المشاريع بترتيب "الأحدث تثبيتًا أولًا" — مرآة لسيرفر
   pins: PinnedConversation[]
@@ -60,7 +81,7 @@ export function usePinnedConversations(worktree: string | null, projectName: str
   }, [pins])
 
   const applyServerPins = useCallback((next: PinnedConversation[]) => {
-    setPins((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next))
+    setPins((current) => (samePinList(current, next) ? current : next))
   }, [])
 
   // طلب خلص: لو فيه بثّ مستني لحد ما يخلص الطلب ده، طبّقه — هو أحدث صورة

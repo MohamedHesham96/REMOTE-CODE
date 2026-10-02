@@ -3,7 +3,7 @@ import type { Language } from "../i18n"
 import type { GitChangeFile, GitChanges } from "../types"
 import { commitPrompt, commitPushPrompt, pullPrompt, pushPrompt, revertAllPrompt, revertFilePrompt } from "../utils/git-prompts"
 
-export interface GitRequests {
+interface GitRequests {
   isOpen: boolean
   confirming: boolean
   confirmingPush: boolean
