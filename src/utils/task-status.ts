@@ -113,3 +113,25 @@ export function describeTask(input: TaskStatusInput, t: Strings): TaskStatusView
   // تحت "مكتملة" بيوهم إن في شغل لسه بيتنفّذ، والمهمة خلصت.
   return view("completed", t.taskPhaseCompleted, t.taskCompletedDetail, false)
 }
+
+// وصف صف واحد على حدة. بيستخدمه صف المهمة عشان يعرض نفس `TaskStatusPanel`
+// اللي فوق، فالنص والأدوات يبقوا مطابقين تمامًا للوحة حالة المحادثة. الفرق
+// عن `describeTask` إن ده بيشتغل على طلب واحد: حالته من `request.state`،
+// ومفيش هنا حكم الجمود/الانتظار على مستوى المحادثة (دي مسؤولية اللوحة).
+export function describeRequest(request: SessionRequest, t: Strings): TaskStatusView {
+  switch (request.state) {
+    case "running": {
+      const silent = request.activeTool === null && Date.now() - request.updatedAt >= TASK_QUIET_MS
+      if (silent) {
+        return view("waiting", t.taskPhaseWaiting, t.taskQuietDetail, false)
+      }
+      return view("running", t.taskPhaseRunning, request.activity || t.workingOnTask, true, request.usedTools)
+    }
+    case "queued":
+      return view("waiting", t.taskPhaseWaiting, request.activity || t.taskQueuedDetail, false)
+    case "stopped":
+      return view("error", t.taskPhaseError, t.taskErrorDetail, false)
+    case "done":
+      return view("completed", t.taskPhaseCompleted, t.taskCompletedDetail, false)
+  }
+}

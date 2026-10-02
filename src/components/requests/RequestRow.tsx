@@ -3,7 +3,9 @@ import type { Strings } from "../../i18n"
 import type { RequestState, SessionRequest, ToastKind } from "../../types"
 import { useNowTick } from "../../hooks/useNowTick"
 import { ResultFilesList } from "./ResultFilesList"
+import { TaskStatusPanel } from "./TaskStatusPanel"
 import { CopyButton } from "../CopyButton"
+import { describeRequest } from "../../utils/task-status"
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react"
 import { tailPreview } from "../../utils/preview"
 
@@ -162,10 +164,9 @@ function RequestRowInner({ request, expanded, onToggle, sessionId, onCopy, onToa
       </div>
       {expanded ? (
         <div className="request-row-body">
-          <div className="task-activity">
-            <span className="activity-pulse" />
-            {request.activity || (running ? t.workingOnTask : t.noNewActivity)}
-          </div>
+          {/* نفس اللوحة اللي فوق بالظبط: النص والأدوات المدوّرة من نفس
+              المكوّن، فالصف والترويسة ما يختلفوش أبدًا. */}
+          <TaskStatusPanel view={describeRequest(request, t)} />
           {running ? (
             <>
               <div className="progress-track indeterminate" aria-label={t.running} />
