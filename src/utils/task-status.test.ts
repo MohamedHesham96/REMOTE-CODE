@@ -147,13 +147,28 @@ describe("describeTask", () => {
     expect(view.activity).toBe(t.taskWaitingOnYou)
   })
 
-  it("waits when the latest request is only queued", () => {
+  // القاعدة المقصودة: التركيز على الشغل الحالي. لما في مهمة شغالة وفي طابور
+  // وراها، الكارت يفضل "قيد التنفيذ" وياخد وصف المهمة الشغالة نفسها — مش
+  // وصف الطلب المستني.
+  it("keeps running and shows the running row's activity when a queue follows", () => {
+    const view = describeTask(input({
+      requests: [request({ state: "running", activity: "يشغّل أمرًا" }), request({ state: "queued", activity: "" })],
+      status: busy(),
+    }), t)
+    expect(view.phase).toBe("running")
+    expect(view.activity).toBe("يشغّل أمرًا")
+    expect(view.live).toBe(true)
+  })
+
+  it("waits when only a queued request is left", () => {
     const view = describeTask(input({ requests: [request({ state: "queued", activity: "" })] }), t)
     expect(view.phase).toBe("waiting")
     expect(view.activity).toBe(t.taskQueuedDetail)
   })
 
-  it("waits while the server is retrying", () => {
+  // إعادة المحاولة انتظار حقيقي حتى لو الصف لسه running: السيرفر بيعلنها
+  // قبل ما يوصل الحدث، والوصف الجاي منه هو الأصدق.
+  it("waits while retrying even with a running row", () => {
     const view = describeTask(input({
       requests: [request({ state: "running", activity: "يعيد OpenCode المحاولة الآن" })],
       status: { type: "retry" },

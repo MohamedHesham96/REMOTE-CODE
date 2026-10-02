@@ -302,12 +302,12 @@ function App() {
     return (status?.type === "busy" || status?.type === "retry") || activityIds.has(id) || hasRunningOrQueued
   }, [statuses, activeId, activityIds, activeHasPendingWork])
 
-  // في طلبات مستنية في الطابور؟ لو أيوه لازم نفضل نحدّث لحد ما تخلص كلها
+  // في طلبات مستنية في الطابور؟ لو أيوه لازم نفضل نحدّث لحد ما تخلص كلها.
   const hasQueuedRequests = useMemo(() => requests.some((request) => request.state === "queued"), [requests])
-  // كارت واقف على "شغّال" لازم يفضل يسأل السيرفر لحد ما السيرفر نفسه يقول
-  // إنه خلص. الاعتماد على حالة الجلسة بس كان بيخلي الكارت يعلق شغّال للأبد
-  // لما الـ SSE يفصل (قفل الشاشة/الشبكة) والحالة في الموبايل تتأخر عن OpenCode.
-  const hasRunningRequests = useMemo(() => requests.some((request) => request.state === "running"), [requests])
+  // آخر صف، وبيعتمد عليه قرار "محتاجين نفضل نحدّث؟" تحت.
+  const latestRequest = useMemo(() => requests[requests.length - 1], [requests])
+  // آخر طلب هو الشغّال فعلًا، من غير طابور وراه.
+  const hasRunningRequests = latestRequest?.state === "running" && !hasQueuedRequests
 
   // القائمة الجانبية: "النشطة" = الشغالة دلوقتي بس. مهلة الـ ٥ دقايق
   // ("نشط أخيرًا") موجودة في لوحة "المحادثات النشطة" بس.
@@ -1773,8 +1773,8 @@ function App() {
       } else if (result.started) {
         // اشتغل فعلًا (مفيش مهمة شغّالة) — شايفه بعينك، من غير toast
       } else if (result.queued) {
-        // السيرفر رفض الحقن فاتنقل لأول الطابور وهيتنفّذ بعد المهمة الحالية
-        addToast(t.queuedRunAfterTask, "info")
+        // السيرفر رفض الحقن فاتنقل لأول الطابور وهيتنفّذ بعد المهمة الحالية.
+        // الصف بيبيّن الحالة بعينك — من غير toast
       } else {
         addToast(t.queuedRunFailed, "error")
       }
@@ -1785,7 +1785,7 @@ function App() {
     } finally {
       setQueueAction(null)
     }
-  }, [activeId, queueAction, refreshRequests, addToast, t.queuedSteered, t.queuedRunAfterTask, t.queuedRunFailed])
+  }, [activeId, queueAction, refreshRequests, addToast, t.queuedSteered, t.queuedRunFailed])
 
   const handleRemoveQueued = useCallback(async (request: SessionRequest) => {
     if (!activeId || queueAction) {
@@ -2059,6 +2059,8 @@ function App() {
         recentProjects={recentProjects}
         onSelectProject={handleSelectProjectSidebar}
         onNewSession={handleNewSessionSidebar}
+        latestVersion={releases[0]?.version ?? ""}
+        onShowReleases={handleShowReleases}
         sessionsCount={sessions.length}
         activeSessionsCount={sidebarActiveSessions.length}
         inactiveSessionsCount={sidebarInactiveSessions.length}

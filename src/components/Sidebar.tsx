@@ -15,6 +15,9 @@ interface SidebarProps {
   recentProjects: string[]
   onSelectProject: (project: Project) => void
   onNewSession: () => void
+  // آخر إصدار ظاهر تحت اسم المشروع مباشرة في السايدبار.
+  latestVersion: string
+  onShowReleases: () => void
   sessionsCount: number
   activeSessionsCount: number
   inactiveSessionsCount: number
@@ -50,6 +53,8 @@ function SidebarInner({
   recentProjects,
   onSelectProject,
   onNewSession,
+  latestVersion,
+  onShowReleases,
   sessionsCount,
   activeSessionsCount,
   inactiveSessionsCount,
@@ -75,7 +80,20 @@ function SidebarInner({
   return (
     <aside className={`sidebar ${showSessions ? "sidebar-open" : ""}`}>
       <div className="sidebar-top">
-        <div className="brand"><span className="brand-mark small"><img src="/icon.svg" alt="RemoteCode" /></span><span>RemoteCode</span></div>
+        {/* اللوجو جنب الاسم، والإصدار تحت الاسم على طول: كلهم محاذيين لعمود
+            اللوجو. النقر على الإصدار بيفتح ملاحظات الإصدار. */}
+        <div className="brand">
+          <span className="brand-mark small"><img src="/icon.svg" alt="RemoteCode" /></span>
+          <div className="brand-text">
+            <span className="brand-name">RemoteCode</span>
+            {latestVersion ? (
+              <button type="button" className="sidebar-version" onClick={() => onShowReleases()} title={`${t.releaseNotesAria} 🚀`} aria-label={`${t.appVersionLabel} ${latestVersion} — ${t.releaseNotesAria}`}>
+                <span className="sidebar-version-label">{t.appVersionLabel}</span>
+                <span className="sidebar-version-value" dir="ltr">{latestVersion}</span>
+              </button>
+            ) : null}
+          </div>
+        </div>
         <button className="icon-button mobile-only" onClick={handleClose} aria-label={t.closeMenu}>×</button>
       </div>
       <div className="connection-state" role="status">

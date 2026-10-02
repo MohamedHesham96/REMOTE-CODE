@@ -47,12 +47,17 @@ export function describeTask(input: TaskStatusInput, t: Strings): TaskStatusView
   const { requests, status, stalled, waitingOnUser, now } = input
   const latest = requests[requests.length - 1]
   const busy = status?.type === "busy" || status?.type === "retry"
-  const running = latest !== undefined && latest.state === "running"
-  // شغال بأي معنى: إما OpenCode نفسه بيقول busy، أو آخر صف لسه مفتوح.
-  // الاتنين بيكملوا بعض، لأن الحالة ممكن تتأخر عن الصف أو العكس.
+  // التركيز على الشغل الحالي: الصف الشغّال فعلًا مايكونش بالضرورة آخر صف
+  // (ممكن يكون في طابور مستني وراه). بنلاقيه الأول عشان الحالة والنشاط
+  // يجيبوا من المهمة اللي OpenCode شغّال عليها دلوقتي، مش من المستني.
+  const runningRow = requests.find((request) => request.state === "running")
+  const running = runningRow !== undefined
+  // شغال بأي معنى: OpenCode نفسه بيقول busy، أو في صف لسه running. الطابور
+  // لوحده مش "قيد التنفيذ" — له فرعه الخاص تحت.
   const active = running || busy
-  // سطر النشاط الجاهز من السيرفر، وهو اللي بيترجم الأداة الجارية لعملية مفهومة
-  const activity = latest?.activity ?? ""
+  // سطر النشاط: من الصف الشغّال لو موجود، وإلا من آخر صف. كده الوصف يوصف
+  // المهمة الجارية مش الطلب المستني اللي لسه ماشتغلش.
+  const activity = (runningRow ?? latest)?.activity ?? ""
 
   // ١) الجمود المثبت من السيرفر. فوق ده كله: OpenCode واقف فعلًا، والصف
   // بقى stopped بسبب effectiveStatus، فلو التحقق ده اتأخر كانت هتطلع
@@ -61,8 +66,9 @@ export function describeTask(input: TaskStatusInput, t: Strings): TaskStatusView
     return view("stuck", t.taskPhaseStuck, t.taskStuckDetail, false)
   }
 
-  // ٢) طلب اتوقف في نصه والجلسة مش شغالة: إما خطأ في التنفيذ أو إيقاف
-  // يدوي. الاتنين معنى إن المهمة ما خلصتش والسبب مش معروف للعميل.
+  // ٢) آخر طلب اتوقف في نصه والجلسة مش شغالة: إما خطأ في التنفيذ أو إيقاف
+  // يدوي. الاتنين معنى إن المهمة ما خلصتش والسبب مش معروف للعميل. بنشترط
+  // إنه آخر صف عشان مايغطّيش على مهمة أحدث شغالة أو مكتملة وراه.
   if (latest !== undefined && latest.state === "stopped" && !active) {
     return view("error", t.taskPhaseError, t.taskErrorDetail, false)
   }
@@ -73,30 +79,34 @@ export function describeTask(input: TaskStatusInput, t: Strings): TaskStatusView
     return view("waiting", t.taskPhaseWaiting, t.taskWaitingOnYou, false)
   }
 
-  // ٤) في الطابور ومستني الطلب اللي قبله. طلب مستني مش شغال، فميتبقاش
-  // "قيد التنفيذ" بس.
-  if (latest !== undefined && latest.state === "queued" && !running) {
-    return view("waiting", t.taskPhaseWaiting, activity || t.taskQueuedDetail, false)
+  // ٤) شغال بس ساكت: مفيش أداة شغالة ومفيش تحديث من مدة. الطلب لسه مفتوح
+  // بس مش بيتقدم، فبنقول "في الانتظار" مش "قيد التنفيذ". الأداة الشغالة
+  // مستثناة عن قصد: أمر بناء أو تثبيت ممكن ياخد دقايق من غير أي حدث،
+  // وده شغل مش سكون.
+  if (runningRow && runningRow.activeTool === null && now - runningRow.updatedAt >= TASK_QUIET_MS) {
+    return view("waiting", t.taskPhaseWaiting, t.taskQuietDetail, false)
   }
 
   // ٥) إعادة محاولة: الشبكة أو المزود بياخد شوية. الانتظار هنا حقيقي،
-  // والنص المناسب جاي من السيرفر أصلا.
+  // والنص المناسب جاي من السيرفر أصلا. بتتقال قبل "قيد التنفيذ" لأن السيرفر
+  // بيعلن retry على الجلسة قبل ما الصف يتحوّل running، فتقديمها بيخلي
+  // الإعادة تبان صح من أول لحظة.
   if (status?.type === "retry") {
     return view("waiting", t.taskPhaseWaiting, activity || t.taskPhaseWaiting, false)
   }
 
-  // ٦) شغال بس ساكت: مفيش أداة شغالة ومفيش تحديث من مدة. الطلب لسه مفتوح
-  // بس مش بيتقدم، فبنقول "في الانتظار" مش "قيد التنفيذ". الأداة الشغالة
-  // مستثناة عن قصد: أمر بناء أو تثبيت ممكن ياخد دقايق من غير أي حدث،
-  // وده شغل مش سكون.
-  if (running && latest && latest.activeTool === null && now - latest.updatedAt >= TASK_QUIET_MS) {
-    return view("waiting", t.taskPhaseWaiting, t.taskQuietDetail, false)
+  // ٦) شغال فعلاً: في صف running أو السيرفر بيقول busy. التركيز على الشغل
+  // الحالي: الوصف والأدوات من الصف الشغّال (مش من طلب مستني وراه)، والحالة
+  // تفضل "قيد التنفيذ" لحد ما الشغل الفعلي يقف.
+  if (active) {
+    return view("running", t.taskPhaseRunning, activity || t.workingOnTask, true, (runningRow ?? latest)?.usedTools ?? [])
   }
 
-  // ٧) شغال فعلًا. سطر النشاط من السيرفر هو اللي بيقول الأداة إيه، وقائمة
-  // الأدوات المستخدمة بتتقلّب واحدة واحدة في اللوحة.
-  if (active) {
-    return view("running", t.taskPhaseRunning, activity || t.workingOnTask, true, latest?.usedTools ?? [])
+  // ٧) الطابور لوحده: آخر صف مستني ومفيش شغل شغّال. ده انتظار مشروع وله
+  // وصفه الخاص، وبيتقال حتى لو الصف اللي قبله خلص فعلًا (السيرفر لسه
+  // بيبلّغ idle لحظة الإرسال).
+  if (latest !== undefined && latest.state === "queued") {
+    return view("waiting", t.taskPhaseWaiting, t.taskQueuedDetail, false)
   }
 
   // مكتملة: رسالة الاكتمال بس من غير سرد أدوات — تثبيت أداة بصيغة المضارع
