@@ -3,7 +3,7 @@
    GitCommitOnlyIcon, GitPullIcon, GitRevertIcon, GitRefreshIcon, SpinnerIcon,
    LogoutIcon, SoundOnIcon, SoundMuteIcon, SettingsIcon) */
 import { localeOf, type Language, type Strings } from "./i18n"
-import type { GitChangeFile, GitChangeStatus, ModelInfo, Project, SessionModelRef, SessionStatus } from "./types"
+import type { GitChangeFile, GitChangeStatus, ModelInfo, Project, SessionStatus } from "./types"
 
 // كاش فورماترز Intl: إنشاؤها غالٍ وكان بيحصل مع كل صف في كل render.
 // المشاركة هنا توفّر التكلفة من غير ما تغيّر الإخراج إطلاقًا.
@@ -139,14 +139,6 @@ export function statusLabel(status: SessionStatus | undefined, t: Strings): stri
 export function displayTitle(title: string | undefined | null, t: Strings): string {
   const clean = (title || "").replace(/\s*\(mobile\)\s*$/i, "").trim()
   return clean || t.newConversation
-}
-
-export function modelLabel(ref: SessionModelRef | null | undefined, t: Strings): string {
-  if (!ref) {
-    return t.defaultModel
-  }
-  const base = `${ref.providerID}/${ref.modelID}`
-  return ref.variant ? `${base} · ${ref.variant}` : base
 }
 
 export function shortModelName(model: ModelInfo): string {

@@ -88,8 +88,6 @@ export type ServerEvent =
   | PermissionRepliedServerEvent
   | SessionListServerEvent
 
-export type Event = ServerEvent
-
 export type AuthState = "loading" | "signedOut" | "signedIn"
 
 export type ToastKind = "info" | "success" | "error"
