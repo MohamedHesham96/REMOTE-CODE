@@ -75,11 +75,12 @@ describe("describeTask", () => {
     expect(view.usedTools).toEqual(usedTools)
   })
 
-  it("keeps the used tools visible once the task completes", () => {
-    const usedTools = ["يقرأ الملفات"]
+  it("shows only the completion detail once the task completes", () => {
+    const usedTools = ["يقرأ الملفات", "يشغّل أمرًا"]
     const view = describeTask(input({ requests: [request({ usedTools })] }), t)
     expect(view.phase).toBe("completed")
-    expect(view.usedTools).toEqual(usedTools)
+    expect(view.activity).toBe(t.taskCompletedDetail)
+    expect(view.usedTools).toEqual([])
   })
 
   it("keeps a long running tool as running, not waiting", () => {

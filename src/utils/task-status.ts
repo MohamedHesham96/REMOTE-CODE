@@ -99,7 +99,7 @@ export function describeTask(input: TaskStatusInput, t: Strings): TaskStatusView
     return view("running", t.taskPhaseRunning, activity || t.workingOnTask, true, latest?.usedTools ?? [])
   }
 
-  // مكتملة: برضه بنمرّر الأدوات المستخدمة عشان المستخدم يراجع المهمة الحالية
-  // بعد ما تخلص. مراحل الانتظار/الخطأ ليها رسالة أهم، فبتفضل من غير تقليب.
-  return view("completed", t.taskPhaseCompleted, t.taskCompletedDetail, false, latest?.usedTools ?? [])
+  // مكتملة: رسالة الاكتمال بس من غير سرد أدوات — تثبيت أداة بصيغة المضارع
+  // تحت "مكتملة" بيوهم إن في شغل لسه بيتنفّذ، والمهمة خلصت.
+  return view("completed", t.taskPhaseCompleted, t.taskCompletedDetail, false)
 }

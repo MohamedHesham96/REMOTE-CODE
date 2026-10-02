@@ -12,14 +12,14 @@ const ROTATE_MS = 3000
 //
 // في "قيد التنفيذ" بنعرض الأدوات اللي المهمة استخدمتها واحدة واحدة بالتبادل
 // (زي قسم "Used" في واجهة الديسكتوب) بدل سطر نشاط واحد؛ وأول ما تظهر أداة
-// جديدة بنقفز لها. بعد الاكتمال بنثبّت آخر أداة مستخدمة على الشاشة من غير
-// تقليب. باقي المراحل (انتظار/جمود/خطأ) رسالتها أهم من سرد الأدوات فبتفضل
-// زي ما هي.
+// جديدة بنقفز لها. باقي المراحل (اكتمال/انتظار/جمود/خطأ) بتعرض وصف الحالة
+// نفسه: تثبيت أداة بصيغة المضارع ("يشغّل أمرًا") تحت "مكتملة" بيوهم المستخدم
+// إن في شغل لسه بيتنفّذ، والمهمة خلصت فعلًا.
 export function TaskStatusPanel({ view }: { view: TaskStatusView }) {
   const running = view.phase === "running"
-  const tools = running || view.phase === "completed" ? view.usedTools : []
+  const tools = running ? view.usedTools : []
   const index = useRotatingIndex(running ? tools.length : 0, ROTATE_MS)
-  const shown = running ? tools[index] : tools[tools.length - 1]
+  const shown = tools[index]
   const activity = shown ?? view.activity
   return (
     <div className={`task-panel task-panel-${view.phase}`} data-phase={view.phase} aria-live="polite">
