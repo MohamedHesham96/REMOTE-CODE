@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express"
 import { describe, expect, it, vi } from "vitest"
-import { createRateLimiter, etagFor, fnv1a, mapWithConcurrency } from "./http-utils.js"
+import { createRateLimiter } from "./rate-limit.js"
 
 function fakeReq(ip = "1.2.3.4"): Request {
   return { ip, socket: {} } as unknown as Request
@@ -30,15 +30,6 @@ function fakeRes(): FakeRes {
   } as unknown as FakeRes
   return res
 }
-
-describe("fnv1a / etagFor", () => {
-  it("is deterministic and distinguishes versions", () => {
-    expect(fnv1a("busy|1|abc")).toBe(fnv1a("busy|1|abc"))
-    expect(fnv1a("busy|1|abc")).not.toBe(fnv1a("busy|1|abd"))
-    expect(etagFor("v1")).toMatch(/^W\/"[0-9a-f]{8}-\d+"$/)
-    expect(etagFor("v1")).not.toBe(etagFor("v2"))
-  })
-})
 
 describe("createRateLimiter", () => {
   it("allows requests under the cap and rejects with 429 + Retry-After above it", () => {
@@ -82,30 +73,5 @@ describe("createRateLimiter", () => {
     await new Promise((resolve) => setTimeout(resolve, 40))
     limiter(fakeReq(), fakeRes(), next as unknown as NextFunction)
     expect(next).toHaveBeenCalledTimes(2)
-  })
-})
-
-describe("mapWithConcurrency", () => {
-  it("preserves order and caps concurrency", async () => {
-    let running = 0
-    let peak = 0
-    const results = await mapWithConcurrency([1, 2, 3, 4, 5, 6], 2, async (value) => {
-      running += 1
-      peak = Math.max(peak, running)
-      await new Promise((resolve) => setTimeout(resolve, 5))
-      running -= 1
-      return value * 10
-    })
-    expect(results).toEqual([10, 20, 30, 40, 50, 60])
-    expect(peak).toBeLessThanOrEqual(2)
-  })
-
-  it("handles an empty list and serial execution", async () => {
-    await expect(mapWithConcurrency([], 5, async (value: number) => value)).resolves.toEqual([])
-    const seen: number[] = []
-    await mapWithConcurrency([1, 2, 3], 1, async (value) => {
-      seen.push(value)
-    })
-    expect(seen).toEqual([1, 2, 3])
   })
 })

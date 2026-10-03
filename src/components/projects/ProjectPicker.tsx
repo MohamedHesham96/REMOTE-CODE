@@ -1,16 +1,21 @@
-import { useEffect, useRef, useState } from "react"
+import { memo, useEffect, useRef, useState } from "react"
 import { projectName, samePath } from "../../display"
 import type { Language, Strings } from "../../i18n"
 import type { Project } from "../../types"
 import { useSortedProjects } from "../../hooks/useSortedProjects"
 
-export function ProjectOptionRows({ items, selectedId, switchingKey, onSelect, t }: {
+// memo: قائمة المشاريع ممكن تكون عشرات العناصر، ومع كل تحديث للـ
+// `projects` (poll, SSE)، الـ parent بيعيد الرسم فكل صف كان يتعاد رسمه
+// بدون داعٍ.
+interface ProjectOptionRowsProps {
   items: Project[]
   selectedId?: string
   switchingKey: string | null
   onSelect: (project: Project) => void
   t: Strings
-}) {
+}
+
+function ProjectOptionRowsInner({ items, selectedId, switchingKey, onSelect, t }: ProjectOptionRowsProps) {
   return (
     <div className="project-listbox" role="listbox" aria-label={t.projects}>
       {items.map((project) => {
@@ -42,17 +47,23 @@ export function ProjectOptionRows({ items, selectedId, switchingKey, onSelect, t
   )
 }
 
+export const ProjectOptionRows = memo(ProjectOptionRowsInner)
+
 // Dropdown سريع لتبديل المشاريع: زر يعرض الحالي + قائمة منسدلة ببحث فوري
-export function ProjectDropdown({ projects, selectedId, switchingKey, recentPaths, onSelect, variant, t, lang }: {
+interface ProjectDropdownProps {
   projects: Project[]
   selectedId?: string
   switchingKey: string | null
   recentPaths: string[]
   onSelect: (project: Project) => void
-  variant: "sidebar" | "compact"
   t: Strings
   lang: Language
-}) {
+}
+
+//
+// memo: موجود في السايدبار اللي بيتعاد رسمه مع كل تحديث للمحادثات.
+// من غير memo، القائمة والبحث كانوا بيتعاد رسمهم مع كل تغيير حالة.
+function ProjectDropdownInner({ projects, selectedId, switchingKey, recentPaths, onSelect, t, lang }: ProjectDropdownProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const boxRef = useRef<HTMLDivElement | null>(null)
@@ -108,44 +119,6 @@ export function ProjectDropdown({ projects, selectedId, switchingKey, recentPath
 
   const label = switchingKey ? t.opening : selected ? projectName(selected) : t.chooseProject
 
-  if (variant === "compact") {
-    return (
-      <div className="project-dropdown project-dropdown-compact" ref={boxRef}>
-        <button
-          className="project-dropdown-trigger compact-trigger"
-          onClick={toggle}
-          aria-haspopup="listbox"
-          aria-expanded={open}
-          title={t.switchProjectsTitle}
-          disabled={switchingKey !== null}
-        >
-          <span aria-hidden>📁</span>
-          <span className="compact-trigger-name">{label}</span>
-          <span aria-hidden>{open ? "⌃" : "⌄"}</span>
-        </button>
-        {open ? (
-          <div className="project-dropdown-menu compact-menu">
-            <input
-              ref={searchRef}
-              className="project-search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t.searchProjectPlaceholder}
-              aria-label={t.searchProjectAria}
-            />
-            {projects.length === 0 ? (
-              <div className="empty-state">{t.noProjectsFound}</div>
-            ) : sorted.length === 0 ? (
-              <div className="empty-state">{t.noResultsFor} «{query}».</div>
-            ) : (
-              <ProjectOptionRows items={sorted} selectedId={selectedId} switchingKey={switchingKey} onSelect={pick} t={t} />
-            )}
-          </div>
-        ) : null}
-      </div>
-    )
-  }
-
   return (
     <div className="project-dropdown project-dropdown-sidebar" ref={boxRef}>
       <button
@@ -185,13 +158,16 @@ export function ProjectDropdown({ projects, selectedId, switchingKey, recentPath
   )
 }
 
-export function ProjectPicker({ projects, selectedId, switchingKey, recentPaths, onSelect, onCancel, t, lang }: {
+export const ProjectDropdown = memo(ProjectDropdownInner)
+
+// memo: شاشة اختيار المشروع الكاملة — مع `memo` إعادة الرسم محصورة في
+// تغيير `projects` أو `query`، مش في كل تحديث للمحادثات النشطة.
+function ProjectPickerInner({ projects, selectedId, switchingKey, recentPaths, onSelect, t, lang }: {
   projects: Project[]
   selectedId?: string
   switchingKey: string | null
   recentPaths: string[]
   onSelect: (project: Project) => void
-  onCancel?: () => void
   t: Strings
   lang: Language
 }) {
@@ -223,8 +199,9 @@ export function ProjectPicker({ projects, selectedId, switchingKey, recentPaths,
           )}
         </div>
         {switchingKey ? <div className="picker-loading"><span className="loader" /> {t.openingProject}</div> : null}
-        {onCancel ? <button className="button button-ghost" onClick={onCancel}>{t.back}</button> : null}
       </div>
     </main>
   )
 }
+
+export const ProjectPicker = memo(ProjectPickerInner)

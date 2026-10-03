@@ -15,14 +15,16 @@ export function registerPinRoutes(app: Express, ctx: RouteContext): void {
   // بارام فاضي أو تالف = لا شيء: أحسن ما نرجّع كل المثبّتات بالغلط.
   app.get("/api/pin", (request, response) => {
     if (request.query.project === undefined) {
-      response.json({ pins: ctx.pins.list(), total: ctx.pins.list().length })
+      // قائمة واحدة بس: `total` كان بينده `list()` تاني (نسخ كل المثبّتات) لمجرد الطول.
+      const pins = ctx.pins.list()
+      response.json({ pins, total: pins.length })
       return
     }
     const project = typeof request.query.project === "string" ? request.query.project.trim() : ""
     response.json({
       pins: ctx.pins.listForProject(project),
       projectKey: pinProjectKey(project, ""),
-      total: ctx.pins.list().length,
+      total: ctx.pins.count(),
     })
   })
 

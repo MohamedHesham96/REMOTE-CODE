@@ -1,9 +1,9 @@
-import { useCallback, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import type { Language } from "../i18n"
 import type { GitChangeFile, GitChanges } from "../types"
 import { commitPrompt, commitPushPrompt, pullPrompt, pushPrompt, revertAllPrompt, revertFilePrompt } from "../utils/git-prompts"
 
-export interface GitRequests {
+interface GitRequests {
   isOpen: boolean
   confirming: boolean
   confirmingPush: boolean
@@ -124,5 +124,11 @@ export function useGitRequests(
 
   const cancelCommitPush = useCallback(() => setConfirmingPush(false), [])
 
-  return { isOpen, confirming, confirmingPush, show, close, askRevertAll, cancelRevertAll, askCommitPush, cancelCommitPush, commitPush, commit, pull, revertAll, revertFile }
+  // مرجع واحد مستقر: كل الدوال جواه useCallback والـ state هو اللي بيغيّره.
+  // من غير useMemo الكائن كان بيتعمل من جديد كل رندر، وده كان بيكسر اعتماد
+  // الكولباكس المستقرة عليه (زي زر فتح درج git في TopBar).
+  return useMemo(
+    () => ({ isOpen, confirming, confirmingPush, show, close, askRevertAll, cancelRevertAll, askCommitPush, cancelCommitPush, commitPush, commit, pull, revertAll, revertFile }),
+    [isOpen, confirming, confirmingPush, show, close, askRevertAll, cancelRevertAll, askCommitPush, cancelCommitPush, commitPush, commit, pull, revertAll, revertFile],
+  )
 }

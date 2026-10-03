@@ -1,8 +1,17 @@
-import { useState } from "react"
+import { memo, useState } from "react"
 import type { Strings } from "../i18n"
 import type { Permission } from "../types"
 
-export function PermissionCard({ permission, onReply, t }: { permission: Permission; onReply: (value: "once" | "always" | "reject") => void; t: Strings }) {
+// memo: كارت الإذن بيتكرر في الشريط السفلي، ومع أي تحديث لحالة المحادثة
+// (busy/idle, retries) الـ parent (App) بيعيد الرسم فيتأثر كل كارت لو ما
+// كانش memo.
+interface PermissionCardProps {
+  permission: Permission
+  onReply: (value: "once" | "always" | "reject") => void
+  t: Strings
+}
+
+function PermissionCardInner({ permission, onReply, t }: PermissionCardProps) {
   const [working, setWorking] = useState(false)
   const reply = async (value: "once" | "always" | "reject") => {
     setWorking(true)
@@ -28,3 +37,5 @@ export function PermissionCard({ permission, onReply, t }: { permission: Permiss
     </div>
   )
 }
+
+export const PermissionCard = memo(PermissionCardInner)

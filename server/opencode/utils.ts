@@ -280,7 +280,7 @@ function costNumber(value: unknown): number {
 export const QUESTIONS_CACHE_MS = 2000
 
 // ترتيب معروف لمستويات التفكير، عشان الكيبس تظهر بترتيب متوقع مش أبجدي
-export const VARIANT_ORDER = ["minimal", "none", "low", "medium", "high", "xhigh", "max"]
+const VARIANT_ORDER = ["minimal", "none", "low", "medium", "high", "xhigh", "max"]
 
 // OpenCode بيرجّع الـ variants بشكلين حسب الـ endpoint:
 // - object map: { low: { reasoningEffort: "low" }, ... }  (من /config/providers)

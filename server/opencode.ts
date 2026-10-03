@@ -5,7 +5,6 @@ import { basename as pathBasename, isAbsolute, resolve } from "node:path"
 import { OpenCode, type OpenCodeClient, type OpenCodeEvent } from "@opencode/client"
 import { Service } from "@opencode/client/service"
 import type {
-  FileDiffInfo,
   FormInfo,
   SessionInfo,
   SessionMessageAssistant,
@@ -15,6 +14,7 @@ import { setTimeout as sleep } from "node:timers/promises"
 import { ensureLocalEndpoint } from "./opencode/service-launch.js"
 import { findActiveTool, toolActivity, toolSignature, usedToolActivities } from "./opencode/activity.js"
 import { unpushedCommitCount } from "./opencode/git-ahead.js"
+import { collectResultFiles } from "./opencode/result-files.js"
 import { consoleLang, serverMessage, type ServerLang } from "./i18n.js"
 import type {
   ActiveSession,
@@ -25,7 +25,6 @@ import type {
   ModelInfo,
   Project,
   RequestState,
-  ResultFile,
   ServiceOptions,
   Session,
   SessionModelRef,
@@ -39,7 +38,6 @@ import {
   directoryKey,
   errorDetail,
   errorMessage,
-  fileNameFromPath,
   folderName,
   HEALTHCHECK_TIMEOUT_MS,
   isDefaultTitle,
@@ -71,28 +69,6 @@ import {
   VARIANTS_CACHE_MS,
   withTimeout,
 } from "./opencode/utils.js"
-
-// إعادة تصدير للتوافق: الاستيراد من "./opencode.js" ما زال يعطي نفس الأنواع.
-export type {
-  ActiveSession,
-  ConversationQuestion,
-  ConversationQuestionOption,
-  ConversationQuestionRequest,
-  GitChangeFile,
-  GitChanges,
-  HistoryTurn,
-  ModelInfo,
-  Project,
-  RequestState,
-  ResultFile,
-  ServiceOptions,
-  Session,
-  SessionModelRef,
-  SessionRequest,
-  SessionRequests,
-  SessionStatus,
-  Todo,
-} from "./opencode/types.js"
 
 // نص مُرمَّز داخلي مش نص للمستخدم — الراوت بيمرّره لـ serverMessage
 // ليترجم حسب لغة الطلب، فـ opencode.ts ما فيهوش نصوص مترجمة.
@@ -167,6 +143,11 @@ export class OpenCodeService {
   private promptSeq = 0
   private queueWatchdog: NodeJS.Timeout | null = null
   private readonly pendingPermissions = new Map<string, EnginePermission>()
+  // عدّاد زيادات الأذونات: أي add/delete بيرفعها ببطء. ده نسخة بسيطة لكنها
+  // كافية للـ ETag لأن الإضافات/الإزافات نادرة. الزيادات الكبيرة (مثلاً
+  // 10 إضافات في ثانية) بتنتج ETag مختلف في كل واحدة، وده مرغوب — العميل
+  // يحدّث فورًا ولا يخدم ببيانات قديمة.
+  private permissionsVersion = 0
   private readonly mobileSessions = new Set<string>()
   private readonly mobileSessionsPath = resolve(process.cwd(), "data", "mobile-sessions.json")
   private eventsStarted = false
@@ -405,11 +386,14 @@ export class OpenCodeService {
         title: typeof data.message === "string" && data.message.trim() ? data.message : data.action,
         pattern: data.resources.join(", "),
       })
+      this.permissionsVersion += 1
     }
 
     if (eventType === "permission.replied") {
       const replied = event.data as unknown as { requestID: string }
-      this.pendingPermissions.delete(replied.requestID)
+      if (this.pendingPermissions.delete(replied.requestID)) {
+        this.permissionsVersion += 1
+      }
     }
 
     if (eventType === "session.status") {
@@ -847,11 +831,14 @@ export class OpenCodeService {
     return [...projectsByDirectory.values()].sort((left, right) => right.time.updated - left.time.updated)
   }
 
-  async selectedProject(): Promise<Project | null> {
+  // بياخد قائمة المشاريع الجاهزة اختياريًا عشان /api/project ما يحسبش
+  // `projects()` مرتين في نفس الطلب (كل نداء بيقرأ السجل وكل الجلسات). القيمة
+  // الجاهزة هي نفسها اللي كان هيرجّعها `projects()` — فالناتج متطابق.
+  async selectedProject(prefetched?: Project[]): Promise<Project | null> {
     if (!this.selectedProjectId && this.selectedProjectDirectory === this.options.projectDirectory) {
       return null
     }
-    const projects = await this.projects()
+    const projects = prefetched ?? await this.projects()
     return projects.find((project) => directoryKey(project.worktree) === directoryKey(this.selectedProjectDirectory))
       || projects.find((project) => project.id === this.selectedProjectId)
       || null
@@ -1005,9 +992,8 @@ export class OpenCodeService {
       prompt: turn.prompt,
       finalResult: turn.texts.join("\n\n"),
       createdAt: turn.createdAt,
-      completedAt: turn.completedAt || turn.createdAt,
       steps: turn.steps,
-      files: this.collectResultFiles(id, turn.entries, lang),
+      files: collectResultFiles(id, turn.entries, lang, this.selectedProjectDirectory),
     }))
 
     // الأحدث أولًا عشان مراجعة النتائج القديمة تبقى أسهل
@@ -1125,11 +1111,7 @@ export class OpenCodeService {
         stepsCompleted: turn.steps,
         activeTool: activeTool?.name ?? null,
         usedTools: usedToolActivities(turn.entries, lang),
-        // v2 بلا قائمة مهام — الحقول باقية في العقد فارغة
-        todos: [],
-        completedTodos: 0,
-        totalTodos: 0,
-        resultFiles: this.collectResultFiles(id, turn.entries, lang),
+        resultFiles: collectResultFiles(id, turn.entries, lang, this.selectedProjectDirectory),
         startedAt: turn.createdAt,
         completedAt: turn.completedAt,
         updatedAt: turn.updatedAt,
@@ -1148,9 +1130,6 @@ export class OpenCodeService {
         stepsCompleted: 0,
         activeTool: null,
         usedTools: [],
-        todos: [],
-        completedTodos: 0,
-        totalTodos: 0,
         resultFiles: [],
         startedAt: item.queuedAt,
         completedAt: 0,
@@ -1180,97 +1159,6 @@ export class OpenCodeService {
       .map((part) => part.text.trim())
       .filter(Boolean)
       .join("\n")
-  }
-
-  // ملفات النتيجة من محتوى v2: مرفقات file داخل الأدوات المكتملة، وملفات
-  // الـ snapshot للرسالة (بديل patch في v1). الـ uri بصيغة file:// يُحوَّل
-  // لمسار، وhttp(s) يُترك رابطًا.
-  private filePathFromUri(uri: string): { path: string; url: string } {
-    const trimmed = (uri || "").trim()
-    if (/^file:\/\//i.test(trimmed)) {
-      try {
-        return { path: resolve(decodeURIComponent(trimmed.replace(/^file:\/\/\/?/i, ""))), url: "" }
-      } catch {
-        return { path: "", url: "" }
-      }
-    }
-    if (/^https?:\/\//i.test(trimmed)) {
-      return { path: "", url: trimmed }
-    }
-    return { path: trimmed, url: "" }
-  }
-
-  private collectResultFiles(
-    sessionId: string,
-    messages: SessionMessageAssistant[],
-    lang: ServerLang = "ar",
-  ): ResultFile[] {
-    const files = new Map<string, ResultFile>()
-    const fileFallback = serverMessage("fileFallback", lang)
-
-    const pushFile = (entry: {
-      id: string
-      name: string
-      mime: string
-      path: string
-      url: string
-      source: ResultFile["source"]
-    }): void => {
-      const key = entry.path ? `path:${entry.path.toLowerCase()}` : `url:${entry.url}`
-      if (!entry.path && !entry.url) {
-        return
-      }
-      if (files.has(key)) {
-        return
-      }
-      const downloadUrl = entry.path
-        ? `/api/session/${encodeURIComponent(sessionId)}/file?path=${encodeURIComponent(entry.path)}`
-        : entry.url
-      files.set(key, {
-        id: entry.id,
-        name: entry.name || fileFallback,
-        mime: entry.mime || mimeFromName(entry.name),
-        path: entry.path,
-        url: entry.url,
-        downloadUrl,
-        source: entry.source,
-      })
-    }
-
-    for (const entry of messages) {
-      for (const part of entry.content) {
-        if (part.type !== "tool" || (part.state.status !== "completed" && part.state.status !== "error")) {
-          continue
-        }
-        const content = part.state.status === "completed" || part.state.status === "error"
-          ? part.state.content
-          : []
-        for (const item of content ?? []) {
-          if (item.type !== "file") {
-            continue
-          }
-          const { path, url } = this.filePathFromUri(item.uri)
-          const name = item.name || (path ? fileNameFromPath(path, fileFallback) : fileNameFromPath(url, fileFallback))
-          pushFile({ id: `${part.id}:${item.uri}`, name, mime: item.mime || mimeFromName(name), path, url, source: "attachment" })
-        }
-      }
-      for (const filePath of entry.snapshot?.files ?? []) {
-        if (typeof filePath !== "string" || !filePath.trim()) {
-          continue
-        }
-        const name = fileNameFromPath(filePath, fileFallback)
-        pushFile({
-          id: `${entry.id}:${filePath}`,
-          name,
-          mime: mimeFromName(name),
-          path: filePath,
-          url: "",
-          source: "output",
-        })
-      }
-    }
-
-    return [...files.values()].slice(-20)
   }
 
   private async sessionDirectory(sessionId: string): Promise<string> {
@@ -1520,18 +1408,24 @@ export class OpenCodeService {
   // v2 بلا خريطة حالات: `session.active` يرجّع الشغال فعلًا فقط، والباقي
   // خامل حكمًا. نبني نفس الخريطة من قائمة جلسات المجلد + النشطين.
   private async runningSessionIds(): Promise<Set<string>> {
-    try {
-      const active = await this.requireClient().session.active()
-      return new Set(Object.keys(active))
-    } catch {
-      return new Set(this.busySessions)
-    }
+    // نداء session.active واحد بيتطلب من statuses و activity و requests في نفس
+    // اللحظة (كل poll ليه مسار)، فبنتشارك نتيجة واحدة بدل N نداءات متطابقة.
+    return this.dedup("running-sessions", async () => {
+      try {
+        const active = await this.requireClient().session.active()
+        return new Set(Object.keys(active))
+      } catch {
+        return new Set(this.busySessions)
+      }
+    })
   }
 
   async statuses(): Promise<Record<string, SessionStatus>> {
     // polls الـ ٤ ثواني من كذا عميل/مصدر لحظيًا تشترك في نتيجة واحدة
     return this.dedup("statuses", async () => {
-      const statuses = await this.rawStatuses()
+      // نسخة قبل التعديل: rawStatuses بقى مشتركًا (dedup) مع مسارات تانية
+      // بتقرا الحالة الخام، فتعديله في مكانه كان هيغيّر حالتها بالغلط.
+      const statuses = { ...await this.rawStatuses() }
       for (const [sessionId, status] of Object.entries(statuses)) {
         statuses[sessionId] = this.effectiveStatus(sessionId, status)
       }
@@ -1541,7 +1435,14 @@ export class OpenCodeService {
 
   // الحالة الخام من OpenCode من غير تعديل الطابور — الـ watchdog محتاجها عشان
   // يفرّق بين "خلص فعلًا" و"خلص مؤقتًا وعندنا طلبات مستنية".
+  // الغلاف بيلغي تكرار النداءات المتزامنة: /requests و /status و /activity
+  // كلهم بيقروا نفس الحالة في نفس اللحظة، فنتشارك لقطة واحدة بدل نداءات متطابقة.
+  // المفتاح مربوط بالمجلد عشان تبديل المشروع ما يخلطش لقطتين مختلفتين.
   private async rawStatuses(): Promise<Record<string, SessionStatus>> {
+    return this.dedup(`raw-statuses:${this.selectedProjectDirectory}`, () => this.computeRawStatuses())
+  }
+
+  private async computeRawStatuses(): Promise<Record<string, SessionStatus>> {
     const [sessions, running] = await Promise.all([
       this.listDirectorySessions(this.selectedProjectDirectory).catch(() => [] as SessionInfo[]),
       this.runningSessionIds(),
@@ -1992,20 +1893,12 @@ export class OpenCodeService {
     return true
   }
 
-  async diff(id: string): Promise<FileDiffInfo[]> {
-    const files = await this.requireClient().session.diff({ sessionID: id })
-    return files.map((file) => ({
-      file: file.file,
-      patch: file.patch,
-      additions: file.additions,
-      deletions: file.deletions,
-      status: file.status,
-    }))
-  }
-
   // حالة git للمشروع الحالي: الملفات المتغيّرة + اسم الفرع.
   // لو المشروع مش مستودع git، بنرجّع available=false بدل ما نرمي خطأ.
-  async gitChanges(): Promise<GitChanges> {
+  // حساب git للفولدر الجاري — غلاف dedup وبعده التصميم الأصلي زي ما هو.
+  // /api/git/changes بيتنادى من فتح الدرج + الـ icon + visibility + الـ SSE،
+  // والنداءات المتزامنة بتتشارك نفس النتيجة بدل N عملية git status/get.
+  private async computeGitChanges(): Promise<GitChanges> {
     const location = this.location()
 
     let statusFiles: Array<{ file: string; additions: number; deletions: number; status: "added" | "deleted" | "modified" }>
@@ -2048,15 +1941,26 @@ export class OpenCodeService {
     return { branch, available: branch !== "" || files.length > 0, files, unpushed }
   }
 
+  async gitChanges(): Promise<GitChanges> {
+    // المفتاح مربوط بالمجلد: تبديل المشروع ما يخلطش حالتين مختلفتين
+    return this.dedup(`git:${this.selectedProjectDirectory}`, () => this.computeGitChanges())
+  }
+
   async replyPermission(id: string, permissionId: string, response: "once" | "always" | "reject"): Promise<boolean> {
     await this.requireClient().permission.reply({ sessionID: id, requestID: permissionId, decision: response })
 
-    this.pendingPermissions.delete(permissionId)
+    if (this.pendingPermissions.delete(permissionId)) {
+      this.permissionsVersion += 1
+    }
     return true
   }
 
   permissions(): EnginePermission[] {
     return [...this.pendingPermissions.values()]
+  }
+
+  permissionsVersionValue(): string {
+    return this.permissionsVersion.toString()
   }
 
   close(): void {

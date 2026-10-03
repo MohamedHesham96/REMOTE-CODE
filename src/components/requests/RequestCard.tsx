@@ -1,5 +1,5 @@
-import { useState, type FormEvent, type KeyboardEvent, type RefObject } from "react"
-import type { Language, Strings } from "../../i18n"
+import { memo, useCallback, useMemo, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react"
+import type { Strings } from "../../i18n"
 import type { SessionRequest, SessionStatus, ToastKind } from "../../types"
 import { describeTask } from "../../utils/task-status"
 import { useNowTick } from "../../hooks/useNowTick"
@@ -14,7 +14,38 @@ import { TaskStatusPanel } from "./TaskStatusPanel"
 // listRef: القائمة دي (مش حاوية الشغل) هي اللي بتسكرول فعليًا — الكارت
 // بحجم النافذة والقائمة جوه flex:1. لازم نوصل Ref بتاعها لـ App عشان ينزل
 // لآخرها لما نفتح أي محادثة.
-export function RequestCard({ requests, sessionId, listRef, title, canRenameTitle, isEditingTitle, titleDraft, renamingTitle, onStartRename, onCancelRename, onTitleDraftChange, onRenameSubmit, onTitleKeyDown, onCopy, onToast, onSkip, onRunNow, onRemove, busyAction, status, stalled, waitingOnUser, t, lang }: { requests: SessionRequest[]; sessionId: string | null; listRef: RefObject<HTMLUListElement | null>; title: string; canRenameTitle: boolean; isEditingTitle: boolean; titleDraft: string; renamingTitle: boolean; onStartRename: () => void; onCancelRename: () => void; onTitleDraftChange: (value: string) => void; onRenameSubmit: (event: FormEvent<HTMLFormElement>) => void; onTitleKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void; onCopy: (text: string) => void; onToast: (message: string, kind?: ToastKind) => void; onSkip: (request: SessionRequest) => void; onRunNow: (request: SessionRequest) => void; onRemove: (request: SessionRequest) => void; busyAction: string | null; status: SessionStatus | undefined; stalled: boolean; waitingOnUser: boolean; t: Strings; lang: Language }) {
+//
+// memo: ده أثقل كومبوننت في الواجهة لأنه بيلوّن قائمة الطلبات كلها. مع
+// `useNowTick` اللي بيوقظه كل ثانية، و`refreshRequests` اللي بيتنادى كل
+// 1.5 ثانية أثناء الكتابة الحية، من غير memo كل صف كان بيتعاد رسمه حتى
+// لو بياناته ما اتغيرتش.
+interface RequestCardProps {
+  requests: SessionRequest[]
+  sessionId: string | null
+  listRef: RefObject<HTMLUListElement | null>
+  title: string
+  canRenameTitle: boolean
+  isEditingTitle: boolean
+  titleDraft: string
+  renamingTitle: boolean
+  onStartRename: () => void
+  onCancelRename: () => void
+  onTitleDraftChange: (value: string) => void
+  onRenameSubmit: (event: FormEvent<HTMLFormElement>) => void
+  onTitleKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void
+  onCopy: (text: string) => void
+  onToast: (message: string, kind?: ToastKind) => void
+  onSkip: (request: SessionRequest) => void
+  onRunNow: (request: SessionRequest) => void
+  onRemove: (request: SessionRequest) => void
+  busyAction: string | null
+  status: SessionStatus | undefined
+  stalled: boolean
+  waitingOnUser: boolean
+  t: Strings
+}
+
+function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle, isEditingTitle, titleDraft, renamingTitle, onStartRename, onCancelRename, onTitleDraftChange, onRenameSubmit, onTitleKeyDown, onCopy, onToast, onSkip, onRunNow, onRemove, busyAction, status, stalled, waitingOnUser, t }: RequestCardProps) {
   const [openId, setOpenId] = useState<string | null>(null)
   const latest = requests[requests.length - 1]
   // الطلب الشغّال هو المفتوح افتراضيًا؛ بعد ما يخلص آخر طلب هو اللي يفضل مفتوح.
@@ -24,31 +55,60 @@ export function RequestCard({ requests, sessionId, listRef, title, canRenameTitl
   // يتحوّل لـ"في الانتظار" قبل ما السيرفر يثبت الجمود بساعته.
   const now = useNowTick(status?.type === "busy" || status?.type === "retry")
   const view = describeTask({ requests, status, stalled, waitingOnUser, now }, t)
+  // callbacks لكل صف لازم تكون مستقرة عشان `RequestRow` (memo) يعمل bail-out.
+  // بنبني جدولًا مرتبطًا بـ request.id عبر `useMemo` بدل خريطة قابلة للتعديل.
+  // الجدول بيتعاد بناؤه لما الـ callbacks الأب أو قائمة الطلبات تتغير، فكل صف
+  // بيشاور على callback ثابت طول ما الـ parent ما مرّرش هوية جديدة.
+  // `onToggle` جزء من نفس الجدول بدل arrow inline في الـ JSX: الـ arrow كان
+  // بياخد مرجعًا جديدًا كل رندر فيكسر memo الصفوف مع كل نبضة `useNowTick`.
+  const onToggle = useCallback((id: string) => setOpenId((current) => (current === id ? null : id)), [])
+  const rowCallbacks = useMemo(() => {
+    const map = new Map<string, { onToggle: () => void; onSkip: () => void; onRunNow: () => void; onRemove: () => void }>()
+    for (const request of requests) {
+      const captured = request
+      map.set(request.id, {
+        onToggle: () => onToggle(captured.id),
+        onSkip: () => onSkip(captured),
+        onRunNow: () => onRunNow(captured),
+        onRemove: () => onRemove(captured),
+      })
+    }
+    return map
+  }, [requests, onToggle, onSkip, onRunNow, onRemove])
   return (
-    <section className={`task-summary task-${latest ? latest.state : "done"}`}>
+    <section className={`task-summary task-${latest ? latest.state : "done"}`} data-phase={view.phase}>
       <div className="task-summary-top">
         <ConversationTitle title={title} canRename={canRenameTitle} isEditing={isEditingTitle} draft={titleDraft} renaming={renamingTitle} t={t} onStartRename={onStartRename} onCancelRename={onCancelRename} onDraftChange={onTitleDraftChange} onSubmit={onRenameSubmit} onKeyDown={onTitleKeyDown} />
         <TaskStatusPanel view={view} />
       </div>
       <ul className="request-list" ref={listRef}>
-        {requests.map((request) => (
-          <RequestRow
-            key={request.id}
-            request={request}
-            expanded={request.id === expandedId}
-            onToggle={() => setOpenId(request.id === expandedId ? null : request.id)}
-            sessionId={sessionId}
-            onCopy={onCopy}
-            onToast={onToast}
-            onSkip={() => onSkip(request)}
-            onRunNow={() => onRunNow(request)}
-            onRemove={() => onRemove(request)}
-            busyAction={busyAction}
-            t={t}
-            lang={lang}
-          />
-        ))}
+        {requests.map((request) => {
+          const callbacks = rowCallbacks.get(request.id) ?? {
+            onToggle: () => onToggle(request.id),
+            onSkip: () => onSkip(request),
+            onRunNow: () => onRunNow(request),
+            onRemove: () => onRemove(request),
+          }
+          return (
+            <RequestRow
+              key={request.id}
+              request={request}
+              expanded={request.id === expandedId}
+              onToggle={callbacks.onToggle}
+              sessionId={sessionId}
+              onCopy={onCopy}
+              onToast={onToast}
+              onSkip={callbacks.onSkip}
+              onRunNow={callbacks.onRunNow}
+              onRemove={callbacks.onRemove}
+              busyAction={busyAction}
+              t={t}
+            />
+          )
+        })}
       </ul>
     </section>
   )
 }
+
+export const RequestCard = memo(RequestCardInner)

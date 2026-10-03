@@ -4,14 +4,6 @@ import { etagFor } from "../utils/hash.js"
 import type { RouteContext } from "./context.js"
 
 export function registerConversationRoutes(app: Express, ctx: RouteContext): void {
-  app.get("/api/session/:id/message", async (request, response) => {
-    try {
-      response.json(await ctx.openCode.messages(request.params.id))
-    } catch (error) {
-      ctx.connection.handleError(error, response, request)
-    }
-  })
-
   app.get("/api/session/:id/history", async (request, response) => {
     try {
       response.json(await ctx.openCode.history(request.params.id, getServerLang(request)))
@@ -102,19 +94,6 @@ export function registerConversationRoutes(app: Express, ctx: RouteContext): voi
         return
       }
       response.json(await ctx.openCode.runQueued(request.params.id, requestId))
-    } catch (error) {
-      ctx.connection.handleError(error, response, request)
-    }
-  })
-
-  // v2 بلا قائمة مهام — العقد باقٍ (قائمة فارغة) حتى لا تتغير الواجهة.
-  app.get("/api/session/:id/todo", (_request, response) => {
-    response.json([])
-  })
-
-  app.get("/api/session/:id/diff", async (request, response) => {
-    try {
-      response.json(await ctx.openCode.diff(request.params.id))
     } catch (error) {
       ctx.connection.handleError(error, response, request)
     }

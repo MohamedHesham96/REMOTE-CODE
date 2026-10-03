@@ -18,12 +18,6 @@ export interface SessionStatus {
   type: "idle" | "busy" | "retry"
 }
 
-export interface Todo {
-  id: string
-  content: string
-  status: string
-}
-
 export interface Permission {
   id: string
   sessionID: string
@@ -31,7 +25,7 @@ export interface Permission {
   pattern?: string | string[]
 }
 
-export interface ServerEventBase {
+interface ServerEventBase {
   properties: {
     sessionID: string
     [key: string]: unknown
@@ -39,8 +33,7 @@ export interface ServerEventBase {
 }
 
 // أحداث السيرفر على السلك — نفس الأسماء منذ v1، والمحتوى مترجَم في
-// server/sse/filter.ts من أحداث v2. الأعضاء الميتة (todo.updated مثلًا)
-// باقية للتوافق مع معالجات الواجهة، حتى لو لم يعُد السيرفر يبثّها.
+// server/sse/filter.ts من أحداث v2.
 export interface StatusServerEvent extends ServerEventBase {
   type: "session.status"
   properties: { sessionID: string; status: SessionStatus; [key: string]: unknown }
@@ -54,13 +47,8 @@ export interface ErrorServerEvent extends ServerEventBase {
   type: "session.error"
 }
 
-export interface TodoServerEvent extends ServerEventBase {
-  type: "todo.updated"
-  properties: { sessionID: string; todos: Todo[]; [key: string]: unknown }
-}
-
 export interface MessageRefreshServerEvent {
-  type: "message.updated" | "message.part.updated" | "message.part.removed" | "message.removed" | "session.diff" | "session.compacted"
+  type: "message.part.updated" | "session.diff"
   properties: { sessionID?: string; [key: string]: unknown }
 }
 
@@ -82,7 +70,6 @@ export type ServerEvent =
   | StatusServerEvent
   | IdleServerEvent
   | ErrorServerEvent
-  | TodoServerEvent
   | MessageRefreshServerEvent
   | PermissionUpdatedServerEvent
   | PermissionRepliedServerEvent
@@ -128,9 +115,6 @@ export type QuestionClientEventType =
   | "question.asked"
   | "question.replied"
   | "question.rejected"
-  | "question.v2.asked"
-  | "question.v2.replied"
-  | "question.v2.rejected"
 
 export interface QuestionClientEvent {
   type: QuestionClientEventType
@@ -160,9 +144,6 @@ export interface SessionRequest {
   // أدوات المهمة الحالية بترتيب استخدامها ("قائمة المستخدم" في واجهة
   // الديسكتوب)، مترجمة على السيرفر. الواجهة بتعرضها واحدة واحدة.
   usedTools: string[]
-  todos: Todo[]
-  completedTodos: number
-  totalTodos: number
   resultFiles: ResultFile[]
   startedAt: number
   completedAt: number
@@ -192,10 +173,7 @@ export interface ResultFile {
   name: string
   mime: string
   path: string
-  url: string
   downloadUrl: string
-  source: "attachment" | "output"
-  size?: number
 }
 
 export interface AppConfig {
@@ -271,7 +249,6 @@ export interface HistoryTurn {
   prompt: string
   finalResult: string
   createdAt: number
-  completedAt: number
   steps: number
   files: ResultFile[]
 }

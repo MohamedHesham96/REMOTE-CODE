@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useState } from "react"
 import {
   getVarietyLevels,
   GitRefreshIcon,
@@ -14,6 +14,67 @@ import type {
   SessionModelRef,
 } from "../types"
 import { loadPinnedModels, modelPinKey, savePinnedModels, togglePinnedModel } from "../utils/storage"
+
+// صف النموذج: كائن memo مستقل عشان الكتابة في البحث تعيد رسم الصفوف اللي
+// اتغيّرت بس. القائمة ممكن توصل لمئات النماذج، وكل ضغطة حرف في البحث كانت
+// بتعيد رسم كل صف مطابق (مقارنة + بناء DOM) من غير أي تغيير في بياناته.
+// ملحوظة: الـ `key` هنا نص العرض جوه الصف؛ مفتاح React بيتحدد عند الـ parent.
+const ModelRow = memo(function ModelRow({ model, current, busy, switching, pinned, pinDisabled, activeVariant, onSelect, onTogglePin, t }: {
+  model: ModelInfo
+  current: SessionModelRef | null
+  busy: boolean
+  switching: string | null
+  pinned: boolean
+  pinDisabled: boolean
+  activeVariant: string
+  onSelect: (model: ModelInfo, variant?: string) => void
+  onTogglePin: (model: ModelInfo) => void
+  t: Strings
+}) {
+  const key = `${model.providerID}/${model.id}`
+  const isCurrent = current?.providerID === model.providerID && current?.modelID === model.id
+  const isSwitching = switching === key
+  // عناصر الكتالوج العام (enabled: false) مش مربوطة بالمحرك، بس بنسمح
+  // باختيارها: مفيش تكلفة، والمزوّد ممكن يتربط بعدين على المضيف فيشتغل
+  // من غير ما المستخدم يرجعل الاختيار تاني
+  const unavailable = model.enabled === false
+  const modelVariants = getVarietyLevels(model)
+  return (
+    <div className="model-row">
+      <button
+        className={`model-card${isCurrent ? " selected" : ""}`}
+        disabled={busy || Boolean(switching)}
+        title={unavailable ? t.needsConnection : undefined}
+        onClick={() => onSelect(model, "")}
+      >
+        <span className="model-card-body">
+          <strong>{shortModelName(model)}</strong>
+          <small dir="ltr">{isCurrent && activeVariant ? `${key} · ${variantLabel(activeVariant, t)}` : key}</small>
+        </span>
+        <span className="model-card-side">
+          {modelVariants.length > 0 ? (
+            <span className="variant-badge">{isCurrent && activeVariant ? variantLabel(activeVariant, t) : `${modelVariants.length} ${t.varietyOptions}`}</span>
+          ) : null}
+          {model.free ? <span className="free-badge">FREE</span> : null}
+          {unavailable ? <span className="needs-badge">{t.needsConnection}</span> : null}
+          {isCurrent ? <span className="current-badge">{t.current} ✓</span> : null}
+          {isSwitching ? <span className="loader small" /> : null}
+        </span>
+      </button>
+      <button
+        type="button"
+        className={`model-pin${pinned ? " active" : ""}`}
+        aria-pressed={pinned}
+        aria-label={pinned ? t.unpinModel : t.pinModel}
+        title={pinDisabled ? t.pinnedModelsFull : pinned ? t.unpinModel : t.pinModel}
+        disabled={pinDisabled}
+        onClick={() => onTogglePin(model)}
+      >
+        <span aria-hidden="true">{pinned ? "📌" : "📍"}</span>
+      </button>
+    </div>
+  )
+})
 
 export function ModelPicker({
   models,
@@ -50,9 +111,9 @@ export function ModelPicker({
   useEffect(() => {
     savePinnedModels(pinnedKeys)
   }, [pinnedKeys])
-  const togglePin = (model: ModelInfo): void => {
+  const togglePin = useCallback((model: ModelInfo): void => {
     setPinnedKeys((current) => togglePinnedModel(current, modelPinKey(model.providerID, model.id)))
-  }
+  }, [])
   const searching = query.trim().length > 0
   const toggleGroup = (providerID: string): void => {
     setExpanded((previous) => {
@@ -145,52 +206,25 @@ export function ModelPicker({
   const activeVariant = current?.variant || ""
 
   // صف النموذج: زر الاختيار + زر التثبيت جنبه — زرّان متجاوران لا متداخلان
-  // (زر جوّه زرّ HTML غير صالح)، والتثبيت شغّال دائمًا لأنه كاش عرض محلي
+  // (زر جوّه زرّ HTML غير صالح)، والتثبيت شغّال دائمًا لأنه كاش عرض محلي.
+  // الحساب هنا رخيص (مفتاح + bool) والتكلفة الفعلية في `ModelRow` الـ memo.
   const renderModelRow = (model: ModelInfo) => {
     const key = `${model.providerID}/${model.id}`
-    const isCurrent = current?.providerID === model.providerID && current?.modelID === model.id
-    const isSwitching = switching === key
-    // عناصر الكتالوج العام (enabled: false) مش مربوطة بالمحرك، بس بنسمح
-    // باختيارها: مفيش تكلفة، والمزوّد ممكن يتربط بعدين على المضيف فيشتغل
-    // من غير ما المستخدم يرجعل الاختيار تاني
-    const unavailable = model.enabled === false
-    const modelVariants = getVarietyLevels(model)
     const pinned = pinnedKeys.includes(key)
-    const pinDisabled = !pinned && pinnedFull
     return (
-      <div className="model-row" key={key}>
-        <button
-          className={`model-card${isCurrent ? " selected" : ""}`}
-          disabled={busy || Boolean(switching)}
-          title={unavailable ? t.needsConnection : undefined}
-          onClick={() => onSelect(model, "")}
-        >
-          <span className="model-card-body">
-            <strong>{shortModelName(model)}</strong>
-            <small dir="ltr">{isCurrent && activeVariant ? `${key} · ${variantLabel(activeVariant, t)}` : key}</small>
-          </span>
-          <span className="model-card-side">
-            {modelVariants.length > 0 ? (
-              <span className="variant-badge">{isCurrent && activeVariant ? variantLabel(activeVariant, t) : `${modelVariants.length} ${t.varietyOptions}`}</span>
-            ) : null}
-            {model.free ? <span className="free-badge">FREE</span> : null}
-            {unavailable ? <span className="needs-badge">{t.needsConnection}</span> : null}
-            {isCurrent ? <span className="current-badge">{t.current} ✓</span> : null}
-            {isSwitching ? <span className="loader small" /> : null}
-          </span>
-        </button>
-        <button
-          type="button"
-          className={`model-pin${pinned ? " active" : ""}`}
-          aria-pressed={pinned}
-          aria-label={pinned ? t.unpinModel : t.pinModel}
-          title={pinDisabled ? t.pinnedModelsFull : pinned ? t.unpinModel : t.pinModel}
-          disabled={pinDisabled}
-          onClick={() => togglePin(model)}
-        >
-          <span aria-hidden="true">{pinned ? "📌" : "📍"}</span>
-        </button>
-      </div>
+      <ModelRow
+        key={key}
+        model={model}
+        current={current}
+        busy={busy}
+        switching={switching}
+        pinned={pinned}
+        pinDisabled={!pinned && pinnedFull}
+        activeVariant={activeVariant}
+        onSelect={onSelect}
+        onTogglePin={togglePin}
+        t={t}
+      />
     )
   }
 

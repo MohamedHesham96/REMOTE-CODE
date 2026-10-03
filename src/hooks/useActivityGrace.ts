@@ -37,11 +37,25 @@ export function useActivityGrace(items: ActiveSession[], graceMs: number, tickin
   // العدّاد بيوقف لو اللوحة مقفولة — نضف القديم مع كل poll وحنا كده
   const nowTick = useNowTick(pending && ticking)
 
-  // المحادثات اللي خرجت من "نشط دلوقتي" بس لسه في مهلة الـ ٥ دقايق
-  const recent = useMemo(() => Object.values(seen)
-    .filter((entry) => !live.has(entry.item.id) && nowTick - entry.at < graceMs)
+  // قائمة "آخر ٥ دقايق" مرتّبة بالأحدث: كانت بتتعمل sort كامل كل ثانية
+  // لأن `nowTick` ضمن deps. الحل: نجمّد بيانات "اللي خرج من live" كقاعدة،
+  // ونطبّق فلتر الوقت في `useMemo` تاني مفصول. الـ baseSorted بيتعمل
+  // فقط عند تغيير `seen` أو `live`، والـ recent النهائي بيتعمل عند تغيّر
+  // الـ base أو `graceMs` — `nowTick` يحدّث graceLeft فقط.
+  const baseSorted = useMemo(() => Object.values(seen)
+    .filter((entry) => !live.has(entry.item.id))
     .map((entry) => entry.item)
-    .sort((left, right) => right.updatedAt - left.updatedAt), [seen, live, nowTick, graceMs])
+    .sort((left, right) => right.updatedAt - left.updatedAt), [seen, live])
+  // تطبيق نافذة الـ ٥ دقايق: يتمدّد مع `nowTick` لكن الـ baseSorted
+  // ما بيتعاد رسمه. ده بيقلل الـ O(n log n) مرة واحدة لكل تغيّر في الـ
+  // activity (مش كل ثانية).
+  const recent = useMemo(() => {
+    const cutoff = nowTick - graceMs
+    return baseSorted.filter((item) => {
+      const at = seen[item.id]?.at ?? 0
+      return at > cutoff
+    })
+  }, [baseSorted, nowTick, graceMs, seen])
 
   const graceLeft = useCallback((id: string) => {
     const entry = seen[id]

@@ -1,10 +1,21 @@
-import { useEffect, useRef, useState } from "react"
+import { memo, useEffect, useRef, useState } from "react"
 import type { Strings } from "../i18n"
 
 // زر نسخ موحّد لكل رسالة في الطلب. تأكيد النسخ بتبديل الأيقونة (لأيقونة صح)
 // مش نص بيظهر — عشان عرض الزرار ما يتغيّرش والسطر ما يرتعشش. ومن غير toast:
 // سياسة المشروع إن النجاح اللي شايفه بعينك مبيطلعش توست.
-export function CopyButton({ text, onCopy, label, className = "", t }: { text: string; onCopy: (text: string) => void; label: string; className?: string; t: Strings }) {
+//
+// memo: زرار بيتكرر مرة لكل صف في كارت المحادثة، ومع `useNowTick` اللي بيوقظ
+// الكارت كل ثانية، من غير memo كان كل زرار بيتعاد رسمه حتى لو النص ما اتغيّرش.
+interface CopyButtonProps {
+  text: string
+  onCopy: (text: string) => void
+  label: string
+  className?: string
+  t: Strings
+}
+
+function CopyButtonInner({ text, onCopy, label, className = "", t }: CopyButtonProps) {
   const [copied, setCopied] = useState(false)
   const timer = useRef(0)
 
@@ -42,3 +53,5 @@ export function CopyButton({ text, onCopy, label, className = "", t }: { text: s
     </button>
   )
 }
+
+export const CopyButton = memo(CopyButtonInner)

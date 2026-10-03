@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { DEFAULT_MODEL_KEY, PINNED_SESSIONS_KEY, PINNED_SESSIONS_LIMIT } from "../constants"
 import type { PinnedConversation, Session } from "../types"
 import {
+  _resetLocalCacheForTesting,
   forgetPinnedConversations,
   hasLegacyPinnedFormat,
   loadDefaultModel,
@@ -46,6 +47,9 @@ beforeEach(() => {
     removeItem: (key: string) => { data.delete(key) },
     clear: () => data.clear(),
   })
+  // الكاش في storage.ts معياري بين الاختبارات — كل اختبار يبدأ بـ
+  // localStorage جديد، فلازم الكاش يصفى كمان.
+  _resetLocalCacheForTesting()
 })
 
 afterEach(() => {

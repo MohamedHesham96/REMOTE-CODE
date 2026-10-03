@@ -31,27 +31,23 @@ import {
 } from "./api"
 import type { ActiveSession, AppConfig, AuthState, ClientEvent, ConversationQuestionRequest, GitChanges, HistoryTurn, ModelInfo, Permission, PinnedConversation, Project, Session, SessionModelRef, SessionRequest, SessionRequests, SessionStatus, Toast, ToastKind } from "./types"
 import { isSoundEnabled, playAttentionSound, playCompletionSound, setSoundEnabled, unlockAudio, vibrate } from "./sound"
-import { applyTheme, getSavedTheme, nextTheme, saveTheme, themeDescription, themeLabel, THEMES, THEME_META, type AppTheme } from "./theme"
+import { applyTheme, getSavedTheme, nextTheme, saveTheme, themeLabel, THEME_META, type AppTheme } from "./theme"
 import { applyLanguage, getSavedLanguage, getStrings, saveLanguage, type Language } from "./i18n"
 import {
   displayTitle,
-  formatDateTime,
-  formatRelative,
-  GitBranchIcon,
   getVarietyLevels,
-  LogoutIcon,
   projectName,
   samePath,
-  SettingsIcon,
   shortModelName,
-  SoundMuteIcon,
-  SoundOnIcon,
-  statusLabel,
 } from "./display"
 import { ACTIVE_GRACE_MS, COMPOSER_MAX_LINES, RECENT_PROJECTS_KEY, emptyConfig } from "./constants"
+import { releases } from "./releases-data"
 import { PanelFallback } from "./components/PanelFallback"
+import { PanelErrorBoundary } from "./components/PanelErrorBoundary"
 import { PermissionCard } from "./components/PermissionCard"
-import { ProjectDropdown, ProjectPicker } from "./components/projects/ProjectPicker"
+import { ProjectPicker } from "./components/projects/ProjectPicker"
+import { Sidebar } from "./components/Sidebar"
+import { TopBar } from "./components/TopBar"
 import { StickyQuestions } from "./components/requests/StickyQuestions"
 import { RequestCard } from "./components/requests/RequestCard"
 import { useActivityGrace } from "./hooks/useActivityGrace"
@@ -72,11 +68,86 @@ const ActiveSessionsPanel = lazy(() => import("./panels").then((module) => ({ de
 const GitChangesPanel = lazy(() => import("./panels").then((module) => ({ default: module.GitChangesPanel })))
 const HistoryPanel = lazy(() => import("./panels").then((module) => ({ default: module.HistoryPanel })))
 const PinnedConversationsPanel = lazy(() => import("./panels").then((module) => ({ default: module.PinnedConversationsPanel })))
+// ملاحظات الإصدار: ثابتة ومولّدة من تاريخ Git، فتُحمّل مع اللوحات الكسولة
+// عند فتحها فقط ولا تضيف أي طلب شبكة.
+const ReleaseNotesPanel = lazy(() => import("./panels").then((module) => ({ default: module.ReleaseNotesPanel })))
+// درج الإعدادات: في الإصدار القديم كان inline داخل App.tsx — فكل ما الـ App
+// اترسم، JSX الـ drawer اتبنى ومعاها الـ handlers. lazy() يخليها تتحمّل أول
+// مرة المستخدم يفتح الإعدادات بس.
+const SettingsDrawer = lazy(() => import("./panels").then((module) => ({ default: module.SettingsDrawer })))
 
 interface InstallPrompt {
   preventDefault: () => void
   prompt: () => Promise<void>
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>
+}
+
+// Set فاضي مُجمّع عشان نرجّع نفس المرجع من useMemo لو مفيش طلب معلّق
+// في الجلسة — `mergeActiveSessions` بياخد Set فاضي في حالة عدم النشاط
+const EMPTY_PENDING_IDS: ReadonlySet<string> = new Set()
+// مصفوفات فاضية مُجمّعة كمَراجع مستقرة لـ useMemo — `filter` الفاضي كان
+// بيلحق مرجع جديد في كل render حتى لو مفيش إذن/سؤال.
+const EMPTY_PERMISSIONS: Permission[] = []
+const EMPTY_QUESTIONS: ConversationQuestionRequest[] = []
+// بديل فارغ لمفتاح إذن مش موجود في خريطة الردود (مستحيل يحدث: الخريطة بتتبني
+// من نفس مصفوفة الأذونات المعروضة) — عشان نوع الـ prop يفضل دالة.
+const NOOP_PERMISSION_REPLY = (): void => {}
+// Set فيه الـ id النشط لوحده — مُجمّع عشان نرجّع نفس المرجع لما activeId
+// ثابت بدل ما نعمل Set جديد كل مرة
+const SINGLE_ACTIVE_ID_SET_CACHE = new Map<string, ReadonlySet<string>>()
+// سقف للكاش: بدونه كان بيكبر مع كل id محادثة اتفتحت في عمر الصفحة (تسريب
+// ذاكرة صغير طويل المدى). الإخلاء مش بيغيّر الناتج — مجرد إعادة حساب.
+const SINGLE_ACTIVE_ID_SET_CACHE_LIMIT = 128
+function singleActiveIdSet(activeId: string): ReadonlySet<string> {
+  let cached = SINGLE_ACTIVE_ID_SET_CACHE.get(activeId)
+  if (!cached) {
+    if (SINGLE_ACTIVE_ID_SET_CACHE.size >= SINGLE_ACTIVE_ID_SET_CACHE_LIMIT) {
+      const oldest = SINGLE_ACTIVE_ID_SET_CACHE.keys().next()
+      if (!oldest.done) {
+        SINGLE_ACTIVE_ID_SET_CACHE.delete(oldest.value)
+      }
+    }
+    cached = new Set([activeId])
+    SINGLE_ACTIVE_ID_SET_CACHE.set(activeId, cached)
+  }
+  return cached
+}
+
+// مقارنة محتوى خرائط الحالة: نفس المفاتيح ونفس النوع لكل مفتاح. الواجهة ما
+// بتفرّقش في الحالة غير بنوعها (idle/busy/retry) — نفس ما بتقارن بيه مستمع
+// الـ SSE. بنستخدمها عشان نرجّع نفس المرجع من setState فلا يقع رندر من غير
+// تغيير حقيقي (poll الحالة كل ٤ ثواني كان بيولّد كائن جديد دايمًا).
+function sameStatusMap(left: Record<string, SessionStatus>, right: Record<string, SessionStatus>): boolean {
+  const keys = Object.keys(left)
+  if (keys.length !== Object.keys(right).length) {
+    return false
+  }
+  for (const key of keys) {
+    if (left[key]?.type !== right[key]?.type) {
+      return false
+    }
+  }
+  return true
+}
+
+// نفس الفكرة لقائمة المحادثات: طالما المحتوى (المعرّف/العنوان/المجلد/الأوقات)
+// ما اتغيّرش، سيب نفس المصفوفة — poll الجلسات كل ١٢ ثانية كان بيولّد مصفوفة
+// جديدة ويعيد رسم الـ App رغم إن مفيش محادثة جديدة.
+function sameSessionList(left: Session[], right: Session[]): boolean {
+  if (left.length !== right.length) {
+    return false
+  }
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i]
+    const b = right[i]
+    if (!a || !b) {
+      return false
+    }
+    if (a.id !== b.id || a.title !== b.title || a.directory !== b.directory || a.time.created !== b.time.created || a.time.updated !== b.time.updated) {
+      return false
+    }
+  }
+  return true
 }
 
 function App() {
@@ -140,6 +211,7 @@ function App() {
   const [showHistory, setShowHistory] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
   const [showPinned, setShowPinned] = useState(false)
+  const [showReleases, setShowReleases] = useState(false)
   const [historyTurns, setHistoryTurns] = useState<HistoryTurn[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState("")
@@ -173,7 +245,10 @@ function App() {
   // النافذة والقائمة جوه flex:1). حاوية الشغل بتنزل معاها كمان عشان بطاقات
   // الأسئلة اللي بتظهر تحت الكارت.
   const requestListRef = useRef<HTMLUListElement | null>(null)
-  const { pinToBottom, followBottom, release: releaseScrollPin } = useScrollToBottom([requestListRef, workspaceScrollRef])
+  // مصفوفة ثابتة المرجع: الـ hook بيخزّن آخر مرجع في effect، ولو الـ parent
+  // عمل مصفوفة جديدة كل رندر كان الـ effect اشتغل بلا داعي في كل رسم.
+  const scrollTargets = useMemo(() => [requestListRef, workspaceScrollRef], [])
+  const { pinToBottom, followBottom, release: releaseScrollPin } = useScrollToBottom(scrollTargets)
   // هوية المحتوى المعروض: الـ fetch بيتأخر بعد تبديل المحادثة، فالطلبات اللي
   // على الشاشة ممكن تكون لسه بتاعة المحادثة اللي فاتت. من غير المقارنة دي
   // التثبيت هيستقر على محتوى غلط وميترجعش ينزل للمحادثة الجديدة.
@@ -212,21 +287,27 @@ function App() {
   // ids الشغالة في كل المشاريع (من /api/activity) — عشان جلسة اللاب تبان
   // نشطة فورًا حتى لو statuses الم scoped للمشروع المفتوح لسه ملحقتهاش
   const activityIds = useMemo(() => new Set(activity.map((item) => item.id)), [activity])
+  // هل المحادثة المفتوحة فيها طلب لسه ما خلصش؟ بنحسبها boolean مرة واحدة لكل
+  // تغيّر في الطلبات، ونشيل مصفوفة `requests` من اعتماديات `isSessionWorking`.
+  // من غير كده كانت قوايم السايدبار (active/inactive) بتتبني من جديد مع كل
+  // عيّنة نص حيّ (كل ١.٥ ثانية) رغم إن حكم "شغالة" ما اتغيّرش. الفحص نفسه
+  // بالظبط اللي كان جوه الدالة.
+  const activeHasPendingWork = useMemo(
+    () => activeId ? requests.some((r) => r.state !== "done" && r.state !== "stopped") : false,
+    [activeId, requests],
+  )
   const isSessionWorking = useCallback((id: string) => {
     const status = statuses[id]
-    const isActiveSession = id === activeId
-    const hasRunningOrQueued = isActiveSession
-      ? requests.some((r) => r.state !== "done" && r.state !== "stopped")
-      : false
+    const hasRunningOrQueued = id === activeId ? activeHasPendingWork : false
     return (status?.type === "busy" || status?.type === "retry") || activityIds.has(id) || hasRunningOrQueued
-  }, [statuses, requests, activeId, activityIds])
+  }, [statuses, activeId, activityIds, activeHasPendingWork])
 
-  // في طلبات مستنية في الطابور؟ لو أيوه لازم نفضل نحدّث لحد ما تخلص كلها
+  // في طلبات مستنية في الطابور؟ لو أيوه لازم نفضل نحدّث لحد ما تخلص كلها.
   const hasQueuedRequests = useMemo(() => requests.some((request) => request.state === "queued"), [requests])
-  // كارت واقف على "شغّال" لازم يفضل يسأل السيرفر لحد ما السيرفر نفسه يقول
-  // إنه خلص. الاعتماد على حالة الجلسة بس كان بيخلي الكارت يعلق شغّال للأبد
-  // لما الـ SSE يفصل (قفل الشاشة/الشبكة) والحالة في الموبايل تتأخر عن OpenCode.
-  const hasRunningRequests = useMemo(() => requests.some((request) => request.state === "running"), [requests])
+  // آخر صف، وبيعتمد عليه قرار "محتاجين نفضل نحدّث؟" تحت.
+  const latestRequest = useMemo(() => requests[requests.length - 1], [requests])
+  // آخر طلب هو الشغّال فعلًا، من غير طابور وراه.
+  const hasRunningRequests = latestRequest?.state === "running" && !hasQueuedRequests
 
   // القائمة الجانبية: "النشطة" = الشغالة دلوقتي بس. مهلة الـ ٥ دقايق
   // ("نشط أخيرًا") موجودة في لوحة "المحادثات النشطة" بس.
@@ -268,7 +349,37 @@ function App() {
     }
     return ids
   }, [statuses])
-  const pendingRequestIds = useMemo(() => new Set(activeId && requests.some((r) => r.state !== "done" && r.state !== "stopped") ? [activeId] : []), [activeId, requests])
+  // Set ده بيتعمل من `requests` و`activeId` فقط. كان بيتمدّد عبر كل تحديث
+  // للـ requests أثناء الكتابة الحية (كل 1.5 ثانية) حتى لو activeId ما اتغيّرش،
+  // فبنحسبه مرة واحدة بس هنا ونمرره للـ `mergeActiveSessions`.
+  const pendingRequestIds = useMemo(() => {
+    if (!activeId) {
+      return EMPTY_PENDING_IDS
+    }
+    const hasPending = requests.some((r) => r.state !== "done" && r.state !== "stopped")
+    return hasPending ? singleActiveIdSet(activeId) : EMPTY_PENDING_IDS
+  }, [activeId, requests])
+  // ممرّرات PermissionCard/ StickyQuestions: نفس الفلتر كان بيتنفّذ مرتين
+  // في JSX (مرة لطول الفحص، مرة للـ map). نحسبه مرة واحدة في useMemo عشان
+  // مرجع المصفوفة يثبت عبر الـ renders اللي ما بتغيرش `activeId`/`permissions`/
+  // `requestQuestions`.
+  const activePermissions = useMemo(
+    () => activeId ? permissions.filter((permission) => permission.sessionID === activeId) : EMPTY_PERMISSIONS,
+    [permissions, activeId],
+  )
+  const activeQuestions = useMemo(
+    () => activeId ? requestQuestions.filter((question) => question.sessionID === activeId) : EMPTY_QUESTIONS,
+    [requestQuestions, activeId],
+  )
+  // Set فيه ids الجلسات اللي عندها إذن معلق — بنستخدمه في القائمة الجانبية
+  // بدل `permissions.some(...)` اللي كان بيمشي O(N·M) في كل صف.
+  const permissionSessionIds = useMemo(() => {
+    const set = new Set<string>()
+    for (const permission of permissions) {
+      set.add(permission.sessionID)
+    }
+    return set
+  }, [permissions])
   const activeSessions = useMemo(() => mergeActiveSessions(
     activity,
     sessions,
@@ -367,9 +478,10 @@ function App() {
     setLang((current) => (current === "ar" ? "en" : "ar"))
   }, [])
 
-  const toggleTheme = () => {
+  // مرجع مستقر لـ TopBar: بدون useCallback الدالة بتتجدّد كل رندر فيفشل الـ memo
+  const toggleTheme = useCallback(() => {
     setTheme((current) => nextTheme(current))
-  }
+  }, [])
 
   // الجلسة المفتوحة: بننبّه مرة واحدة لما المهمة كلها تخلص فعلًا — مش مع كل
   // خطوة وسيطة. الخطوة الوسيطة بتقفل رسالة assistant واحدة (completedAt يتسجل)
@@ -507,14 +619,22 @@ function App() {
       }
       return updated
     })
-    setRawStatuses((current) => ({ ...current, [id]: next.status }))
+    // نفس قواعد session.status/event: لو الحالة الفعلية ماتغيرتش متعملش ref
+    // جديد للـ rawStatuses عشان الـ useSettledStatuses والـ effect بتاع باقي الجلسات
+    // ما يشتغلوش على كل poll عادي.
+    setRawStatuses((current) => {
+      if (current[id]?.type === next.status?.type) {
+        return current
+      }
+      return { ...current, [id]: next.status }
+    })
     setPermissions(nextPermissions)
   }, [])
 
   const refreshStatuses = useCallback(async () => {
     try {
       const nextStatuses = await getStatuses()
-      setRawStatuses(nextStatuses)
+      setRawStatuses((current) => (sameStatusMap(current, nextStatuses) ? current : nextStatuses))
       markFetched("status")
     } catch {
       // Keep last known statuses when the poll fails (offline / reconnecting).
@@ -582,9 +702,9 @@ function App() {
     ])
     markFetched("sessions")
     const sorted = sortSessionsByCreated(nextSessions)
-    setSessions(sorted)
+    setSessions((current) => (sameSessionList(current, sorted) ? current : sorted))
     if (nextStatuses) {
-      setRawStatuses(nextStatuses)
+      setRawStatuses((current) => (sameStatusMap(current, nextStatuses) ? current : nextStatuses))
     }
     setActiveId((current) => {
       // لو في مسودة جديدة (null) نحافظ عليها ومنرجعش لأول جلسة تلقائيًا
@@ -656,8 +776,14 @@ function App() {
     }
   }, [addToast, refreshRequests, refreshGitChanges, selectedProject, t])
 
-  const enterApp = useCallback(async () => {
-    const [nextConfig, projectResponse] = await Promise.all([getConfig(), getProjects()])
+  // بياخد config جاهز اختياريًا عشان مسار الإقلاع ما يعيدش نداء /api/config
+  // (الفحص الأول بيتأكد إن الجلسة صالحة، فبنتشارك نفس الرد مع الدخول بدل ما
+  // نطلبه مرتين). مسار تسجيل الدخول بيسيبها فاضية فيجيبها طازجة زي ما كان.
+  const enterApp = useCallback(async (prefetchedConfig?: AppConfig) => {
+    const [nextConfig, projectResponse] = await Promise.all([
+      prefetchedConfig ? Promise.resolve(prefetchedConfig) : getConfig(),
+      getProjects(),
+    ])
     setConfig(nextConfig)
     setProjects(projectResponse.projects)
     setAuthState("signedIn")
@@ -669,7 +795,7 @@ function App() {
   useEffect(() => {
     let mounted = true
     void getConfig()
-      .then(() => enterApp())
+      .then((config) => enterApp(config))
       .catch((error: unknown) => {
         if (!mounted) {
           return
@@ -720,12 +846,18 @@ function App() {
 
   // القائمة حية من opencode نفسه — بتتغير حسب المتاح فعلًا (نعيد تحميلها مع كل مشروع/فتح للقائمة)
   const loadModels = useCallback(async (silent = false) => {
+    // تحميل النماذج في كل focus كان يضرب /api/models حتى لو حصل، refreshSessions
+    // كمان جابها من غير فائدة. القائمة نادرًا بتتغير في عمر الجلسة الواحدة.
+    if (silent && isFresh("models")) {
+      return
+    }
     if (!silent) {
       setModelsLoading(true)
     }
     try {
       const list = await getModels()
       setModels(list)
+      markFetched("models")
     } catch (error: unknown) {
       if (!silent) {
         addToast(error instanceof Error ? error.message : t.modelsLoadFailed, "error")
@@ -735,7 +867,7 @@ function App() {
         setModelsLoading(false)
       }
     }
-  }, [addToast, t])
+  }, [addToast, t, isFresh, markFetched])
 
   // تحميل قائمة الموديلات الكاملة بعد الدخول واختيار المشروع
   useEffect(() => {
@@ -968,7 +1100,17 @@ function App() {
 
   const handleOpenCodeEvent = useCallback((event: ClientEvent) => {
     if (event.type === "session.status") {
-      setRawStatuses((current) => ({ ...current, [event.properties.sessionID]: event.properties.status }))
+      // نفس الحالة اللي عندنا بالفعل (نفس النوع) — مفيش داعي ننتج ref جديد
+      // للـ rawStatuses، والـ useSettledStatuses والـ effect بتاع باقي الجلسات
+      // هيتجنّبوا أي عمل. ده كاسد صرف حقيقي أثناء الكتابة الفورية لما
+      // opencode يبعت نفس الحالة تاني وتاني.
+      const incomingType = event.properties.status?.type
+      setRawStatuses((current) => {
+        if (current[event.properties.sessionID]?.type === incomingType) {
+          return current
+        }
+        return { ...current, [event.properties.sessionID]: event.properties.status }
+      })
       // حالة شغل اتغيرت في أي مشروع — حدّث شريط "شغال الآن" فورًا
       void refreshActivity()
       // جلسة من اللاب أول مرة نشوفها busy وهي مش في قائمة المشروع المفتوح:
@@ -982,30 +1124,21 @@ function App() {
       }
     }
     if (event.type === "session.idle") {
-      setRawStatuses((current) => ({ ...current, [event.properties.sessionID]: { type: "idle" } }))
+      // نفس قاعدة session.status فوق: لو الجلسة أصلًا idle متعملش ref جديد
+      setRawStatuses((current) => {
+        if (current[event.properties.sessionID]?.type === "idle") {
+          return current
+        }
+        return { ...current, [event.properties.sessionID]: { type: "idle" } }
+      })
       void refreshActivity()
       if (event.properties.sessionID === activeIdRef.current) {
         void refreshRequests(event.properties.sessionID)
       }
     }
-    if (event.type === "todo.updated") {
-      if (event.properties.sessionID === activeIdRef.current) {
-        void refreshRequests(event.properties.sessionID)
-      } else {
-        // شغل على جلسة خلفية (غالبًا من اللاب) — حدّث النشطة مدمجًا لا فوريًا
-        requestActivityRefresh()
-      }
-    }
     // النص الحي للرد الجاري: أي جزء جديد من رسالة opencode يحدّث كارت
     // الطلب الشغّال فورًا (بخنق 1.5 ثانية عشان الأحداث بتيجي متتالية بسرعة).
-    if (
-      event.type === "message.updated"
-      || event.type === "message.part.updated"
-      || event.type === "message.part.removed"
-      || event.type === "message.removed"
-      || event.type === "session.diff"
-      || event.type === "session.compacted"
-    ) {
+    if (event.type === "message.part.updated" || event.type === "session.diff") {
       const sessionID = (event.properties as { sessionID?: unknown }).sessionID
       if (typeof sessionID === "string") {
         if (sessionID === activeIdRef.current) {
@@ -1030,34 +1163,34 @@ function App() {
         }
       }
     }
-    if (
-      (event.type === "question.asked" || event.type === "question.v2.asked")
-    ) {
+    if (event.type === "question.asked") {
       // صوت واهتزاز بس من غير toast — كارت السؤال هو الإشارة نفسها
       notifyAttention()
       // سؤال من أي جلسة (حتى اللاب) يحدّث النشطة — مدمجًا (حدث نادر لكن حرج،
       // والكارت نفسه يتحدث فوريًا أدناه فلا يضيع التنبيه)
       requestActivityRefresh()
       const sessionID = event.properties.sessionID
-      // جلب متكرر بفواصل متزايدة (فيبوناتشي) عشان نغطي أي توقيت ضايع:
-      // جلب أولي ممكن يت رمى بسبب ticket guard، أو يفشل بسبب شبكة ضعيفة،
-      // أو يرجع فاضي بسبب كاش قديم. الفواصل المتزايدة تمنع العاصفة وتغطي
-      // أي تأخير في المحرك أو الشبكة.
-      const retryDelays = [500, 1000, 2000, 3000, 5000, 8000]
-      // نستدعي refreshRequests دائمًا، حتى لو لم يتطابق معرف الجلسة.
-      // هذا يضمن تحديث الأسئلة حتى لو كان هناك مشكلة في تطابق معرفات الجلسات.
+      // جلب متكرر بفواصل متزايدة عشان نغطي أي توقيت ضايع: جلب أولي ممكن
+      // يُرمى بسبب ticket guard، أو يفشل بسبب شبكة ضعيفة، أو يرجع فاضي
+      // بسبب كاش قديم. الفواصل المتزايدة تمنع العاصفة وتغطي أي تأخير في
+      // المحرك أو الشبكة.
+      //
+      // كان 6 محاولات ([500, 1000, 2000, 3000, 5000, 8000] = 19.5 ثانية، 7 طلبات)
+      // على كل سؤال/رد.مع in-flight dedup الجديد في `getRequests`، المحاولة
+      // الإضافية بتلحق نفس الـ Promise لو الطلب الحالي قائم — فالفايدة العملية
+      // من المحاولات 4–6 صفر. نخلّي محاولتين فقط ([1500, 4000]) لتغطية
+      // ticket-guard races على فترات متزايدة.
+      const retryDelays = [1500, 4000]
       void refreshRequests(sessionID).catch(() => undefined)
       for (const delay of retryDelays) {
         window.setTimeout(() => {
           void refreshRequests(sessionID).catch(() => undefined)
         }, delay)
       }
-    } else if (
-      (event.type === "question.replied" || event.type === "question.rejected" || event.type === "question.v2.replied" || event.type === "question.v2.rejected")
-    ) {
+    } else if (event.type === "question.replied" || event.type === "question.rejected") {
       const sessionID = event.properties.sessionID
       // نفس الجلب المتكرر: ردّ من جهاز تاني ضاع جلبه كان هيسيب كارت شبحًا للأبد
-      const retryDelays = [500, 1000, 2000, 3000, 5000, 8000]
+      const retryDelays = [1500, 4000]
       void refreshRequests(sessionID).catch(() => undefined)
       for (const delay of retryDelays) {
         window.setTimeout(() => {
@@ -1283,23 +1416,25 @@ function App() {
     }
   }
 
-  const startRenamingSession = () => {
+  // مراجع مستقرة لأزرار ترويسة كارت المهمة: بدونها الـ RequestCard الـ memo
+  // بيفشل مع كل ضغطة حرف في الـ composer ويعيد رسم قائمة الطلبات كلها.
+  const startRenamingSession = useCallback(() => {
     if (!activeSession) {
       return
     }
     setTitleDraft(displayTitle(activeSession.title, t))
     setEditingSessionId(activeSession.id)
-  }
+  }, [activeSession, t])
 
-  const cancelRenamingSession = () => {
+  const cancelRenamingSession = useCallback(() => {
     if (renamingTitle) {
       return
     }
     setEditingSessionId(null)
     setTitleDraft("")
-  }
+  }, [renamingTitle])
 
-  const handleRenameSession = async (event: FormEvent<HTMLFormElement>) => {
+  const handleRenameSession = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const title = titleDraft.trim()
     if (!editingSessionId || !title || renamingTitle) {
@@ -1317,14 +1452,14 @@ function App() {
     } finally {
       setRenamingTitle(false)
     }
-  }
+  }, [titleDraft, editingSessionId, renamingTitle, addToast, t])
 
-  const handleSessionTitleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  const handleSessionTitleKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Escape") {
       event.preventDefault()
       cancelRenamingSession()
     }
-  }
+  }, [cancelRenamingSession])
 
   const handleDeleteSession = async (session: Session) => {
     if (!window.confirm(`${t.deleteSessionConfirm} «${displayTitle(session.title, t)}»؟`)) {
@@ -1356,7 +1491,7 @@ function App() {
   // تبديل التثبيت: بيغيّر حالة واحدة بس (المحادثة دي) من غير ما يمس الباقي.
   // هنا بيانات العرض بس — المشروع ومعرّفه الثابت هما مسؤولية الـ hook
   // (المشروع المفتوح دلوقتي)، فمش ممكن المثبّتة تطلع في لوحة مشروع تاني.
-  // والمخزّن على سيرفر واحد عشان كل الأجهزة والتطبيقات التانية تشوفها فورًا.
+  // والمخزّن على سيرفر واحد عشان كل الأجهزة والتطبيقات التانية تشوفها فورًا。
   const handlePinSession = (session: Session) => {
     togglePin({
       id: session.id,
@@ -1368,6 +1503,55 @@ function App() {
       projectName: "",
     })
   }
+
+  // مراجع (refs) لأحدث نسخ من handlers عشان نبني wrappers مستقرة لـ
+  // SessionItem. الـ memo على SessionItem بيشتغل على تغيّر المرجع؛ لو مررنا
+  // الكولباك نفسه بتغير كل رندر، كل صف بيعيد الرسم. الـ ref handlers
+  // بتتجدد مع كل رندر لكن المرجع اللي في الـ ref بيقرأه الكولباك المستقر
+  // بيكون هو الأحدث وقت النقر.
+  const selectSessionRef = useRef(selectSession)
+  selectSessionRef.current = selectSession
+  const handleDeleteSessionRef = useRef(handleDeleteSession)
+  handleDeleteSessionRef.current = handleDeleteSession
+  const handlePinSessionRef = useRef(handlePinSession)
+  handlePinSessionRef.current = handlePinSession
+  const handleSelectSessionItem = useCallback((id: string) => {
+    void selectSessionRef.current(id)
+  }, [])
+  const handleDeleteSessionItem = useCallback((session: Session) => {
+    void handleDeleteSessionRef.current(session)
+  }, [])
+  const handleTogglePinItem = useCallback((session: Session) => {
+    handlePinSessionRef.current(session)
+  }, [])
+
+  // مراجع (refs) لـ openProject + handleNewSession عشان نبني wrappers
+  // مستقرة للـ Sidebar. بدون ده الـ Sidebar بيستلم callbacks جديدة كل
+  // رندر، فالـ memo عليه بيفشل وكل رندراه بيعيد بناء شجرة كاملة.
+  const openProjectRef = useRef(openProject)
+  openProjectRef.current = openProject
+  const handleNewSessionRef = useRef<() => Promise<void>>(handleNewSession)
+  handleNewSessionRef.current = handleNewSession
+  const handleSelectProjectSidebar = useCallback((project: Project) => {
+    void openProjectRef.current(project)
+  }, [])
+  const handleNewSessionSidebar = useCallback(() => {
+    void handleNewSessionRef.current()
+  }, [])
+
+  // Stable wrappers للـ TopBar عشان نفس السبب: handlers زي handleAbort/handleSend
+  // تتجدّد كل رندر، والـ TopBar الـ memo بيفشل في توفير bail-out.
+  // المراجع بتتحط بعد تعريف الـ handlers عشان TypeScript يقدر يتأكد منها.
+  const handleOpenSessions = useCallback(() => setShowSessions(true), [])
+  const handleCloseSessions = useCallback(() => setShowSessions(false), [])
+  const handleShowActivity = useCallback(() => setShowActivity(true), [])
+  const handleShowHistory = useCallback(() => setShowHistory(true), [])
+  const handleShowPinned = useCallback(() => setShowPinned(true), [])
+  const handleShowReleases = useCallback(() => setShowReleases(true), [])
+  const handleShowSettings = useCallback(() => setShowSettings(true), [])
+  const handleShowModels = useCallback(() => setShowModels(true), [])
+  // `toggleLanguage` و `toggleTheme` و `toggleSound` مستقرة فوق (إلا حذفتها
+  // في الأعلى عشان تتشارك مع سطر الذيل. التوب بار بياخدها مباشرة).
 
   // فتح محادثة مثبّتة: اللوحة بتعرض مثبّتات المشروع المفتوح بس، فبنختارها
   // على طول. الفروع اللي ورا guards دي بتخدم الحالة النادرة لمثبّتة لسه ما
@@ -1450,9 +1634,6 @@ function App() {
         stepsCompleted: 0,
         activeTool: null,
         usedTools: [],
-        todos: [],
-        completedTodos: 0,
-        totalTodos: 0,
         resultFiles: [],
         startedAt: now,
         completedAt: 0,
@@ -1501,11 +1682,6 @@ function App() {
   // يفضلوا في مكان واحد بدل ما App يوزّعهم
   const gitRequests = useGitRequests(gitChanges, sending, langRef.current, sendPrompt)
 
-  const openGitChanges = useCallback(() => {
-    gitRequests.show()
-    void refreshGitChanges()
-  }, [gitRequests, refreshGitChanges])
-
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter يبعت على الديسكتوب بس. على الموبايل سيبه يسلك سطر جديد عادي.
     // isComposing: لو المستخدم بيكمّل كلمة بلغة تانية (إixes عربي/إنجليزي)
@@ -1550,7 +1726,20 @@ function App() {
     }
   }
 
-  const handleSkip = async (request: SessionRequest) => {
+  // stable wrappers للـ TopBar (مراجع على handlers المتجدّدة): نفس اللي عملناه
+  // فوق لـ selectSession/handleDelete/handlePin. بدون ده الـ TopBar بيتسلم
+  // callbacks جديدة كل رندر ويفشل الـ memo.
+  const handleLogoutRef = useRef<() => Promise<void>>(handleLogout)
+  handleLogoutRef.current = handleLogout
+  const handleLogoutTop = useCallback(() => {
+    void handleLogoutRef.current()
+  }, [])
+  const handleOpenGitChanges = useCallback(() => {
+    gitRequests.show()
+    void refreshGitChanges()
+  }, [gitRequests, refreshGitChanges])
+
+  const handleSkip = useCallback(async (request: SessionRequest) => {
     if (!activeId || queueAction) {
       return
     }
@@ -1568,9 +1757,9 @@ function App() {
     } finally {
       setQueueAction(null)
     }
-  }
+  }, [activeId, queueAction, refreshRequests, addToast, t.skipFailed])
 
-  const handleRunNow = async (request: SessionRequest) => {
+  const handleRunNow = useCallback(async (request: SessionRequest) => {
     if (!activeId || queueAction) {
       return
     }
@@ -1584,8 +1773,8 @@ function App() {
       } else if (result.started) {
         // اشتغل فعلًا (مفيش مهمة شغّالة) — شايفه بعينك، من غير toast
       } else if (result.queued) {
-        // السيرفر رفض الحقن فاتنقل لأول الطابور وهيتنفّذ بعد المهمة الحالية
-        addToast(t.queuedRunAfterTask, "info")
+        // السيرفر رفض الحقن فاتنقل لأول الطابور وهيتنفّذ بعد المهمة الحالية.
+        // الصف بيبيّن الحالة بعينك — من غير toast
       } else {
         addToast(t.queuedRunFailed, "error")
       }
@@ -1596,9 +1785,9 @@ function App() {
     } finally {
       setQueueAction(null)
     }
-  }
+  }, [activeId, queueAction, refreshRequests, addToast, t.queuedSteered, t.queuedRunFailed])
 
-  const handleRemoveQueued = async (request: SessionRequest) => {
+  const handleRemoveQueued = useCallback(async (request: SessionRequest) => {
     if (!activeId || queueAction) {
       return
     }
@@ -1623,9 +1812,9 @@ function App() {
     } finally {
       setQueueAction(null)
     }
-  }
+  }, [activeId, queueAction, refreshRequests, addToast, t.queuedRemoveFailed])
 
-  const handlePermission = async (permission: Permission, response: "once" | "always" | "reject") => {
+  const handlePermission = useCallback(async (permission: Permission, response: "once" | "always" | "reject") => {
     try {
       await replyPermission(permission.sessionID, permission.id, response)
       setPermissions((current) => current.filter((item) => item.id !== permission.id))
@@ -1633,9 +1822,40 @@ function App() {
     } catch (error: unknown) {
       addToast(error instanceof Error ? error.message : t.permissionReplyFailed, "error")
     }
-  }
+  }, [addToast, t])
+
+  // خريطة ردود ثابتة لكل كارت إذن: الـ arrow inline كان بياخد مرجعًا جديدًا
+  // كل رندر فيكسر memo كارت الإذن. الخريطة بتتبني من نفس مصفوفة الأذونات
+  // المعروضة، فكل كارت بياخد دالة ثابتة طول ما إذنه ما اتغيّرش.
+  const permissionReplyHandlers = useMemo(() => {
+    const handlers = new Map<string, (response: "once" | "always" | "reject") => void>()
+    for (const permission of activePermissions) {
+      handlers.set(permission.id, (response) => {
+        void handlePermission(permission, response)
+      })
+    }
+    return handlers
+  }, [activePermissions, handlePermission])
+
+  // ردّ سؤال: مرجع مستقر لـ StickyQuestions عشان ما يفقدش الـ memo كل رندر.
+  // بيقرا المحادثة من الـ ref وقت النداء — نفس قيمتها في الرندر دايمًا.
+  const handleQuestionsAnswered = useCallback(() => {
+    const id = activeIdRef.current
+    if (id) {
+      void refreshRequests(id).catch(() => undefined)
+    }
+  }, [refreshRequests])
 
   const displayedModel: SessionModelRef | null = activeId ? currentModel : (pendingModel || projectDefaultModel || currentModel || defaultModel)
+  // البحث في قائمة النماذج (هندسة الموديل في التوب بار) كان linear scan
+  // في كل render — بنحسبه مرة واحدة ونرجّع نفس المرجع طول ما المدخلات ما اتغيرتش.
+  const displayedModelName = useMemo(() => {
+    if (!displayedModel) {
+      return t.defaultModel
+    }
+    const found = models.find((m) => m.providerID === displayedModel.providerID && m.id === displayedModel.modelID)
+    return found ? shortModelName(found) : displayedModel.modelID
+  }, [models, displayedModel, t.defaultModel])
 
   // أي اختيار موديل/مستوى تفكير بيتحفظ كافتراضي للمشروع — عشان المحادثات
   // الجاية تبدأ بيه من غير ما تعيد اختياره كل مرة
@@ -1686,7 +1906,8 @@ function App() {
     }
   }
 
-  const copyText = (text: string) => {
+  // مرجع مستقر: بيتنقل لكل صف وزر نسخ — تجدّده كان بيكسر memo الصفوف.
+  const copyText = useCallback((text: string) => {
     if (!text) return
     if (navigator.clipboard && window.isSecureContext) {
       void navigator.clipboard.writeText(text)
@@ -1707,7 +1928,7 @@ function App() {
       document.body.removeChild(textarea)
     }
     // النسخ فعل واضح من الزرار — من غير toast
-  }
+  }, [])
 
   const enablePush = async () => {
     if (!config.push.enabled || !config.push.publicKey) {
@@ -1763,7 +1984,8 @@ function App() {
     }
   }
 
-  const toggleSound = () => {
+  // مرجع مستقر لـ TopBar (تجدّده كان بيفشل الـ memo) — بيتغيّر مع soundOn فقط
+  const toggleSound = useCallback(() => {
     const next = !soundOn
     setSoundOn(next)
     setSoundEnabled(next)
@@ -1773,7 +1995,7 @@ function App() {
       // سامع الصوت وشايف الزرار — من غير toast
     }
     // القفل شايفه بعينك في الزرار — من غير toast
-  }
+  }, [soundOn])
 
   const testSound = () => {
     unlockAudio()
@@ -1781,44 +2003,9 @@ function App() {
     vibrate([180, 100, 180, 100, 320])
   }
 
-  // صف المحادثة في القائمة الجانبية — نفس الشكل بالظبط في المجموعتين
-  // (نشطة / غير نشطة) عشان التثبيت والحذف يفضلوا بنفس السلوك في كل مكان
-  const renderSessionItem = (session: Session, working: boolean) => {
-    const pinned = isPinned(session.id)
-    const selected = session.id === activeId
-    const needsPermission = permissions.some((permission) => permission.sessionID === session.id)
-    const pinLabel = pinned ? t.unpinConversation : t.pinConversation
-    return (
-      <div
-        ref={selected ? activeSessionItemRef : undefined}
-        className={`session-item${working ? " is-working" : ""}${pinned ? " is-pinned" : ""}${selected ? " active" : ""}${needsPermission ? " needs-permission" : ""}`}
-        key={session.id}
-      >
-        <button className="session-select" onClick={() => void selectSession(session.id)} aria-current={selected ? "true" : undefined}>
-          <span className="session-title-row">
-            <span className="session-title">{displayTitle(session.title, t)}</span>
-            {needsPermission ? <span className="permission-badge">{t.needsPermission}</span> : null}
-          </span>
-          <span className="session-meta">
-            {working ? <span className="working-spinner" aria-hidden /> : <span className="status-dot" aria-hidden />}
-            <span className="session-status">{statusLabel(statuses[session.id], t)}</span>
-            <span className="session-meta-dot" aria-hidden />
-            <span className="session-time" title={formatDateTime(session.time.created, lang)}>{formatRelative(session.time.created, lang)}</span>
-          </span>
-        </button>
-        <button
-          className={`session-pin${pinned ? " is-on" : ""}`}
-          onClick={(event) => { event.stopPropagation(); handlePinSession(session) }}
-          aria-pressed={pinned}
-          aria-label={pinLabel}
-          title={pinLabel}
-        >
-          <span className={pinned ? "pin-on" : "pin-off"} aria-hidden>📌</span>
-        </button>
-        <button className="session-delete" onClick={() => void handleDeleteSession(session)} aria-label={t.deleteSession}>⌫</button>
-      </div>
-    )
-  }
+  // صف المحادثة في القائمة الجانبية — مرر لـ SessionItem ككولباكز مستقرة
+  // (memoized) عشان كل صف يعمل bail-out لما بياناته ما تتغيرش، بدل ما
+  // الـ App كله يعيد رسم 50+ صف في كل setState.
 
   if (authState === "loading") {
     return <div className="center-screen"><div className="loader" /><p>{t.connectingToOpencode}</p></div>
@@ -1853,7 +2040,7 @@ function App() {
         selectedId={undefined}
         switchingKey={switchingProject}
         recentPaths={recentProjects}
-        onSelect={(project) => void openProject(project)}
+        onSelect={handleSelectProjectSidebar}
         t={t}
         lang={lang}
       />
@@ -1862,133 +2049,68 @@ function App() {
 
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${showSessions ? "sidebar-open" : ""}`}>
-        <div className="sidebar-top">
-          <div className="brand"><span className="brand-mark small"><img src="/icon.svg" alt="RemoteCode" /></span><span>RemoteCode</span></div>
-          <button className="icon-button mobile-only" onClick={() => setShowSessions(false)} aria-label={t.closeMenu}>×</button>
-        </div>
-        <div className="connection-state" role="status">
-          <span className={`status-dot ${eventConnected ? "online" : "offline"}`} />
-          <span className="connection-label">{eventConnected ? t.connectedLive : t.reconnecting}</span>
-        </div>
-        <ProjectDropdown
-          variant="sidebar"
-          projects={projects}
-          selectedId={selectedProject?.worktree}
-          switchingKey={switchingProject}
-          recentPaths={recentProjects}
-          onSelect={(project) => void openProject(project)}
-          t={t}
-          lang={lang}
-        />
-        <button className="new-session" onClick={() => void handleNewSession()}><span>＋</span> {t.newConversation}</button>
-        <div className="session-list">
-          {sessions.length === 0 ? (
-            <div className="empty-state">{t.noSessionsYet}</div>
-          ) : (
-            <>
-              {sidebarActiveSessions.length > 0 ? (
-                <section className="session-group" aria-label={t.activeConversations}>
-                  <div className="session-group-header">
-                    <span className="session-group-title"><span aria-hidden>⚡</span> {t.active}</span>
-                    <span className="session-group-count" aria-label={`${sidebarActiveSessions.length} ${sidebarActiveSessions.length === 1 ? t.conversation : t.conversations}`}>{sidebarActiveSessions.length}</span>
-                  </div>
-                  {sidebarActiveSessions.map((session) => renderSessionItem(session, true))}
-                </section>
-              ) : null}
-              <section className="session-group" aria-label={t.inactiveConversations}>
-                <div className="session-group-header">
-                  <span className="session-group-title"><span aria-hidden>💤</span> {t.inactive}</span>
-                  <span className="session-group-count" aria-label={`${sidebarInactiveSessions.length} ${sidebarInactiveSessions.length === 1 ? t.conversation : t.conversations}`}>{sidebarInactiveSessions.length}</span>
-                </div>
-                {sidebarInactiveSessions.length === 0 ? (
-                  <div className="session-group-empty">{t.noInactiveConversations}</div>
-                ) : (
-                  sidebarInactiveSessions.map((session) => renderSessionItem(session, false))
-                )}
-              </section>
-            </>
-          )}
-        </div>
-      </aside>
+      <Sidebar
+        showSessions={showSessions}
+        onClose={handleCloseSessions}
+        eventConnected={eventConnected}
+        projects={projects}
+        selectedProject={selectedProject}
+        switchingProject={switchingProject}
+        recentProjects={recentProjects}
+        onSelectProject={handleSelectProjectSidebar}
+        onNewSession={handleNewSessionSidebar}
+        latestVersion={releases[0]?.version ?? ""}
+        onShowReleases={handleShowReleases}
+        sessionsCount={sessions.length}
+        activeSessionsCount={sidebarActiveSessions.length}
+        inactiveSessionsCount={sidebarInactiveSessions.length}
+        activeSessions={sidebarActiveSessions}
+        inactiveSessions={sidebarInactiveSessions}
+        activeId={activeId}
+        isPinned={isPinned}
+        permissionSessionIds={permissionSessionIds}
+        statuses={statuses}
+        activeSessionItemRef={activeSessionItemRef}
+        onSelectSession={handleSelectSessionItem}
+        onTogglePin={handleTogglePinItem}
+        onDeleteSession={handleDeleteSessionItem}
+        t={t}
+        lang={lang}
+      />
 
       <main className="main-panel">
-        <header className="topbar">
-          <div className="current-session">
-            <div className="session-head">
-              <div className="topbar-project-row">
-                <div className="project-name-badge" title={selectedProject ? projectName(selectedProject) : undefined}>
-                  <span aria-hidden>📁</span>
-                  <span className="compact-trigger-name">{switchingProject ? t.opening : selectedProject ? projectName(selectedProject) : "—"}</span>
-                </div>
-                <button className="new-chat-top" type="button" onClick={() => void handleNewSession()} disabled={!selectedProject} title={t.newConversation} aria-label={t.newConversation}>
-                  <span aria-hidden>＋</span>
-                  <span className="new-chat-top-label">{t.newConversation}</span>
-                </button>
-                <div className="model-bar">
-                  <button className="model-pill" onClick={() => setShowModels(true)} title={t.modelInUse}>
-                    <span className="model-pill-id">
-                      <span aria-hidden>🤖</span>
-                      <span className="model-pill-name" dir="ltr">
-                        {displayedModel ? (() => {
-                          const model = models.find((m) => m.providerID === displayedModel.providerID && m.id === displayedModel.modelID);
-                          return model ? shortModelName(model) : displayedModel.modelID;
-                        })() : t.defaultModel}
-                      </span>
-                    </span>
-                    {displayedModel?.variant && (
-                      <span className="model-pill-variant">
-                        <span className="model-pill-variant-value" dir="ltr">{displayedModel.variant}</span>
-                      </span>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="topbar-rail">
-            <button className="icon-button mobile-only" onClick={() => setShowSessions(true)} aria-label={t.openSessions}>☰</button>
-            <span className="topbar-rail-divider mobile-only" aria-hidden />
-            <div className="topbar-actions">
-              <button className="icon-button activity-button icon-activity" onClick={() => setShowActivity(true)} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activeSessions.length > 0 ? <span className="count-badge">{activeSessions.length}</span> : null}</button>
-              {/* ترتيب الأزرار مقصود: زر الـ git جنب زر "النشطة" عشان متابعة الملفات
-                  والرجوع لأقوى محادثة شغّالة يبقوا في نفس السطر من الذهن، والمثبّتة
-                  تاني وراهم عشان الشريط يفضل مقسوم: حالة ← ملفات ← مرجع. */}
-              <button className="icon-button activity-button git-button icon-git" onClick={openGitChanges} aria-label={t.gitChangesAria} title={`${t.gitChangesAria} ⑂`}><GitBranchIcon />{gitChangedCount > 0 ? <span className="count-badge">{gitChangedCount}</span> : null}</button>
-              <button
-                className="icon-button icon-pinned"
-                onClick={() => setShowPinned(true)}
-                aria-label={t.pinnedConversations}
-                title={`${t.pinnedConversations} — ${selectedProject ? projectName(selectedProject) : t.unknownProject} 📌`}
-              >
-                <span aria-hidden>📌</span>
-                {projectPins.length > 0 ? <span className="count-badge">{projectPins.length}</span> : null}
-              </button>
-              <button className="icon-button icon-history" onClick={() => setShowHistory(true)} aria-label={t.historyAria} title={`${t.historyAria} 🕘`}>🕘</button>
-              <span className="topbar-rail-divider" aria-hidden />
-              <button className="icon-button icon-theme" onClick={toggleTheme} aria-label={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`} title={`${t.themeNext}: ${themeLabel(nextTheme(theme), t)}`}><span aria-hidden>{THEME_META[theme].icon}</span></button>
-              <button className="icon-button lang-button icon-lang" onClick={toggleLanguage} aria-label={t.language} title={t.language}><span className="lang-globe" aria-hidden>🌐</span><span className={`lang-code${lang === "ar" ? "" : " lang-ar"}`}>{lang === "ar" ? "EN" : "ع"}</span></button>
-              <button
-                className={`icon-button ${soundOn ? "icon-sound" : "icon-muted"}`}
-                onClick={toggleSound}
-                aria-pressed={soundOn}
-                aria-label={soundOn ? t.mute : t.unmute}
-                title={soundOn ? t.mute : t.unmute}
-              >
-                {soundOn ? <SoundOnIcon /> : <SoundMuteIcon />}
-              </button>
-              <span className="topbar-rail-divider" aria-hidden />
-              <button className="icon-button icon-settings" onClick={() => setShowSettings(true)} aria-label={t.settingsAria} title={t.settingsAria}><SettingsIcon /></button>
-              <button className="icon-button icon-logout" onClick={() => void handleLogout()} aria-label={t.logout} title={t.logout}><LogoutIcon /></button>
-            </div>
-          </div>
-        </header>
+        <TopBar
+          selectedProject={selectedProject}
+          switchingProject={switchingProject}
+          onOpenSessions={handleOpenSessions}
+          onNewSession={handleNewSessionSidebar}
+          onShowActivity={handleShowActivity}
+          onShowHistory={handleShowHistory}
+          onShowPinned={handleShowPinned}
+          onShowReleases={handleShowReleases}
+          onShowSettings={handleShowSettings}
+          onShowModels={handleShowModels}
+          onOpenGitChanges={handleOpenGitChanges}
+          onToggleTheme={toggleTheme}
+          onToggleLanguage={toggleLanguage}
+          onToggleSound={toggleSound}
+          onLogout={handleLogoutTop}
+          activeSessionsCount={activeSessions.length}
+          gitChangedCount={gitChangedCount}
+          projectPinsCount={projectPins.length}
+          displayedModelName={displayedModelName}
+          displayedModel={displayedModel}
+          theme={theme}
+          soundOn={soundOn}
+          lang={lang}
+          t={t}
+        />
 
         <div className="workspace">
           <div className="workspace-scroll" ref={workspaceScrollRef} onPointerDown={releaseScrollPin}>
             {requests.length > 0 ? (
               <div className="request-stack">
-                <RequestCard requests={requests} sessionId={activeId} listRef={requestListRef} title={activeTitle} status={activeStatus} stalled={activeId ? stalledIds.has(activeId) : false} waitingOnUser={activeId !== null && (requestQuestions.some((question) => question.sessionID === activeId) || permissions.some((permission) => permission.sessionID === activeId))} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={(request) => void handleSkip(request)} onRunNow={(request) => void handleRunNow(request)} onRemove={(request) => void handleRemoveQueued(request)} busyAction={queueAction} t={t} lang={lang} />
+                <RequestCard requests={requests} sessionId={activeId} listRef={requestListRef} title={activeTitle} status={activeStatus} stalled={activeId ? stalledIds.has(activeId) : false} waitingOnUser={activeId !== null && (activeQuestions.length > 0 || activePermissions.length > 0)} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={handleSkip} onRunNow={handleRunNow} onRemove={handleRemoveQueued} busyAction={queueAction} t={t} />
               </div>
             ) : (
               <div className="welcome-state">
@@ -2001,13 +2123,13 @@ function App() {
               </div>
             )}
             {activeId ? (
-              <StickyQuestions questions={requestQuestions.filter((question) => question.sessionID === activeId)} sessionId={activeId} onAnswered={() => void refreshRequests(activeId).catch(() => undefined)} t={t} />
+              <StickyQuestions questions={activeQuestions} sessionId={activeId} onAnswered={handleQuestionsAnswered} t={t} />
             ) : null}
           </div>
 
-          {permissions.filter((permission) => permission.sessionID === activeId).length > 0 ? (
+          {activePermissions.length > 0 ? (
             <div className="permissions-stack">
-              {permissions.filter((permission) => permission.sessionID === activeId).map((permission) => <PermissionCard key={permission.id} permission={permission} onReply={(response) => void handlePermission(permission, response)} t={t} />)}
+              {activePermissions.map((permission) => <PermissionCard key={permission.id} permission={permission} onReply={permissionReplyHandlers.get(permission.id) ?? NOOP_PERMISSION_REPLY} t={t} />)}
             </div>
           ) : null}
 
@@ -2040,106 +2162,134 @@ function App() {
 
       {showActivity ? (
         <Suspense fallback={<PanelFallback />}>
-          <ActiveSessionsPanel
-            items={activeSessions}
-            recent={activityRecent}
-            graceLeft={activityGraceLeft}
-            activeId={activeId}
-            jumpingId={jumpingId}
-            onJump={(item) => { setShowActivity(false); void jumpToActivitySession(item) }}
-            onClose={() => setShowActivity(false)}
-            t={t}
-            lang={lang}
-          />
+          <PanelErrorBoundary t={t} panelName="ActiveSessionsPanel" onClose={() => setShowActivity(false)}>
+            <ActiveSessionsPanel
+              items={activeSessions}
+              recent={activityRecent}
+              graceLeft={activityGraceLeft}
+              activeId={activeId}
+              jumpingId={jumpingId}
+              onJump={(item) => { setShowActivity(false); void jumpToActivitySession(item) }}
+              onClose={() => setShowActivity(false)}
+              t={t}
+              lang={lang}
+            />
+          </PanelErrorBoundary>
         </Suspense>
       ) : null}
       {gitRequests.isOpen ? (
         <Suspense fallback={<PanelFallback />}>
-          <GitChangesPanel
-            changes={gitChanges}
-            loading={gitLoading}
-            busy={sending}
-            confirming={gitRequests.confirming}
-            confirmingPush={gitRequests.confirmingPush}
-            onRefresh={() => void refreshGitChanges()}
-            onCommitPush={() => void gitRequests.commitPush()}
-            onAskCommitPush={gitRequests.askCommitPush}
-            onCancelCommitPush={gitRequests.cancelCommitPush}
-            onCommit={() => void gitRequests.commit()}
-            onPull={() => void gitRequests.pull()}
-            onAskRevertAll={gitRequests.askRevertAll}
-            onRevertAll={() => void gitRequests.revertAll()}
-            onCancelRevertAll={gitRequests.cancelRevertAll}
-            onRevertFile={(file) => void gitRequests.revertFile(file)}
-            onClose={gitRequests.close}
-            t={t}
-          />
+          <PanelErrorBoundary t={t} panelName="GitChangesPanel" onClose={gitRequests.close}>
+            <GitChangesPanel
+              changes={gitChanges}
+              loading={gitLoading}
+              busy={sending}
+              confirming={gitRequests.confirming}
+              confirmingPush={gitRequests.confirmingPush}
+              onRefresh={() => void refreshGitChanges()}
+              onCommitPush={() => void gitRequests.commitPush()}
+              onAskCommitPush={gitRequests.askCommitPush}
+              onCancelCommitPush={gitRequests.cancelCommitPush}
+              onCommit={() => void gitRequests.commit()}
+              onPull={() => void gitRequests.pull()}
+              onAskRevertAll={gitRequests.askRevertAll}
+              onRevertAll={() => void gitRequests.revertAll()}
+              onCancelRevertAll={gitRequests.cancelRevertAll}
+              onRevertFile={(file) => void gitRequests.revertFile(file)}
+              onClose={gitRequests.close}
+              t={t}
+            />
+          </PanelErrorBoundary>
         </Suspense>
       ) : null}
       {showHistory ? (
         <Suspense fallback={<PanelFallback />}>
-          <HistoryPanel
-            turns={historyTurns}
-            loading={historyLoading}
-            error={historyError}
-            sessionId={activeId}
-            onClose={() => setShowHistory(false)}
-            onCopy={copyText}
-            onRetry={() => void loadHistory()}
-            t={t}
-            lang={lang}
-          />
+          <PanelErrorBoundary t={t} panelName="HistoryPanel" onClose={() => setShowHistory(false)}>
+            <HistoryPanel
+              turns={historyTurns}
+              loading={historyLoading}
+              error={historyError}
+              sessionId={activeId}
+              onClose={() => setShowHistory(false)}
+              onCopy={copyText}
+              onRetry={() => void loadHistory()}
+              t={t}
+              lang={lang}
+            />
+          </PanelErrorBoundary>
         </Suspense>
       ) : null}
       {showPinned ? (
         <Suspense fallback={<PanelFallback />}>
-          <PinnedConversationsPanel
-            pins={projectPins}
-            activeId={activeId}
-            projectName={selectedProject ? projectName(selectedProject) : ""}
-            statuses={statuses}
-            onSelect={(pin) => { void openPinnedConversation(pin) }}
-            onUnpin={(pin) => togglePin(pin)}
-            onClose={closePinnedPanel}
-            t={t}
-            lang={lang}
-          />
+          <PanelErrorBoundary t={t} panelName="PinnedConversationsPanel" onClose={closePinnedPanel}>
+            <PinnedConversationsPanel
+              pins={projectPins}
+              activeId={activeId}
+              projectName={selectedProject ? projectName(selectedProject) : ""}
+              statuses={statuses}
+              onSelect={(pin) => { void openPinnedConversation(pin) }}
+              onUnpin={(pin) => togglePin(pin)}
+              onClose={closePinnedPanel}
+              t={t}
+              lang={lang}
+            />
+          </PanelErrorBoundary>
+        </Suspense>
+      ) : null}
+      {showReleases ? (
+        <Suspense fallback={<PanelFallback />}>
+          <PanelErrorBoundary t={t} panelName="ReleaseNotesPanel" onClose={() => setShowReleases(false)}>
+            <ReleaseNotesPanel
+              releases={releases}
+              onClose={() => setShowReleases(false)}
+              t={t}
+              lang={lang}
+            />
+          </PanelErrorBoundary>
         </Suspense>
       ) : null}
       {showModels ? (
         <Suspense fallback={<PanelFallback />}>
-          <ModelPicker
-            models={models}
-            loading={modelsLoading}
-            current={displayedModel}
-            busy={isBusy}
-            switching={switchingKey}
-            onSelect={(model, variant) => void handleSelectModel(model, variant)}
-            onRefresh={() => void loadModels()}
-            onClose={() => setShowModels(false)}
-            t={t}
-          />
+          <PanelErrorBoundary t={t} panelName="ModelPicker" onClose={() => setShowModels(false)}>
+            <ModelPicker
+              models={models}
+              loading={modelsLoading}
+              current={displayedModel}
+              busy={isBusy}
+              switching={switchingKey}
+              onSelect={(model, variant) => void handleSelectModel(model, variant)}
+              onRefresh={() => void loadModels()}
+              onClose={() => setShowModels(false)}
+              t={t}
+            />
+          </PanelErrorBoundary>
         </Suspense>
       ) : null}
       {showSettings ? (
-        <div className="drawer-backdrop" onClick={() => setShowSettings(false)}>
-          <aside className="drawer settings-drawer" onClick={(event) => event.stopPropagation()}>
-            <div className="drawer-header"><div><div className="eyebrow">{t.settings}</div><h2>{t.settingsDetails}</h2></div><button className="icon-button" onClick={() => setShowSettings(false)} aria-label={t.close}>×</button></div>
-            <div className="settings-list">
-              <div className="setting-row"><div><strong>{t.project}</strong><small>📁 {projectName(selectedProject)} · {t.projectSwitchHint}</small></div><button className="button button-secondary" onClick={() => setShowSettings(false)}>{t.ok} ✓</button></div>
-              <div className="setting-row"><div><strong>{t.opencode}</strong><small>{config.openCode.version === "connected" ? t.connected : config.openCode.version}</small></div><span className="status-pill success">{t.connected}</span></div>
-              <div className="setting-row"><div><strong>{t.statusStream}</strong><small>{eventConnected ? t.realtimeWorking : t.offline}</small></div><span className={`status-pill ${eventConnected ? "success" : "warning"}`}>{eventConnected ? t.active : t.inactive}</span></div>
-              <div className="setting-row"><div><strong>{t.phoneNotifications}</strong><small>{config.secureContext ? t.pushViaHttps : t.pushNeedsHttps}</small></div>{pushState === "enabled" ? <button className="button button-ghost" onClick={() => void disablePush()}>{t.disable}</button> : <button className="button button-secondary" onClick={() => void enablePush()}>{t.enable}</button>}</div>
-              <div className="setting-row setting-row-theme"><div><strong>🌓 {t.appearance}</strong><small>{themeDescription(theme, t)}</small></div><div className="theme-picker" role="radiogroup" aria-label={t.appearance}>{THEMES.map((value) => <button key={value} type="button" role="radio" aria-checked={theme === value} className={`theme-option${theme === value ? " active" : ""}`} onClick={() => setTheme(value)}><span className="theme-option-icon" aria-hidden>{THEME_META[value].icon}</span><span>{themeLabel(value, t)}</span></button>)}</div></div>
-              <div className="setting-row"><div><strong>🌐 {t.language}</strong><small>{t.languageName}</small></div><div className="theme-picker" role="radiogroup" aria-label={t.language}><button type="button" role="radio" aria-checked={lang === "ar"} className={`theme-option${lang === "ar" ? " active" : ""}`} onClick={() => setLang("ar")}><span>ع</span><span>العربية</span></button><button type="button" role="radio" aria-checked={lang === "en"} className={`theme-option${lang === "en" ? " active" : ""}`} onClick={() => setLang("en")}><span>EN</span><span>English</span></button></div></div>
-              <div className="setting-row"><div><strong>🔔 {t.taskDoneSound}</strong><small>{soundOn ? t.soundOnDesc : t.soundOffDesc}</small></div><div style={{ display: "flex", gap: 6 }}><button className="button button-secondary" onClick={testSound}>{t.tryIt} 🔊</button><button className={`button ${soundOn ? "button-ghost" : "button-primary"}`} onClick={toggleSound}>{soundOn ? t.mute : t.enable}</button></div></div>
-              {installPrompt ? <button className="button button-secondary button-wide" onClick={() => void installApp()}>{t.installApp}</button> : null}
-              {pushState === "unsupported" ? <div className="info-box">{t.pushUnsupported}</div> : null}
-              {pushState === "blocked" ? <div className="info-box">{t.pushBlocked}</div> : null}
-              {!config.secureContext ? <div className="warning-box">{t.pushNeedsSecure}</div> : null}
-            </div>
-          </aside>
-        </div>
+        <Suspense fallback={<PanelFallback />}>
+          <PanelErrorBoundary t={t} panelName="SettingsDrawer" onClose={() => setShowSettings(false)}>
+            <SettingsDrawer
+              open
+              onClose={() => setShowSettings(false)}
+              t={t}
+              config={config}
+              projectName={selectedProject ? projectName(selectedProject) : ""}
+              eventConnected={eventConnected}
+              pushState={pushState}
+              onEnablePush={() => void enablePush()}
+              onDisablePush={() => void disablePush()}
+              installPromptAvailable={installPrompt !== null}
+              onInstallApp={() => void installApp()}
+              theme={theme}
+              onThemeChange={(value) => setTheme(value)}
+              lang={lang}
+              onLangChange={(value) => setLang(value)}
+              soundOn={soundOn}
+              onTestSound={testSound}
+              onToggleSound={toggleSound}
+            />
+          </PanelErrorBoundary>
+        </Suspense>
       ) : null}
 
       <div className="toast-stack" aria-live="polite">

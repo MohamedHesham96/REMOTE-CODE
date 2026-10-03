@@ -106,7 +106,7 @@ export function formatElapsed(since: number | undefined, t: Strings, now: number
 
 // اسم المشروع من مساره: آخر جزء بعد الشرطة — نفس اللي بتعمله الفيشة
 // في server/opencode.ts للمشاريع اللي مالهاش اسم من OpenCode
-export function projectNameFromPath(worktree: string): string {
+function projectNameFromPath(worktree: string): string {
   const normalized = worktree.replace(/[\\/]+$/, "")
   return normalized.split(/[\\/]/).filter(Boolean).pop() || worktree
 }
@@ -115,12 +115,30 @@ export function projectName(project: Project): string {
   return projectNameFromPath(project.worktree)
 }
 
+// كاش المقارنة: `samePath` بتتشاف بكثرة (في `renderSessionItem` و`openProject`
+// و`jumpToActivitySession`). الـ Map بيخزّن نتيجة المقارنة لكل زوج فريد.
+const samePathCache = new Map<string, boolean>()
+
 export function samePath(left: string | undefined | null, right: string | undefined | null): boolean {
   if (!left || !right) {
     return false
   }
+  const key = `${left}\u0000${right}`
+  const cached = samePathCache.get(key)
+  if (cached !== undefined) {
+    return cached
+  }
   const normalize = (value: string) => value.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase()
-  return normalize(left) === normalize(right)
+  const result = normalize(left) === normalize(right)
+  // سقف 256 — أكثر من كده يبقى leak
+  if (samePathCache.size >= 256) {
+    const oldest = samePathCache.keys().next()
+    if (!oldest.done) {
+      samePathCache.delete(oldest.value)
+    }
+  }
+  samePathCache.set(key, result)
+  return result
 }
 
 export function statusLabel(status: SessionStatus | undefined, t: Strings): string {

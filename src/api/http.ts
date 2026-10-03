@@ -2,7 +2,6 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
-    readonly code?: string,
   ) {
     super(message)
     this.name = "ApiError"
@@ -10,6 +9,50 @@ export class ApiError extends Error {
 }
 
 const inflightGets = new Map<string, Promise<unknown>>()
+// كاش ETag بسيط: كل مسار ليه ETag آخر بنخزّنه وبيرجع مع الطلب التالي.
+// لما السيرفر يقول 304 بنرجّع آخر قيمة مخزّنة من غير فك JSON جديد —
+// الـ React بيعمل bail-out لأن المرجع نفسه. المسارات اللي بتدير كاش نت
+// خاص (زي getRequests) بتبقى متوافقة: هي بترسل الـ If-None-Match بنفسها
+// وبتتعامل مع الـ 304 لحالها في الوعد، وبتتجاهل الكاش العام هنا.
+const etagCache = new Map<string, string>()
+const etagPayloadCache = new Map<string, unknown>()
+
+// سقف للكاشين: مفاتيح المسارات بتزيد مع كل محادثة بتُفتح (model/history لكل
+// جلسة)، فبلا سقف بتتراكم الأجسام الكاملة في الذاكرة مع عمر الجلسة. الإخلاء
+// مرتب: بنطلّع أقدم مفتاح من الاتنين مع بعض، عشان مايفضلش ETag من غير جسم
+// مخزّن — لو حصل كده، طلب لاحق بـ If-None-Match ياخد 304 وميلاقيش جسم فيرمي.
+// الإخلاء نفسه مش بيغيّر أي نتيجة: المفتاح المُبعد بيعمل fetch عادي في المرة
+// الجاية ويجيب نفس البيانات من السيرفر.
+const ETAG_CACHE_LIMIT = 64
+
+function setEtag(path: string, etag: string): void {
+  etagCache.delete(path)
+  etagCache.set(path, etag)
+  if (etagCache.size > ETAG_CACHE_LIMIT) {
+    const oldest = etagCache.keys().next()
+    if (!oldest.done) {
+      etagCache.delete(oldest.value)
+      etagPayloadCache.delete(oldest.value)
+    }
+  }
+}
+
+function setEtagPayload(path: string, payload: unknown): void {
+  if (etagPayloadCache.size >= ETAG_CACHE_LIMIT && !etagPayloadCache.has(path)) {
+    const oldest = etagPayloadCache.keys().next()
+    if (!oldest.done) {
+      etagPayloadCache.delete(oldest.value)
+      etagCache.delete(oldest.value)
+    }
+  }
+  etagPayloadCache.delete(path)
+  etagPayloadCache.set(path, payload)
+}
+
+export function clearEtagCache(): void {
+  etagCache.clear()
+  etagPayloadCache.clear()
+}
 
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method || "GET").toUpperCase()
@@ -21,18 +64,48 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
     if (running) {
       return running as Promise<T>
     }
-    const task = doRequest<T>(path, init).finally(() => {
-      if (inflightGets.get(key) === task) {
-        inflightGets.delete(key)
+    // لو الـ caller مررنا If-None-Match، الـ dedup بيستخدمه بتبص نسخة الـ
+    // ETag المخزّنة. الطريق اللي اخليتها بنفس الطريقة (متلاك ETag كاش
+    // خاص) متحطيش لكان في حاجة جاية.
+    const eagerEtag = etagCache.get(path)
+    if (eagerEtag) {
+      const callerHeaders = new Headers(init.headers)
+      if (!callerHeaders.has("If-None-Match")) {
+        callerHeaders.set("If-None-Match", eagerEtag)
+        init = { ...init, headers: callerHeaders }
       }
-    })
+    }
+    const task = doRequest<T>(path, init)
+      .then((payload) => {
+        // doRequest بيرمي ApiError لو 304 بتيجي هنا (الـ path ما عندهوش
+        // كاش نت خاص) — فده بيتلقط في catch في الأسفل لما بنحتاج.
+        setEtagPayload(path, payload)
+        return payload
+      })
+      .catch((error) => {
+        // ApiError بستاتوس 304: كاش ETag العام اشتغل قبل النشر، فنرجّع
+        // آخر payload ونمسح الـ inflight. الـ wrapper بيرجّع نفس المرجع
+        // فالـ React يعمل bail-out بدل setState مالهاش لازمة.
+        if (error instanceof ApiError && error.status === 304) {
+          const cached = etagPayloadCache.get(path)
+          if (cached !== undefined) {
+            return cached as T
+          }
+        }
+        throw error
+      })
+      .finally(() => {
+        if (inflightGets.get(key) === task) {
+          inflightGets.delete(key)
+        }
+      })
     inflightGets.set(key, task)
     return task
   }
   return doRequest<T>(path, init)
 }
 
-export async function doRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function doRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   if (init.body && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json")
@@ -44,6 +117,18 @@ export async function doRequest<T>(path: string, init: RequestInit = {}): Promis
     credentials: "include",
   })
 
+  // كاش ETag العام: لو السيرفر رجّع ETAt، نخزّنه عشان الـ GET التالي
+  // يبعت If-None-Match تلقائيًا (المتشغّل في الـ wrapper فوق).
+  const etag = response.headers.get("ETag")
+  if (etag) {
+    setEtag(path, etag)
+  }
+
+  if (response.status === 304) {
+    // رمي ApiError بنمو عشان الـ wrapper يقرر يستخدم الكاش بتاعه.
+    throw new ApiError("Not modified", 304)
+  }
+
   let payload: unknown
   try {
     payload = await response.json()
@@ -53,7 +138,7 @@ export async function doRequest<T>(path: string, init: RequestInit = {}): Promis
 
   if (!response.ok) {
     const data = payload as { message?: string; error?: string } | undefined
-    throw new ApiError(data?.message || `Request failed (${response.status})`, response.status, data?.error)
+    throw new ApiError(data?.message || `Request failed (${response.status})`, response.status)
   }
 
   return payload as T

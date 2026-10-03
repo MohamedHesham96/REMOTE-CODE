@@ -17,7 +17,7 @@ export interface ScrollToBottom {
 }
 
 // تحت السطر ده (بالبكسل) بنعتبر المستخدم "قريب من الأسفل"
-export const NEAR_BOTTOM_PX = 100
+const NEAR_BOTTOM_PX = 100
 
 function scrollToBottom(element: HTMLElement): void {
   // نزول فوري (auto) مش smooth: ده تثبيت لفتح محادثة، والأنيميشن بيخلّي
@@ -54,7 +54,7 @@ export function useScrollToBottom(targets: ScrollTargets): ScrollToBottom {
   const targetsRef = useRef<ScrollTargets>(targets)
   useEffect(() => {
     targetsRef.current = targets
-  })
+  }, [targets])
   const frameRef = useRef<number | null>(null)
   const onSettledRef = useRef<(() => void) | null>(null)
   // إنهاء التثبيت: يا إما المحتوى استقر يا إما المستخدم مسك السكول — في

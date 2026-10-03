@@ -225,18 +225,6 @@ describe("pins per project", () => {
     expect(service.listForProject("/srv/two").map((item) => item.id)).toEqual(["ses_b"])
   })
 
-  it("counts the pins of each project", async () => {
-    const service = new PinService(file)
-    await service.add(pin("ses_a", { worktree: "/srv/one", projectName: "one" }))
-    await service.add(pin("ses_b", { worktree: "/srv/one", projectName: "one" }))
-    await service.add(pin("ses_c", { worktree: "/srv/two", projectName: "two" }))
-    await service.add({ id: "ses_legacy" })
-    expect(service.projects()).toEqual([
-      { projectKey: "/srv/one", name: "one", count: 2 },
-      { projectKey: "/srv/two", name: "two", count: 1 },
-    ])
-  })
-
   it("moves a conversation to another project only if it is pinned again from there", async () => {
     const service = new PinService(file)
     await service.add(pin("ses_a", { worktree: "/srv/one" }))
@@ -373,7 +361,6 @@ describe("migration from older pin files", () => {
     expect(service.unattributed().map((item) => item.id)).toEqual(["ses_legacy"])
     expect(service.listForProject("/srv")).toEqual([])
     expect(service.listForProject("/")).toEqual([])
-    expect(service.projects()).toEqual([])
   })
 
   it("reads a file with no version at all", async () => {
