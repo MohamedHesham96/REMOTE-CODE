@@ -9,7 +9,8 @@ import type { Release } from "./releases"
 // كل نص هنا مزدوج اللغة (ar/en) بنفس أسلوب i18n.ts — العربية فصحى بلا لهجة،
 // والإنجليزية فصيحة. إضافة إصدار جديد = إضافة كائن بنصوص اللغتين معًا.
 //
-// التسلسل الزمني الحقيقي من الأقدم (5775b51) للأحدث (d262332):
+// التسلسل الزمني الحقيقي من الأقدم (5775b51) للأحدث (5e3836c):
+//   v1.5.0 (2026-10-03)  →  8 commits تبديل الفروع + ملاحظات الإصدار + بطاقات المهام
 //   v1.4.0 (2026-10-02)  →  8 commits توجيه الطلبات + أداء العرض
 //   v1.3.0 (2026-10-01)  → 19 commit  أدوات Git + منتقي النماذج + حالة المهمة
 //   v1.2.0 (2026-09-29)  → 16 commit  إعادة التسمية RemoteCode + مشغّل Windows
@@ -20,6 +21,93 @@ import type { Release } from "./releases"
 // إعادة التوليد: شغّل `scripts/generate-releases.mjs` لأخذ صورة جديدة من
 // التاريخ، ثم راجع المجموعة الناتجة قبل إضافتها كإصدار جديد هنا.
 export const releases: Release[] = [
+  {
+    version: "v1.5.0",
+    date: "2026-10-03",
+    title: {
+      ar: "تبديل فروع Git وملاحظات الإصدار وبطاقات مهام أوضح",
+      en: "Git branch switching, release notes, and clearer task cards",
+    },
+    summary: {
+      ar: "تبديل الفرع مباشرة من درج Git ببحث فوري، وملاحظات إصدار مزدوجة اللغة من تاريخ المستودع، وبطاقات مهام مصنّفة حسب مرحلة التشغيل مع رد حي منتظم.",
+      en: "Switch branches straight from the Git drawer with live search, bilingual release notes derived from repo history, and task cards phased by stage with a consistently spaced live reply.",
+    },
+    commits: ["1b3de3a", "eeecdf5", "da77e6d", "3f437a1", "f426267", "29b79df", "3fd1901", "5e3836c"],
+    changes: [
+      {
+        category: "features",
+        title: {
+          ar: "تبديل فروع Git من درج التغييرات",
+          en: "Switch git branches from the changes drawer",
+        },
+        description: {
+          ar: "منتقي فروع قابل للبحث ينقل مجلد العمل مباشرة على السيرفر من غير طلب في المحادثة، ويرفض النقل بأمان عندما تتعارض التغييرات المحلية.",
+          en: "A searchable branch picker switches the working tree straight on the server without a conversation request, safely refusing when local changes would be overwritten.",
+        },
+        commits: ["5e3836c"],
+      },
+      {
+        category: "features",
+        title: {
+          ar: "ملاحظات إصدار مزدوجة اللغة من تاريخ Git",
+          en: "Bilingual release notes from git history",
+        },
+        description: {
+          ar: "لوحة ملاحظات إصدار تُعرض في التطبيق وتعتمد على تاريخ المستودع، مع سكربت يطبع دفعات الـ commits الجديدة لإضافة الإصدارات التالية.",
+          en: "An in-app release notes panel built from repository history, with a script that prints new commit batches for adding future releases.",
+        },
+        commits: ["1b3de3a"],
+      },
+      {
+        category: "improvements",
+        title: {
+          ar: "بطاقات مهام مصنّفة حسب مرحلة التشغيل",
+          en: "Task cards themed by running phase",
+        },
+        description: {
+          ar: "خلفية الكارت والرموز تعكسان مرحلة المهمة (تعمل/تنتظر/عالقة/خطأ/اكتملت)، والحالة الجارية تنتقل عبر الطابور بوضوح.",
+          en: "The card background and icons reflect the task stage (running/waiting/stuck/error/completed), and the running state flows clearly through the queue.",
+        },
+        commits: ["eeecdf5", "3f437a1"],
+      },
+      {
+        category: "improvements",
+        title: {
+          ar: "لوحة حالة موحدة في صفوف الطلبات",
+          en: "Shared status panel across request rows",
+        },
+        description: {
+          ar: "إعادة استخدام لوحة الحالة في صفوف الطلبات وصياغة رسالة الاكتمال بأوضح شكل مع شدّ المسافات الرأسية.",
+          en: "Reuse the status panel in request rows, reword the completion message for clarity, and tighten vertical spacing.",
+        },
+        commits: ["f426267", "29b79df"],
+      },
+      {
+        category: "fixes",
+        title: {
+          ar: "جمع ملفات النتائج من أداة الكتابة بدون لقطة git",
+          en: "Collect result files from write tool calls without a git snapshot",
+        },
+        description: {
+          ar: "ملفات المهمة النهائية تُلتقط من أدوات الكتابة حتى لو لم تكن هناك لقطة git تحقق ذلك تلقائيًا.",
+          en: "Final task files are captured from write tool calls even when no git snapshot would capture them automatically.",
+        },
+        commits: ["da77e6d"],
+      },
+      {
+        category: "fixes",
+        title: {
+          ar: "لصق الرد الحي بسطر واحد بدل سطر فارغ بعد كل سطر",
+          en: "Join the live reply with single newlines instead of a blank line after each line",
+        },
+        description: {
+          ar: "أجزاء رد المساعد المتدفقة كانت تُلصق بسطرين فيظهر سطر فارغ بعد كل سطر طول ما الرد يُكتب — أصبح اللصق بسطر واحد مع الحفاظ على الفقرات الداخلية.",
+          en: "Streamed assistant parts were joined with double newlines, leaving a blank line after every line while typing — now joined with a single newline while preserving inner paragraphs.",
+        },
+        commits: ["3fd1901"],
+      },
+    ],
+  },
   {
     version: "v1.4.0",
     date: "2026-10-02",
