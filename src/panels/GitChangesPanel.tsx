@@ -1,9 +1,9 @@
 import { useMemo } from "react"
-import { EMPTY_GIT_FILES, GitBranchIcon, GitCommitIcon, GitRefreshIcon, GitRevertIcon, SpinnerIcon, gitStatusMeta, splitChangePath } from "../display"
+import { EMPTY_GIT_FILES, GitBranchIcon, GitCommitIcon, GitCommitOnlyIcon, GitPullIcon, GitRefreshIcon, GitRevertIcon, SpinnerIcon, gitStatusMeta, splitChangePath } from "../display"
 import type { Strings } from "../i18n"
 import type { GitChangeFile, GitChanges } from "../types"
 
-export function GitChangesPanel({ changes, loading, busy, confirming, confirmingPush, onRefresh, onCommitPush, onAskCommitPush, onCancelCommitPush, onAskRevertAll, onRevertAll, onCancelRevertAll, onRevertFile, onClose, t }: {
+export function GitChangesPanel({ changes, loading, busy, confirming, confirmingPush, onRefresh, onCommitPush, onAskCommitPush, onCancelCommitPush, onCommit, onPull, onAskRevertAll, onRevertAll, onCancelRevertAll, onRevertFile, onClose, t }: {
   changes: GitChanges | null
   loading: boolean
   busy: boolean
@@ -13,6 +13,8 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
   onCommitPush: () => void
   onAskCommitPush: () => void
   onCancelCommitPush: () => void
+  onCommit: () => void
+  onPull: () => void
   onAskRevertAll: () => void
   onRevertAll: () => void
   onCancelRevertAll: () => void
@@ -25,7 +27,26 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
   const hasFiles = Boolean(changes?.available) && files.length > 0
   // كل أزرار التحكم بتتقفل لما مفيش ملفات، وبتتقفل كمان وقت أي تأكيد
   // عشان المستخدم ميضربش action تاني وهو بيأكد واحد شغّال.
-  const canAct = hasFiles && !loading && !busy && !confirming && !confirmingPush
+  const idle = !loading && !busy && !confirming && !confirmingPush
+  const canAct = hasFiles && idle
+  // السحب مش محتاج تغييرات محلية — شغله الأساسي على مجلد نضيف، فبيشترط
+  // إن المشروع git بس.
+  const canPull = Boolean(changes?.available) && idle
+  // عدد الـ commits اللي لسه على الفرع المحلي ومش وصلتش للفرع البعيد. صفر
+  // معناه "مفيش حاجة مستنية push" أو "مفيش upstream متظبط" — والاتنين
+  // معناه إننا متكلّمين عن push أصلاً فمفيش حاجة نلفت النظر ليها.
+  const unpushed = changes?.unpushed ?? 0
+  // زرار commit & push بيفضل شغال على شجرة نضيفة لو فيه commits مستنية
+  // الـ push: الحاجة المطلوبة (الـ push) موجودة حتى لو مفيش ملفات.
+  const canPush = idle && Boolean(changes?.available) && (hasFiles || unpushed > 0)
+  // الرقم في نص الزر (aria-label) كمان: الشارة مرئية للعين بس،
+  // فبدونها قارئ الشاشة هيسمع "commit & push" من غير أي رقم. والاسم
+  // بيتغيّر لـ "push" لما مفيش حاجة تتعملها commit عشان الزرار مايوعدش
+  // بحاجة مش هتحصل.
+  const pushLabel = unpushed > 0
+    ? `${hasFiles ? t.gitCommitPush : t.gitPush} — ${unpushed} ${unpushed === 1 ? t.gitUnpushedOne : t.gitUnpushedMany}`
+    : t.gitCommitPush
+  const pushConfirm = t.gitPushConfirm.replace("{count}", String(unpushed))
   const summary = useMemo(() => files.reduce((total, file) => {
     if (file.status === "added") {
       total.added += 1
@@ -57,34 +78,58 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
           </div>
           <div className="git-toolbar-actions">
             <button className="icon-button" onClick={onRefresh} aria-label={t.refreshList} title={t.refreshList} disabled={loading}><GitRefreshIcon /></button>
-            {/* زراري التراجع والـ push بيفضلوا ظاهرين حتى لو مفيش تغييرات:
-                زرار بيختفي وقت ما يبقى مفيش حاجة يعمله المستخدم بيدور عليه
-                وميشوفش إن الأداة موجودة أصلاً. بيتقفلوا بـ canAct بدل ما
-                يتشالوا من الشجرة. */}
+            {/* أزرار الـ git كلها (التراجع، الـ commit، والـ push والسحب) بتفضل
+                ظاهرة حتى لو مفيش تغييرات: زرار بيختفي وقت ما يبقى مفيش حاجة
+                يعمله المستخدم بيدور عليه وميشوفش إن الأداة موجودة أصلاً.
+                بتتقفل بـ canAct/canPull بدل ما تتشال من الشجرة. */}
             {!confirming ? (
-              <button
-                type="button"
-                className="icon-button git-revert-button"
-                disabled={!canAct}
-                onClick={onAskRevertAll}
-                aria-label={t.gitRevertAll}
-                title={t.gitRevertAll}
-              >
-                <GitRevertIcon />
-              </button>
-            ) : null}
-            {!confirmingPush ? (
-              <button
-                type="button"
-                className="icon-button git-commit-button"
-                disabled={!canAct}
-                onClick={onAskCommitPush}
-                aria-busy={busy}
-                aria-label={t.gitCommitPush}
-                title={t.gitCommitPush}
-              >
-                {busy ? <SpinnerIcon /> : <GitCommitIcon />}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="icon-button git-revert-button"
+                  disabled={!canAct}
+                  onClick={onAskRevertAll}
+                  aria-label={t.gitRevertAll}
+                  title={t.gitRevertAll}
+                >
+                  <GitRevertIcon />
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  disabled={!canAct}
+                  onClick={onCommit}
+                  aria-label={t.gitCommit}
+                  title={t.gitCommit}
+                >
+                  <GitCommitOnlyIcon />
+                </button>
+                <button
+                  type="button"
+                  className="icon-button git-push-button"
+                  disabled={!canPush}
+                  onClick={onAskCommitPush}
+                  aria-busy={busy}
+                  aria-label={pushLabel}
+                  title={pushLabel}
+                >
+                  {busy ? <SpinnerIcon /> : <GitCommitIcon />}
+                  {/* شارة عدد الـ commits غير المدفوعة. بتظهر فوق زرار
+                      commit & push لأنها هي اللي بتدفع، وزرار commit لوحده
+                      مش بيعمل push فالشارة عليه كانت هتكذب. */}
+                  {unpushed > 0 ? <span className="count-badge git-push-badge">{unpushed}</span> : null}
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  disabled={!canPull}
+                  onClick={onPull}
+                  aria-label={t.gitPull}
+                  title={t.gitPull}
+                >
+                  <GitPullIcon />
+                </button>
+              </>
             ) : null}
           </div>
         </div>
@@ -102,15 +147,17 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
             </div>
           </div>
         ) : null}
-        {/* الـ push بيعدّل الفرع البعيد، فبيتأكد جوه الدرج زي التراجع عن الكل */}
+        {/* الـ push بيعدّل الفرع البعيد، فبيتأكد جوه الدرج زي التراجع عن الكل.
+            النص بيتبع اللي هيحصل فعلًا: فيه ملفات ⇒ commit و push، وشجرة
+            نضيفة ⇒ push بس. تأكيد بيقول "commit" وحاجة مش موجودة بيوهّم. */}
         {confirmingPush ? (
-          <div className="git-confirm" role="alertdialog" aria-label={t.gitCommitPushConfirm}>
-            <p className="git-confirm-text">{t.gitCommitPushConfirm}</p>
+          <div className="git-confirm" role="alertdialog" aria-label={hasFiles ? t.gitCommitPushConfirm : pushConfirm}>
+            <p className="git-confirm-text">{hasFiles ? t.gitCommitPushConfirm : pushConfirm}</p>
             <div className="git-confirm-actions">
               <button type="button" className="git-confirm-cancel" onClick={onCancelCommitPush} disabled={busy}>
                 {t.cancel}
               </button>
-              <button type="button" className="git-confirm-accept" onClick={onCommitPush} disabled={busy || !hasFiles}>
+              <button type="button" className="git-confirm-accept" onClick={onCommitPush} disabled={busy || (!hasFiles && unpushed === 0)}>
                 {t.gitCommitPushConfirmYes}
               </button>
             </div>

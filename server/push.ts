@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import webpush, { type PushSubscription } from "web-push"
 import { isServerLang, serverMessage, type ServerLang } from "./i18n.js"
-import { mapWithConcurrency } from "./http-utils.js"
+import { mapWithConcurrency } from "./utils/concurrency.js"
 
 // حد تزامن إرسال الإشعارات: إرسال غير محدود لكل الاشتراكات لحظيًا
 // كان بيعلّق مسار الأحداث لما endpoint يهنّج — 5 concurrent تكفي وتُبقي الترتيب
@@ -118,23 +118,6 @@ export class PushService {
       this.languages.delete(endpoint)
       await this.persist()
     }
-  }
-
-  async test(value: unknown): Promise<void> {
-    if (!isPushSubscription(value)) {
-      throw new Error("Invalid push subscription")
-    }
-
-    if (!this.enabled) {
-      throw new Error("Web Push is not configured")
-    }
-
-    const lang = isServerLang((value as unknown as { lang?: unknown }).lang) ? (value as unknown as { lang: ServerLang }).lang : "ar"
-    await this.send(value, {
-      title: "RemoteCode",
-      body: serverMessage("pushTestBody", lang),
-      tag: "opencode-push-test",
-    })
   }
 
   handleEvent(event: OpenCodeEvent): void {

@@ -90,6 +90,45 @@ export function clientEvent(event: OpenCodeEvent): Record<string, unknown> | nul
   return null
 }
 
+// حالة الجلسات على السلك بتتكلم عن الجلسة نفسها، ومهمة Task جلسات ابن:
+// كل مهمة فرعية بتبعت `busy` و `idle` باسمها هي. فلو العميل سمعها كأنها
+// محادثات مستقلة، محادثة واحدة شغّالة على أربع مهام بتعدّ أربع محادثات
+// نشطة، وصوت الإتمام بيرنّ مع كل مهمة تخلص مش مع خلوص المحادثة. فبننسب
+// كل حالة لجذرها — نفس القاعدة المطبّقة على `/api/session` و
+// `/api/session/status`.
+export interface ConversationLookup {
+  conversationOf(sessionId: string): string
+  conversationBusy(sessionId: string): boolean
+}
+
+// حالة `idle` بتتعلن على مستوى المحادثة لا المهمة: طول ما الجذر أو مهمة
+// تانية في نفس الشجرة شغّالة، الشغل لسه جاري. مهم في حالتين: مهمة بتخلص
+// وأختها شغّالة (ما نعلنش خلاص)، والعميل بيسمع حالة الجذر نفسها فنمرّرها
+// زي ما هي.
+export function conversationEvent(event: OpenCodeEvent, conversations: ConversationLookup): OpenCodeEvent | null {
+  // الاتحاد اللفظي المغلق يُنسخ لنص حر — نفس علة clientEvent بالظبط.
+  const eventType: string = event.type
+  if (eventType !== "session.status" && eventType !== "session.idle") {
+    return event
+  }
+  const properties = event.data as { sessionID?: unknown; status?: { type?: unknown } } | undefined
+  const sessionId = typeof properties?.sessionID === "string" ? properties.sessionID : ""
+  if (!sessionId) {
+    return event
+  }
+  const root = conversations.conversationOf(sessionId)
+  const idle = eventType === "session.idle" || properties?.status?.type === "idle"
+  if (idle && conversations.conversationBusy(sessionId)) {
+    return null
+  }
+  if (root === sessionId) {
+    return event
+  }
+  // الحدث الأصلي بيتساب كما هو غير الـ sessionID؛ باقي الحقول (زي
+  // `status`) بتتقرا من نفس البيانات.
+  return { ...event, data: { ...properties, sessionID: root } } as OpenCodeEvent
+}
+
 export function isIdleEvent(event: Record<string, unknown>): boolean {
   if (event.type === "session.idle") {
     return true

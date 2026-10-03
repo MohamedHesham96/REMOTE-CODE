@@ -18,12 +18,6 @@ export interface SessionStatus {
   type: "idle" | "busy" | "retry"
 }
 
-export interface Todo {
-  id: string
-  content: string
-  status: string
-}
-
 export interface Permission {
   id: string
   sessionID: string
@@ -31,7 +25,7 @@ export interface Permission {
   pattern?: string | string[]
 }
 
-export interface ServerEventBase {
+interface ServerEventBase {
   properties: {
     sessionID: string
     [key: string]: unknown
@@ -39,8 +33,7 @@ export interface ServerEventBase {
 }
 
 // أحداث السيرفر على السلك — نفس الأسماء منذ v1، والمحتوى مترجَم في
-// server/sse/filter.ts من أحداث v2. الأعضاء الميتة (todo.updated مثلًا)
-// باقية للتوافق مع معالجات الواجهة، حتى لو لم يعُد السيرفر يبثّها.
+// server/sse/filter.ts من أحداث v2.
 export interface StatusServerEvent extends ServerEventBase {
   type: "session.status"
   properties: { sessionID: string; status: SessionStatus; [key: string]: unknown }
@@ -54,13 +47,8 @@ export interface ErrorServerEvent extends ServerEventBase {
   type: "session.error"
 }
 
-export interface TodoServerEvent extends ServerEventBase {
-  type: "todo.updated"
-  properties: { sessionID: string; todos: Todo[]; [key: string]: unknown }
-}
-
 export interface MessageRefreshServerEvent {
-  type: "message.updated" | "message.part.updated" | "message.part.removed" | "message.removed" | "session.diff" | "session.compacted"
+  type: "message.part.updated" | "session.diff"
   properties: { sessionID?: string; [key: string]: unknown }
 }
 
@@ -82,13 +70,10 @@ export type ServerEvent =
   | StatusServerEvent
   | IdleServerEvent
   | ErrorServerEvent
-  | TodoServerEvent
   | MessageRefreshServerEvent
   | PermissionUpdatedServerEvent
   | PermissionRepliedServerEvent
   | SessionListServerEvent
-
-export type Event = ServerEvent
 
 export type AuthState = "loading" | "signedOut" | "signedIn"
 
@@ -130,9 +115,6 @@ export type QuestionClientEventType =
   | "question.asked"
   | "question.replied"
   | "question.rejected"
-  | "question.v2.asked"
-  | "question.v2.replied"
-  | "question.v2.rejected"
 
 export interface QuestionClientEvent {
   type: QuestionClientEventType
@@ -159,9 +141,9 @@ export interface SessionRequest {
   liveText: string
   stepsCompleted: number
   activeTool: string | null
-  todos: Todo[]
-  completedTodos: number
-  totalTodos: number
+  // أدوات المهمة الحالية بترتيب استخدامها ("قائمة المستخدم" في واجهة
+  // الديسكتوب)، مترجمة على السيرفر. الواجهة بتعرضها واحدة واحدة.
+  usedTools: string[]
   resultFiles: ResultFile[]
   startedAt: number
   completedAt: number
@@ -173,19 +155,25 @@ export interface SessionRequests {
   requests: SessionRequest[]
   questions: ConversationQuestionRequest[]
   queued: number
+  // حكم كاشف الجمود في السيرفر — اتقفل عليه بعد مهلة بلا أي بصمة تقدّم
+  // تتغيّر. بيتحوّل معه status لـ idle، فلو الواجهة اعتمدت على status بس
+  // كانت هتعرض المهمة المجمّدة كأنها "خلصت".
+  stalled: boolean
   // بصمة الحالة من السيرفر لدعم ETag/304 — غيابها (ردود قديمة) يعني "دايمًا جديد"
   version: string
 }
+
+// حالة المهمة كما تُعرض في لوحة الحالة أعلى الكارت. الترتيب مقصود: كل حالة
+// تُقاس قبل التي بعدها، فالجمود بيتقدّم على كل حاجة عشان المهمة الواقفة ما
+// تبانش شغّالة (زي ما الكارت القديم كان بيعمل).
+export type TaskPhase = "running" | "waiting" | "stuck" | "error" | "completed"
 
 export interface ResultFile {
   id: string
   name: string
   mime: string
   path: string
-  url: string
   downloadUrl: string
-  source: "attachment" | "output"
-  size?: number
 }
 
 export interface AppConfig {
@@ -261,7 +249,6 @@ export interface HistoryTurn {
   prompt: string
   finalResult: string
   createdAt: number
-  completedAt: number
   steps: number
   files: ResultFile[]
 }
@@ -280,4 +267,7 @@ export interface GitChanges {
   branch: string
   available: boolean
   files: GitChangeFile[]
+  // عدد الـ commits اللي لسه ما اتدفعتش — بيظهر على زرار commit & push.
+  // صفر معناه "مفيش حاجة مستنية push" أو "مفيش upstream متظبط".
+  unpushed: number
 }

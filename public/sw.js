@@ -1,4 +1,7 @@
-const CACHE_NAME = "RemoteCode-shell-v9"
+// رقم النسخة يتغيّر مع كل تعديل بيخص الواجهة: الـ activate بيمسح الكاش القديم
+// ويعيد تخزين الـ shell، فالأجهزة المثبّتة (PWA) ما تفضلش شغّالة على حزمة
+// قديمة من الكاش لما الشبكة تفشل وتخدم "/" المخزّن.
+const CACHE_NAME = "RemoteCode-shell-v10"
 const SHELL = [
   "/",
   "/manifest.webmanifest",
@@ -89,7 +92,7 @@ self.addEventListener("fetch", (event) => {
 })
 
 self.addEventListener("push", (event) => {
-  let data = { title: "OpenCode", body: "لديك تحديث جديد", sessionId: "" }
+  let data = { title: "OpenCode", body: "لديك تحديث جديد" }
   try {
     if (event.data) {
       data = { ...data, ...event.data.json() }
@@ -106,7 +109,6 @@ self.addEventListener("push", (event) => {
       silent: false,
       vibrate: [180, 100, 180, 100, 320],
       requireInteraction: true,
-      data: { sessionId: data.sessionId || "" },
       icon: "/icon.svg",
       badge: "/icon.svg",
     }),
@@ -115,8 +117,7 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close()
-  const sessionId = event.notification.data?.sessionId
-  const target = sessionId ? `/?session=${encodeURIComponent(sessionId)}` : "/"
+  const target = "/"
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       const existing = clients[0]

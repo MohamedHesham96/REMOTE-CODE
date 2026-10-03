@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { addPin, forgetPins, getPins, mergePins, removePin } from "./api"
-import { getRequests, getStatuses, rejectQuestion, removeQueuedRequest, renameSession, replyQuestion, runQueuedRequest, sendMessage, skipRunningRequest } from "./api"
+import { getRequests, getStatuses, listPermissions, rejectQuestion, removeQueuedRequest, renameSession, replyQuestion, runQueuedRequest, sendMessage, skipRunningRequest } from "./api"
+import { clearEtagCache } from "./api/http"
 import type { PinnedConversation, Session, SessionRequest, SessionRequests, SessionStatus } from "./types"
 
 function pin(id: string, overrides: Partial<PinnedConversation> = {}): PinnedConversation {
@@ -99,9 +100,7 @@ describe("parallel requests", () => {
     liveText: "",
     stepsCompleted: 0,
     activeTool: null,
-    todos: [],
-    completedTodos: 0,
-    totalTodos: 0,
+    usedTools: [],
     resultFiles: [],
     startedAt: 2,
     completedAt: 0,
@@ -119,7 +118,7 @@ describe("parallel requests", () => {
   })
 
   it("returns the stacked request cards oldest first", async () => {
-    const payload: SessionRequests = { status: { type: "busy" }, requests: [queued], questions: [], queued: 1, version: "busy|1||q|..." }
+    const payload: SessionRequests = { status: { type: "busy" }, requests: [queued], questions: [], queued: 1, stalled: false, version: "busy|live|1||q|..." }
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify(payload), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -165,14 +164,14 @@ describe("parallel requests", () => {
     }))
   })
 
-  it("runs a queued request now through its card id", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ started: true, remaining: 1 }), {
+  it("steers a queued request into the running task through its card id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ started: false, steered: true, queued: false, remaining: 1 }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     }))
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(runQueuedRequest("session/id", queued.id)).resolves.toEqual({ started: true, remaining: 1 })
+    await expect(runQueuedRequest("session/id", queued.id)).resolves.toEqual({ started: false, steered: true, queued: false, remaining: 1 })
     expect(fetchMock).toHaveBeenCalledWith("/api/session/session%2Fid/request/queued%3Aq2/run", expect.objectContaining({
       method: "POST",
       credentials: "include",
@@ -250,7 +249,7 @@ describe("request efficiency", () => {
   })
 
   it("sends If-None-Match and reuses the cached payload on 304", async () => {
-    const payload: SessionRequests = { status: { type: "busy" }, requests: [], questions: [], queued: 0, version: "busy|0|||" }
+    const payload: SessionRequests = { status: { type: "busy" }, requests: [], questions: [], queued: 0, stalled: false, version: "busy|live|0|||" }
     const seen: Array<Record<string, string>> = []
     const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       seen.push({ ...(init?.headers as Record<string, string>) })
@@ -272,6 +271,41 @@ describe("request efficiency", () => {
     const second = await getRequests("session/etag")
     expect(second).toBe(first)
     expect(seen[1]?.["If-None-Match"]).toBe('W/"abc-9"')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("generic ETag handling in request()", () => {
+  it("sends If-None-Match after the first successful response and reuses the cached payload on 304", async () => {
+    clearEtagCache()
+    const payload = [{ id: "perm_1", sessionID: "s1", title: "Allow read?" }]
+    const seen: Array<Record<string, string>> = []
+    let callNumber = 0
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      const headers = new Headers(init?.headers)
+      const recorded: Record<string, string> = {}
+      headers.forEach((value, key) => {
+        recorded[key.toLowerCase()] = value
+      })
+      seen.push(recorded)
+      callNumber += 1
+      if (callNumber === 1) {
+        return Promise.resolve(new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ETag: 'W/"perm-v1"' },
+        }))
+      }
+      return Promise.resolve(new Response(null, { status: 304 }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const first = await listPermissions()
+    expect(first).toEqual(payload)
+    expect(seen[0]).not.toHaveProperty("if-none-match")
+
+    const second = await listPermissions()
+    expect(second).toBe(first)
+    expect(seen[1]?.["if-none-match"]).toBe('W/"perm-v1"')
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

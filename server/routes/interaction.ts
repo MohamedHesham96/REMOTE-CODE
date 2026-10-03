@@ -1,9 +1,16 @@
 import type { Express } from "express"
+import { etagFor } from "../utils/hash.js"
 import { getServerLang, serverMessage } from "../i18n.js"
 import type { RouteContext } from "./context.js"
 
 export function registerInteractionRoutes(app: Express, ctx: RouteContext): void {
   app.get("/api/permission", (_request, response) => {
+    const etag = etagFor(ctx.openCode.permissionsVersionValue())
+    response.setHeader("ETag", etag)
+    if (_request.headers["if-none-match"] === etag) {
+      response.status(304).end()
+      return
+    }
     response.json(ctx.openCode.permissions())
   })
 

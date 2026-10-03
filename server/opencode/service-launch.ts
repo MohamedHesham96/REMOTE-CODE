@@ -101,7 +101,7 @@ export function resolveOpencodeBinary(candidates: string[] = candidateBinaries()
 }
 
 // اكتشاف صامت: لا يشغّل أي عملية ولا يفتح أي نافذة.
-export async function discoverLocalEndpoint(): Promise<Endpoint | undefined> {
+async function discoverLocalEndpoint(): Promise<Endpoint | undefined> {
   try {
     return await Service.discover({ version: isCompatibleVersion })
   } catch {
@@ -127,7 +127,7 @@ export function spawnHiddenService(binary: string): void {
   }
 }
 
-export async function waitForLocalEndpoint(timeoutMs = 30_000): Promise<Endpoint | undefined> {
+async function waitForLocalEndpoint(timeoutMs = 30_000): Promise<Endpoint | undefined> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const endpoint = await discoverLocalEndpoint()

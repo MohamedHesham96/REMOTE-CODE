@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { STATUS_TO_BUSY_MS, STATUS_TO_IDLE_MS } from "../constants"
 import type { SessionStatus } from "../types"
 
-export function statusKind(status: SessionStatus | undefined): string {
+function statusKind(status: SessionStatus | undefined): string {
   return status?.type ?? "idle"
 }
 
-export function isBusyKind(kind: string): boolean {
+function isBusyKind(kind: string): boolean {
   return kind === "busy" || kind === "retry"
 }
 

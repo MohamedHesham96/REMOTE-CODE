@@ -1,14 +1,16 @@
 import type { OpenCodeEvent } from "@opencode/client"
 import { mkdir, unlink, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
 import { OpenCodeService } from "./opencode.js"
+import { serverMessage } from "./i18n.js"
 
 const SESSION = "ses_test"
 const DIRECTORY = process.cwd()
 
 interface FakeClient {
   dispatched: string[]
+  deliveries: string[]
   abortCalls: number
   messages: Array<Record<string, unknown>>
   sessions: Array<Record<string, unknown>>
@@ -31,6 +33,7 @@ function sessionSummary(id: string, directory: string): Record<string, unknown> 
 function createFakeClient(raw: { running: boolean }): FakeClient {
   const fake: FakeClient = {
     dispatched: [],
+    deliveries: [],
     abortCalls: 0,
     messages: [],
     sessions: [sessionSummary(SESSION, DIRECTORY)],
@@ -40,8 +43,9 @@ function createFakeClient(raw: { running: boolean }): FakeClient {
     permission: {},
   }
   fake.session = {
-    prompt: (options: { text?: string }) => {
+    prompt: (options: { text?: string; delivery?: string }) => {
       fake.dispatched.push(options.text ?? "")
+      fake.deliveries.push(options.delivery ?? "")
       return Promise.resolve({ id: "inbox_1", sessionID: SESSION })
     },
     interrupt: () => {
@@ -107,7 +111,19 @@ interface Internals {
   idlePolls: Map<string, number>
   startQueueWatchdog: () => void
   variantsCache: unknown
+  modelsCache: unknown
+  staticCatalogCache: unknown
 }
+
+// الكتالوج العام يُجلب عبر fetch — الوضع الافتراضي "بلا نت" حتى لا تلمس
+// الاختبارات الشبكة أبدًا، واختبارات الدمج تُعيد التثبيت بنفسها.
+beforeEach(() => {
+  vi.stubGlobal("fetch", () => Promise.reject(new Error("offline")))
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 function createService() {
   const raw = { running: false }
@@ -265,32 +281,56 @@ describe("parallel request queue", () => {
     expect(fake.abortCalls).toBe(0)
   })
 
-  it("runs a queued request now by stopping the running one", async () => {
-    const { service, fake } = createService()
+  it("steers a queued request into the running task without stopping it", async () => {
+    const { service, fake, emit } = createService()
 
     await service.prompt(SESSION, "الأول")
     await service.prompt(SESSION, "التاني")
     await service.prompt(SESSION, "التالت")
 
-    // آخر طلب في الطابور هو اللي عايز ينفّذ حالًا
-    await expect(service.runQueued(SESSION, "queued:q3")).resolves.toEqual({ started: true, remaining: 1 })
-    // اللي كان شغّال اتوقّف، والمطلوب اتبعّ قبل أي طلب تاني مستني
-    expect(fake.abortCalls).toBe(1)
+    // آخر طلب في الطابور عايز يتنفّذ حالًا — بيتحقن جوه المهمة الشغّالة
+    // كتوجيه (steer) فبيتشال من الطابور من غير ما نوقف OpenCode
+    await expect(service.runQueued(SESSION, "queued:q3")).resolves.toEqual({ started: false, steered: true, queued: false, remaining: 1 })
+    expect(fake.abortCalls).toBe(0)
     expect(fake.dispatched).toEqual(["الأول", "التالت"])
+    expect(fake.deliveries).toEqual(["", "steer"])
+
+    // اللي فضل في الطابور (التاني) بيتنفّذ لما المهمة الحالية تخلص
+    emit(idleEvent())
+    expect(fake.dispatched).toEqual(["الأول", "التالت", "التاني"])
   })
 
-  it("does not send twice from the idle of the request it stopped for run-now", async () => {
+  it("steers a queued request immediately and leaves nothing for the next idle", async () => {
     const { service, fake, emit } = createService()
 
     await service.prompt(SESSION, "الأول")
     await service.prompt(SESSION, "التاني")
 
-    const running = service.runQueued(SESSION, "queued:q2")
-    // الـ idle بيوصل قبل ما يخلص الإيقاف — لازم ما تبعتش طلب وانت لسه بتوقف
-    emit(idleEvent())
-    await running
-
+    await expect(service.runQueued(SESSION, "queued:q2")).resolves.toEqual({ started: false, steered: true, queued: false, remaining: 0 })
     expect(fake.dispatched).toEqual(["الأول", "التاني"])
+    expect(fake.deliveries).toEqual(["", "steer"])
+
+    // الطابور فضل فاضي — الـ idle مش هيبعت حاجة تاني
+    emit(idleEvent())
+    expect(fake.dispatched).toEqual(["الأول", "التاني"])
+    emit(idleEvent())
+    expect(fake.dispatched).toEqual(["الأول", "التاني"])
+  })
+
+  it("falls back to the queue when the steer is rejected mid-run", async () => {
+    const { service, fake, emit } = createService()
+
+    await service.prompt(SESSION, "الأول")
+    await service.prompt(SESSION, "التاني")
+
+    // السيرفر رفض الحقن جوه المهمة الشغّالة: الطلب ما يضيعش ويرجع للطابور
+    const original = fake.session.prompt as (options: { text?: string; delivery?: string }) => Promise<unknown>
+    fake.session.prompt = () => Promise.reject(new Error("cannot steer"))
+    await expect(service.runQueued(SESSION, "queued:q2")).resolves.toEqual({ started: false, steered: false, queued: true, remaining: 1 })
+    expect(fake.abortCalls).toBe(0)
+    expect(fake.dispatched).toEqual(["الأول"])
+
+    fake.session.prompt = original
     emit(idleEvent())
     expect(fake.dispatched).toEqual(["الأول", "التاني"])
   })
@@ -299,7 +339,7 @@ describe("parallel request queue", () => {
     const { service, fake } = createService()
 
     await service.prompt(SESSION, "الأول")
-    await expect(service.runQueued(SESSION, "queued:q1")).resolves.toEqual({ started: false, remaining: 0 })
+    await expect(service.runQueued(SESSION, "queued:q1")).resolves.toEqual({ started: false, steered: false, queued: false, remaining: 0 })
     expect(fake.abortCalls).toBe(0)
     expect(fake.dispatched).toEqual(["الأول"])
   })
@@ -533,6 +573,104 @@ describe("model variety levels", () => {
   })
 })
 
+describe("static model catalog merge", () => {
+  // المحرك الحي يقدّم نموذجًا واحدًا، والكتالوج العام يضيف موفرًا جديدًا
+  // مع تكرار لنفس النموذج الحي — الحيّ يكسب والمعطّل يُلحق للعرض فقط.
+  function mergedService(staticPayload: unknown) {
+    const service = new OpenCodeService({ projectDirectory: DIRECTORY })
+    const internals = service as unknown as Internals & {
+      client: {
+        model: { list: () => Promise<unknown> }
+        provider: { list: () => Promise<unknown> }
+        session: { switchModel: () => Promise<unknown> }
+      }
+    }
+    internals.client = {
+      model: {
+        list: () => Promise.resolve({
+          data: [{
+            id: "opencode/space-bunny-free",
+            modelID: "space-bunny-free",
+            providerID: "opencode",
+            name: "Space Bunny Free",
+            cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+            enabled: true,
+            status: "active",
+            variants: [],
+          }],
+        }),
+      },
+      provider: {
+        list: () => Promise.resolve({ data: [{ id: "opencode", activation: "enabled" }] }),
+      },
+      session: {
+        switchModel: () => Promise.resolve(undefined),
+      },
+    }
+    vi.stubGlobal("fetch", () => Promise.resolve({ ok: true, json: () => Promise.resolve(staticPayload) }))
+    // نمنع الكاش من leaking بين التستات
+    internals.variantsCache = null
+    internals.modelsCache = null
+    internals.staticCatalogCache = null
+    return { service }
+  }
+
+  const payload = {
+    acme: {
+      id: "acme",
+      models: {
+        coder: { name: "Acme Coder", cost: { input: 1, output: 2 } },
+      },
+    },
+    opencode: {
+      id: "opencode",
+      models: {
+        "space-bunny-free": { name: "Stale Name" },
+        "extra-free": { name: "Extra Free", cost: { input: 0, output: 0 } },
+      },
+    },
+  }
+
+  it("appends catalog models the engine does not serve, disabled for display", async () => {
+    const { service } = mergedService(payload)
+
+    const models = await service.models()
+
+    expect(models).toEqual([
+      { id: "coder", providerID: "acme", name: "Acme Coder", free: false, enabled: false, status: undefined, variants: undefined },
+      { id: "extra-free", providerID: "opencode", name: "Extra Free", free: true, enabled: false, status: undefined, variants: undefined },
+      expect.objectContaining({ id: "space-bunny-free", providerID: "opencode", enabled: true, name: "Space Bunny Free" }),
+    ])
+  })
+
+  it("accepts a catalog-only model so the provider can be connected later", async () => {
+    const { service } = mergedService(payload)
+
+    await expect(service.switchSessionModel(SESSION, "acme", "coder", "")).resolves.toEqual({
+      providerID: "acme",
+      modelID: "coder",
+    })
+  })
+
+  it("reports an unknown model as needing a provider connection", async () => {
+    const { service } = mergedService(payload)
+
+    await expect(service.switchSessionModel(SESSION, "acme", "missing", "")).rejects.toThrow(
+      /MODEL_PROVIDER_NOT_CONNECTED/,
+    )
+  })
+
+  it("falls back to engine models when the catalog is unreachable", async () => {
+    const { service } = mergedService(payload)
+    vi.stubGlobal("fetch", () => Promise.reject(new Error("offline")))
+
+    const models = await service.models()
+
+    expect(models).toHaveLength(1)
+    expect(models[0]?.id).toBe("space-bunny-free")
+  })
+})
+
 describe("response caching and dedup", () => {
   function activityService(counts: { list: number; active: number }) {
     const service = new OpenCodeService({ projectDirectory: DIRECTORY })
@@ -647,8 +785,44 @@ describe("response caching and dedup", () => {
     await service.sessionQuestions(SESSION)
     expect(listCalls).toBe(1)
 
-    internals.trackEvent({ type: "form.created", data: { sessionID: SESSION } } as unknown as OpenCodeEvent)
+    // الجلسة جوه data.form زي ما SDK v2 بيبعت فعلًا في form.created
+    internals.trackEvent({ type: "form.created", data: { form: { id: "form_1", sessionID: SESSION } } } as unknown as OpenCodeEvent)
     await service.sessionQuestions(SESSION)
+    expect(listCalls).toBe(2)
+  })
+
+  it("does not cache an in-flight list that started before a form event", async () => {
+    let resolveFirst: (value: unknown) => void = () => undefined
+    let listCalls = 0
+    const service = new OpenCodeService({ projectDirectory: DIRECTORY })
+    const internals = service as unknown as Internals & {
+      client: { session: { form: { list: () => Promise<unknown> } } }
+    }
+    internals.client = {
+      session: {
+        form: {
+          list: () => {
+            listCalls += 1
+            if (listCalls === 1) {
+              return new Promise((resolve) => { resolveFirst = resolve })
+            }
+            return Promise.resolve([{ id: "form_1", sessionID: SESSION, title: "Q", fields: [] }])
+          },
+        },
+      },
+    }
+
+    // poll بدأ قبل ما الاستمارة تتوجد ولسه معلّق
+    const first = service.sessionQuestions(SESSION)
+    // الاستمارة اتنشأت — لازم الإبطال يشيل الكاش والنداء الجاري معًا
+    internals.trackEvent({ type: "form.created", data: { form: { id: "form_1", sessionID: SESSION } } } as unknown as OpenCodeEvent)
+    // النداء القديم خلص فاضي
+    resolveFirst([])
+    await first
+
+    // النداء اللي العميل بيعمله بعد الحدث لازم يشوف الاستمارة لا النتيجة القديمة
+    const after = await service.sessionQuestions(SESSION)
+    expect(after.map((question) => question.id)).toEqual(["form_1"])
     expect(listCalls).toBe(2)
   })
 })
@@ -695,6 +869,46 @@ describe("session cleanup and state version", () => {
     ]
     const grown = await service.requests(SESSION)
     expect(grown.version).not.toBe(filled.version)
+  })
+
+  it("lists the tools the task used and refreshes the version when they change", async () => {
+    const { service, fake } = createService()
+
+    function toolMessage(parts: Array<Record<string, unknown>>): Record<string, unknown> {
+      return {
+        id: "msg_a1",
+        type: "assistant",
+        agent: "build",
+        model: { id: "m", providerID: "opencode" },
+        time: { created: 1_100 },
+        content: parts,
+      }
+    }
+
+    fake.messages = [
+      userMessage("msg_u1", "ابحث", 1_000),
+      toolMessage([
+        { type: "tool", id: "call_1", name: "grep", state: { status: "completed" }, time: { created: 1_150, completed: 1_200 } },
+      ]),
+    ]
+    const first = await service.requests(SESSION)
+    expect(first.requests[0]?.usedTools).toEqual([serverMessage("activitySearchingFiles", "ar")])
+
+    // نفس الزمن ونفس النص، بس أداة جديدة ظهرت. بصمة الـ ETag لازم تتغير
+    // وإلا السيرفر رد 304 والواجهة تفضل على قائمة "المستخدم" القديمة.
+    fake.messages = [
+      userMessage("msg_u1", "ابحث", 1_000),
+      toolMessage([
+        { type: "tool", id: "call_1", name: "grep", state: { status: "completed" }, time: { created: 1_150, completed: 1_200 } },
+        { type: "tool", id: "call_2", name: "edit", state: { status: "running" }, time: { created: 1_250 } },
+      ]),
+    ]
+    const second = await service.requests(SESSION)
+    expect(second.requests[0]?.usedTools).toEqual([
+      serverMessage("activitySearchingFiles", "ar"),
+      serverMessage("activityApplyingChanges", "ar"),
+    ])
+    expect(second.version).not.toBe(first.version)
   })
 
   it("streams result files from disk with their real size", async () => {
@@ -759,6 +973,72 @@ describe("project list filtering", () => {
     }
     const projects = await service.projects()
     expect(projects.map((project) => project.worktree).sort()).toEqual(["E:/mSales/app", "E:/mSales/app2"])
+  })
+
+  it("يعرض مشروعًا مسجَّلًا لا يحمل أي جلسة", async () => {
+    const service = new OpenCodeService({ projectDirectory: "E:/mSales/app" })
+    const internals = service as unknown as {
+      client: {
+        project: { list: () => Promise<unknown[]> }
+        session: { list: () => Promise<{ data: unknown[]; cursor: object }> }
+      }
+    }
+    internals.client = {
+      project: {
+        list: () => Promise.resolve([
+          { id: "p1", canonical: "E:/mSales/app", name: "app", time: { created: 10, updated: 20, active: 0 } },
+          // بلا جلسات: هو المطلوب أن يظهر
+          { id: "p2", canonical: "E:/work/fresh", name: "fresh", time: { created: 30, updated: 40, active: 0 } },
+          // بادئة مخفية: عمل مؤقت لا مشروع
+          { id: "p3", canonical: "E:/work/.opencode/tmp", time: { created: 50, updated: 60, active: 0 } },
+          // جذر قرص: لا يظهر
+          { id: "p4", canonical: "E:/", time: { created: 70, updated: 80, active: 0 } },
+        ]),
+      },
+      session: {
+        list: () => Promise.resolve({ data: [], cursor: {} }),
+      },
+    }
+
+    const projects = await service.projects()
+    expect(projects.map((project) => project.worktree)).toEqual(["E:/work/fresh", "E:/mSales/app"])
+  })
+
+  it("يستخدم اسم المشروع المسجَّل ودمج زمنه مع الجلسات", async () => {
+    const service = new OpenCodeService({ projectDirectory: "E:/mSales/app" })
+    const internals = service as unknown as {
+      client: {
+        project: { list: () => Promise<unknown[]> }
+        session: { list: () => Promise<{ data: unknown[]; cursor: object }> }
+      }
+    }
+    internals.client = {
+      project: {
+        list: () => Promise.resolve([
+          { id: "p1", canonical: "E:/mSales/app", name: "mSales App", time: { created: 1, updated: 5, active: 0 } },
+        ]),
+      },
+      session: {
+        list: () => Promise.resolve({
+          data: [{
+            id: "ses_1",
+            title: "app",
+            projectID: "p1",
+            location: { directory: "E:/mSales/app" },
+            time: { created: 2, updated: 99 },
+          }],
+          cursor: {},
+        }),
+      },
+    }
+
+    const projects = await service.projects()
+    expect(projects).toEqual([{
+      id: "E:/mSales/app",
+      worktree: "E:/mSales/app",
+      name: "mSales App",
+      time: { created: 1, updated: 99 },
+    }])
   })
 })
 
@@ -899,5 +1179,139 @@ describe("v2 session shapes", () => {
     const history = await service.history(SESSION)
     expect(history[0]?.files.map((file) => file.name)).toEqual(["report.pdf"])
     expect(history[0]?.finalResult).toBe("تم")
+  })
+})
+
+// العطل الأصلي: مهمة Task بتفتح جلسات ابن، و`session.active` بيرجّع كل واحدة
+// "running" لوحدها. قبل الإصلاح محادثة واحدة على أربع مهام فرعية كانت بتعدّ
+// خمس محادثات نشطة في العدّاد وفي القائمة الجانبية. الجذر هو وحدة العرض.
+describe("subtask sessions collapse onto their root", () => {
+  const ROOT = "ses_root"
+  const KIDS = ["ses_kid_a", "ses_kid_b", "ses_kid_c", "ses_kid_d"]
+  // `noUncheckedIndexedAccess` مفعّل في tsconfig السيرفر، فـ `KIDS[0]` نوعه
+  // `string | undefined`. الدالة دي بتغلّف الفهرس في guard واحد بدل cast
+  // متكرّر في كل سطر اختبار.
+  function KID(index: number): string {
+    const id = KIDS[index]
+    if (id === undefined) {
+      throw new Error(`لا توجد مهمة فرعية عند ${index}`)
+    }
+    return id
+  }
+
+  function subtaskService(runningIds: string[]) {
+    const listed: Array<Record<string, unknown>> = [
+      { ...sessionSummary(ROOT, DIRECTORY), title: "المحادثة الأم" },
+      ...KIDS.map((id) => ({ ...sessionSummary(id, DIRECTORY), title: `مهمة ${id}`, parentID: ROOT })),
+    ]
+    const active: Record<string, unknown> = {}
+    for (const id of runningIds) {
+      active[id] = { type: "running" }
+    }
+    const service = new OpenCodeService({ projectDirectory: DIRECTORY })
+    const internals = service as unknown as Internals & {
+      client: {
+        session: {
+          list: () => Promise<{ data: Array<Record<string, unknown>>; cursor: object }>
+          active: () => Promise<unknown>
+        }
+      }
+    }
+    internals.client = {
+      session: {
+        list: () => Promise.resolve({ data: listed, cursor: {} }),
+        active: () => Promise.resolve(active),
+      },
+    }
+    return { service, internals }
+  }
+
+  it("يعدّ المحادثة الأم مرة واحدة مهما اشتغلت من مهامها الفرعية", async () => {
+    const { service } = subtaskService([ROOT, ...KIDS])
+
+    const items = await service.activity("ar")
+    expect(items.map((item) => item.id)).toEqual([ROOT])
+    expect(items[0]?.title).toBe("المحادثة الأم")
+  })
+
+  it("يعدّ المهمة الأم شغالة حتى لو شغّالتها ابنها", async () => {
+    // المحادثة الأم نفسها idle في الـ poll، والمهام الفرعية هي الشغالة
+    const { service } = subtaskService(KIDS)
+
+    await expect(service.statuses()).resolves.toEqual({ [ROOT]: { type: "busy" } })
+  })
+
+  it("يخفي المهام الفرعية من قائمة محادثات المشروع", async () => {
+    const { service } = subtaskService([])
+
+    const sessions = await service.sessions()
+    expect(sessions.map((session) => session.id)).toEqual([ROOT])
+  })
+
+  // صوت الإتمام كان بيتشغّل مع كل مهمة فرعية تخلص، لأن حالة كل جلسة بتبعت
+  // على الـ id بتاعها والعميل بيعامل المهمة كمحادثة مستقلة. الخريطة دي بتربط
+  // كل مهمة بأمها عشان الحالة تنسب للجذر.
+  it("ينسب المهمة الفرعية لمحادثتها الأم من حدث الإنشاء", () => {
+    const { service, internals } = subtaskService([])
+
+    internals.trackEvent({ type: "session.created", data: { sessionID: KID(0), parentID: ROOT } } as unknown as OpenCodeEvent)
+
+    expect(service.conversationOf(KID(0))).toBe(ROOT)
+    expect(service.conversationOf(ROOT)).toBe(ROOT)
+  })
+
+  it("ينسب المهمة جوه مهمة على نفس المحادثة الأم", () => {
+    const { service, internals } = subtaskService([])
+
+    internals.trackEvent({ type: "session.created", data: { sessionID: "ses_mid", parentID: ROOT } } as unknown as OpenCodeEvent)
+    internals.trackEvent({ type: "session.created", data: { sessionID: "ses_leaf", parentID: "ses_mid" } } as unknown as OpenCodeEvent)
+
+    expect(service.conversationOf("ses_leaf")).toBe(ROOT)
+  })
+
+  // المهمة اللي فاتتها أحداث الإنشاء (اتعملت قبل ما السيرفر يتصل) لازم
+  // ترجع لنسبتها من قائمة الجلسات زي أول مرة.
+  it("ينسب المهمة من قائمة الجلسات لما فاتتها أحداث الإنشاء", async () => {
+    const { service } = subtaskService([])
+
+    await service.statuses()
+
+    expect(service.conversationOf(KID(1))).toBe(ROOT)
+  })
+
+  it("يعتبر المحادثة شغّالة لو مهمة فرعية من مهامها شغّالة", () => {
+    const { service, internals } = subtaskService([])
+
+    internals.trackEvent({ type: "session.created", data: { sessionID: KID(0), parentID: ROOT } } as unknown as OpenCodeEvent)
+    internals.trackEvent({ type: "session.status", data: { sessionID: KID(0), status: { type: "busy" } } } as unknown as OpenCodeEvent)
+
+    expect(service.conversationBusy(ROOT)).toBe(true)
+    expect(service.conversationBusy(KID(0))).toBe(true)
+  })
+
+  it("يخلّي المحادثة خاملة بعد خلوص آخر مهمة فرعية", () => {
+    const { service, internals } = subtaskService([])
+
+    for (const kid of KIDS) {
+      internals.trackEvent({ type: "session.created", data: { sessionID: kid, parentID: ROOT } } as unknown as OpenCodeEvent)
+      internals.trackEvent({ type: "session.status", data: { sessionID: kid, status: { type: "busy" } } } as unknown as OpenCodeEvent)
+    }
+    internals.trackEvent({ type: "session.idle", data: { sessionID: KID(0) } } as unknown as OpenCodeEvent)
+    // أول مهمة خلصت والتانية لسه شغّالة ⇒ المحادثة الأم لسه شغّالة
+    expect(service.conversationBusy(ROOT)).toBe(true)
+
+    for (const kid of KIDS.slice(1)) {
+      internals.trackEvent({ type: "session.idle", data: { sessionID: kid } } as unknown as OpenCodeEvent)
+    }
+    expect(service.conversationBusy(ROOT)).toBe(false)
+  })
+
+  it("ينسى الجلسة المحذوفة من خريطة الجذور", () => {
+    const { service, internals } = subtaskService([])
+
+    internals.trackEvent({ type: "session.created", data: { sessionID: KID(0), parentID: ROOT } } as unknown as OpenCodeEvent)
+    internals.trackEvent({ type: "session.deleted", data: { sessionID: KID(0) } } as unknown as OpenCodeEvent)
+
+    expect(service.conversationOf(KID(0))).toBe(KID(0))
   })
 })

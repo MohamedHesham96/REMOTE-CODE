@@ -2,19 +2,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { DEFAULT_MODEL_KEY, PINNED_SESSIONS_KEY, PINNED_SESSIONS_LIMIT } from "../constants"
 import type { PinnedConversation, Session } from "../types"
 import {
+  _resetLocalCacheForTesting,
   forgetPinnedConversations,
   hasLegacyPinnedFormat,
   loadDefaultModel,
   loadDefaultModels,
   loadPinnedConversations,
+  loadPinnedModels,
   pinBelongsToProject,
   pinConversation,
   pinProjectKey,
   pinsForProject,
   saveDefaultModel,
   savePinnedConversations,
+  savePinnedModels,
   sortSessionsByCreated,
   stampPinnedProject,
+  togglePinnedModel,
   unpinConversation,
 } from "./storage"
 
@@ -43,6 +47,9 @@ beforeEach(() => {
     removeItem: (key: string) => { data.delete(key) },
     clear: () => data.clear(),
   })
+  // الكاش في storage.ts معياري بين الاختبارات — كل اختبار يبدأ بـ
+  // localStorage جديد، فلازم الكاش يصفى كمان.
+  _resetLocalCacheForTesting()
 })
 
 afterEach(() => {
@@ -342,5 +349,26 @@ describe("per-project default model", () => {
     expect(loadDefaultModels()).toEqual({})
     writeDefaults(JSON.stringify([{ providerID: "a", modelID: "one" }]))
     expect(loadDefaultModels()).toEqual({})
+  })
+})
+
+describe("pinned models", () => {
+  it("pins newest first", () => {
+    expect(togglePinnedModel([], "a/one")).toEqual(["a/one"])
+    expect(togglePinnedModel(["a/one"], "b/two")).toEqual(["b/two", "a/one"])
+  })
+
+  it("unpins with the same toggle", () => {
+    expect(togglePinnedModel(["b/two", "a/one"], "a/one")).toEqual(["b/two"])
+  })
+
+  it("refuses a sixth pin instead of growing past the limit", () => {
+    const full = ["a/1", "a/2", "a/3", "a/4", "a/5"]
+    expect(togglePinnedModel(full, "b/new")).toBe(full)
+  })
+
+  it("round-trips through localStorage and drops junk", () => {
+    savePinnedModels(["a/one", "bad-entry", "b/two", "a/one"])
+    expect(loadPinnedModels()).toEqual(["a/one", "b/two"])
   })
 })

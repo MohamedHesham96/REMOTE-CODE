@@ -392,14 +392,41 @@ if not errorlevel 1 (
 )
 goto :eof
 
-REM Quiet mode: LAN URLs are no longer auto-printed (backend startup is
-REM silent too). Use ipconfig to find this machine's IPv4 on the same Wi-Fi.
-:lan_urls
-echo   From your phone ^(same Wi-Fi, no VPN^):
-for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
-  for /f "tokens=* delims= " %%b in ("%%a") do echo %ICON_GO%%C_RESET%  http://%%b:%~1
+REM Exports LAN_IP = this machine's LAN IPv4, used for the phone URL in the
+REM READY panels. The interface that is Up AND owns the default gateway is the
+REM real Wi-Fi / Ethernet adapter - filtering on it keeps the loopback address
+REM and the WSL / VirtualBox / Hyper-V adapters out of the panel, which plain
+REM "ipconfig | findstr IPv4" lists side by side with the real one.
+REM The pipes are NOT escaped: the whole expression is a single double-quoted
+REM argument, so cmd passes them to PowerShell as operators. A "^|" would be
+REM read as a literal caret-pipe and the command would fail.
+REM The ipconfig fallback only covers hosts where PowerShell is blocked, so a
+REM missing LAN_IP leaves the panel showing localhost alone.
+:lan_ip
+set "LAN_IP="
+for /f "delims=" %%i in ('powershell -NoProfile -Command "(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq 'Up' } | Select-Object -First 1).IPv4Address.IPAddress" 2^>nul') do if not defined LAN_IP set "LAN_IP=%%i"
+if defined LAN_IP goto :eof
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4" ^| findstr /v /c:"127.0.0.1" ^| findstr /v /c:"(none)"') do (
+  for /f "tokens=* delims= " %%b in ("%%a") do (
+    set "LAN_IP=%%b"
+    goto :eof
+  )
 )
-echo   Local: %C_CYAN%http://localhost:%~1%C_RESET%
+goto :eof
+
+REM The banner header line carrying that address. It sits right under the
+REM banner in every mode, so the IP is the first thing on screen instead of
+REM arriving only after the build finishes - which is exactly when you are
+REM standing there with your phone wanting to connect.
+REM Label is padded to 11 chars so the value lines up with the Status /
+REM Frontend / Backend rows in the READY panels below.
+REM LAN_IP is deliberately NOT setlocal-scoped: the READY panels reuse it to
+REM print the phone URL, so the PowerShell probe runs once per launch instead
+REM of twice. They still re-detect if it is empty, which keeps them correct
+REM even if the order is ever changed.
+:show_ip
+call :lan_ip
+if defined LAN_IP echo   Device IP  %C_CYAN%%LAN_IP%%C_RESET%
 goto :eof
 
 REM ==========================================================================
@@ -429,6 +456,8 @@ goto :dev
 REM Environment check only.
 :check
 call :banner
+call :show_ip
+echo.
 call :env_check
 call :read_env
 echo   Backend port:       %BACKEND_PORT%
@@ -450,6 +479,8 @@ REM ==========================================================================
 call :banner
 title RemoteCode - Prod
 echo %C_BOLD%  PRODUCTION MODE%C_RESET%
+echo.
+call :show_ip
 echo.
 
 REM Vertical steps mirror the commands below in the same order:
@@ -519,6 +550,10 @@ echo.
 echo   Status     %ICON_RUN%%C_RESET%  RUNNING
 echo   Mode       Production ^(single port - 5173 stays closed, this is normal^)
 echo   URL        %C_CYAN%http://localhost:%BACKEND_PORT%%C_RESET%
+REM Reuses the LAN_IP :show_ip already detected under the banner; the probe
+REM is only repeated if that line somehow never ran.
+if not defined LAN_IP call :lan_ip
+if defined LAN_IP echo   Phone      %C_CYAN%http://%LAN_IP%:%BACKEND_PORT%%C_RESET%  %C_GRAY%^(same Wi-Fi, no VPN^)%C_RESET%
 echo.
 call :footer
 echo   Starting production server ^(Ctrl+C to stop^)...
@@ -538,6 +573,8 @@ REM ==========================================================================
 call :banner
 title RemoteCode - Dev
 echo %C_BOLD%  DEVELOPMENT MODE%C_RESET%
+echo.
+call :show_ip
 echo.
 
 REM Same step shape as prod, but the last stage checks ports instead of
@@ -589,6 +626,12 @@ echo.
 echo   Status     %ICON_RUN%%C_RESET%  STARTING ^(live log below^)
 echo   Frontend   %C_CYAN%http://localhost:5173%C_RESET%
 echo   Backend    %C_CYAN%http://localhost:%BACKEND_PORT%%C_RESET%
+REM The phone talks to Vite here, not to the backend: 5173 is what the dev
+REM server binds on 0.0.0.0, and it proxies the API to APP_PORT itself.
+REM Reuses the LAN_IP :show_ip already detected under the banner; the probe
+REM is only repeated if that line somehow never ran.
+if not defined LAN_IP call :lan_ip
+if defined LAN_IP echo   Phone      %C_CYAN%http://%LAN_IP%:5173%C_RESET%  %C_GRAY%^(same Wi-Fi, no VPN^)%C_RESET%
 echo.
 call :footer
 echo   Opening %C_CYAN%http://localhost:5173%C_RESET% in your browser once backend + frontend are up...

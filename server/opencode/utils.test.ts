@@ -6,6 +6,8 @@ import {
   isFilesystemRoot,
   isListableProjectDirectory,
   parseCliVersion,
+  sessionRoots,
+  parseStaticCatalog,
 } from "./utils.js"
 
 // فحص الشكل نصّي خالص: يعمل بثبات على وندوز ولينكس لأنه لا يعتمد IO ولا
@@ -79,5 +81,100 @@ describe("parseCliVersion", () => {
   it("يعيد نصًا فارغًا بلا رقم إصدار", () => {
     expect(parseCliVersion("")).toBe("")
     expect(parseCliVersion("command not found")).toBe("")
+  })
+})
+
+// العطل الأصلي: مهمة Task بتفتح جلسات ابن، و`session.active` بيرجّع كل واحدة
+// "running" لوحدها، فمحادثة واحدة على أربع مهام فرعية بتعدّ أربع محادثات
+// نشطة. الجذر هو وحدة العرض الصح.
+describe("sessionRoots", () => {
+  it("يرجّع الجذور وحدها من قائمة فيها مهام فرعية", () => {
+    const { roots } = sessionRoots([
+      { id: "ses_root" },
+      { id: "ses_a", parentID: "ses_root" },
+      { id: "ses_b", parentID: "ses_root" },
+      { id: "ses_other" },
+    ])
+    expect(roots).toEqual(["ses_root", "ses_other"])
+  })
+
+  it("ينسب كل مهمة فرعية للجذر بتاعها", () => {
+    const { rootOf } = sessionRoots([
+      { id: "ses_root" },
+      { id: "ses_a", parentID: "ses_root" },
+      { id: "ses_b", parentID: "ses_root" },
+    ])
+    expect(rootOf.get("ses_root")).toBe("ses_root")
+    expect(rootOf.get("ses_a")).toBe("ses_root")
+    expect(rootOf.get("ses_b")).toBe("ses_root")
+  })
+
+  it("يكمل الصعود لمهمة جوه مهمة", () => {
+    const { roots, rootOf } = sessionRoots([
+      { id: "ses_root" },
+      { id: "ses_mid", parentID: "ses_root" },
+      { id: "ses_leaf", parentID: "ses_mid" },
+    ])
+    expect(roots).toEqual(["ses_root"])
+    expect(rootOf.get("ses_leaf")).toBe("ses_root")
+  })
+
+  // أب مش موجود في نفس الصفحة (سقف الترقيم) — أحسن نعرض الجلسة كجذر من ما
+  // نخفيها خالص عن المستخدم.
+  it("يعتبر الجلسة جذرًا لو أبوها مش في القائمة", () => {
+    const { roots, rootOf } = sessionRoots([
+      { id: "ses_a", parentID: "ses_missing" },
+    ])
+    expect(roots).toEqual(["ses_a"])
+    expect(rootOf.get("ses_a")).toBe("ses_a")
+  })
+
+  it("يتوقف عند حلقة بدل ما يعلق", () => {
+    const { rootOf } = sessionRoots([
+      { id: "ses_a", parentID: "ses_b" },
+      { id: "ses_b", parentID: "ses_a" },
+    ])
+    expect(rootOf.get("ses_a")).toBeDefined()
+    expect(rootOf.get("ses_b")).toBeDefined()
+  })
+
+  it("يتعامل مع القائمة الفاضية", () => {
+    expect(sessionRoots([])).toEqual({ roots: [], rootOf: new Map() })
+  })
+})
+
+// تحليل كتالوج models.dev العام — دالة خالصة بلا IO، فتُختبر بعينات ثابتة
+describe("parseStaticCatalog", () => {
+  it("يحوّل الموفرات والنماذج لعناصر عرض معطّلة", () => {
+    const items = parseStaticCatalog({
+      anthropic: {
+        id: "anthropic",
+        models: {
+          "claude-sonnet-4-5": { name: "Claude Sonnet 4.5", cost: { input: 3, output: 15, cache_read: 0.3 } },
+          "free-thing": { name: "Free Thing", cost: { input: 0, output: 0 } },
+        },
+      },
+    })
+
+    expect(items).toEqual([
+      { id: "claude-sonnet-4-5", providerID: "anthropic", name: "Claude Sonnet 4.5", free: false, enabled: false },
+      { id: "free-thing", providerID: "anthropic", name: "Free Thing", free: true, enabled: false },
+    ])
+  })
+
+  it("غياب السعر لا يعني المجانية، والاسم الفارغ يسقط على الـ id", () => {
+    const items = parseStaticCatalog({
+      acme: { models: { coder: {} } },
+    })
+
+    expect(items).toEqual([
+      { id: "coder", providerID: "acme", name: "coder", free: false, enabled: false },
+    ])
+  })
+
+  it("يرفض الحمولات التالفة بدل ما يرمي", () => {
+    expect(parseStaticCatalog(null)).toEqual([])
+    expect(parseStaticCatalog("oops")).toEqual([])
+    expect(parseStaticCatalog({ acme: null, broken: { models: null }, empty: {} })).toEqual([])
   })
 })

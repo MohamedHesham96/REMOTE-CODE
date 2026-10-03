@@ -30,6 +30,16 @@ export function registerModelRoutes(app: Express, ctx: RouteContext): void {
       }
       response.json({ model: await ctx.openCode.switchSessionModel(request.params.id, providerID, modelID, variant) })
     } catch (error) {
+      const lang = getServerLang(request)
+      // النموذج من الكتالوج العام بس مزوّده مش متصل — الحالة دي لها رسالة
+      // مخصوصة بتقول للمستخدم يربط من OpenCode، مش "تعذّر التبديل"
+      if (error instanceof Error && error.message === "MODEL_PROVIDER_NOT_CONNECTED") {
+        response.status(409).json({
+          error: "MODEL_PROVIDER_NOT_CONNECTED",
+          message: serverMessage("modelProviderNotConnected", lang),
+        })
+        return
+      }
       const message = error instanceof Error ? error.message : "Unable to switch model"
       const status = /not found/i.test(message) ? 404 : /required/i.test(message) ? 400 : 500
       response.status(status).json({ error: "MODEL_SWITCH_FAILED", message })

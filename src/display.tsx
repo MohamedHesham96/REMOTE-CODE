@@ -1,9 +1,9 @@
 /* eslint-disable react-refresh/only-export-components -- ملف helpers مشترك عمدًا
    بين App واللوحات الكسولة، مع الأيقونات SVG (GitBranchIcon, GitCommitIcon,
-   GitRevertIcon, GitRefreshIcon, SpinnerIcon, LogoutIcon, SoundOnIcon,
-   SoundMuteIcon, SettingsIcon) */
+   GitCommitOnlyIcon, GitPullIcon, GitRevertIcon, GitRefreshIcon, SpinnerIcon,
+   LogoutIcon, SoundOnIcon, SoundMuteIcon, SettingsIcon) */
 import { localeOf, type Language, type Strings } from "./i18n"
-import type { GitChangeFile, GitChangeStatus, ModelInfo, Project, SessionModelRef, SessionStatus } from "./types"
+import type { GitChangeFile, GitChangeStatus, ModelInfo, Project, SessionStatus } from "./types"
 
 // كاش فورماترز Intl: إنشاؤها غالٍ وكان بيحصل مع كل صف في كل render.
 // المشاركة هنا توفّر التكلفة من غير ما تغيّر الإخراج إطلاقًا.
@@ -106,7 +106,7 @@ export function formatElapsed(since: number | undefined, t: Strings, now: number
 
 // اسم المشروع من مساره: آخر جزء بعد الشرطة — نفس اللي بتعمله الفيشة
 // في server/opencode.ts للمشاريع اللي مالهاش اسم من OpenCode
-export function projectNameFromPath(worktree: string): string {
+function projectNameFromPath(worktree: string): string {
   const normalized = worktree.replace(/[\\/]+$/, "")
   return normalized.split(/[\\/]/).filter(Boolean).pop() || worktree
 }
@@ -115,12 +115,30 @@ export function projectName(project: Project): string {
   return projectNameFromPath(project.worktree)
 }
 
+// كاش المقارنة: `samePath` بتتشاف بكثرة (في `renderSessionItem` و`openProject`
+// و`jumpToActivitySession`). الـ Map بيخزّن نتيجة المقارنة لكل زوج فريد.
+const samePathCache = new Map<string, boolean>()
+
 export function samePath(left: string | undefined | null, right: string | undefined | null): boolean {
   if (!left || !right) {
     return false
   }
+  const key = `${left}\u0000${right}`
+  const cached = samePathCache.get(key)
+  if (cached !== undefined) {
+    return cached
+  }
   const normalize = (value: string) => value.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase()
-  return normalize(left) === normalize(right)
+  const result = normalize(left) === normalize(right)
+  // سقف 256 — أكثر من كده يبقى leak
+  if (samePathCache.size >= 256) {
+    const oldest = samePathCache.keys().next()
+    if (!oldest.done) {
+      samePathCache.delete(oldest.value)
+    }
+  }
+  samePathCache.set(key, result)
+  return result
 }
 
 export function statusLabel(status: SessionStatus | undefined, t: Strings): string {
@@ -139,14 +157,6 @@ export function statusLabel(status: SessionStatus | undefined, t: Strings): stri
 export function displayTitle(title: string | undefined | null, t: Strings): string {
   const clean = (title || "").replace(/\s*\(mobile\)\s*$/i, "").trim()
   return clean || t.newConversation
-}
-
-export function modelLabel(ref: SessionModelRef | null | undefined, t: Strings): string {
-  if (!ref) {
-    return t.defaultModel
-  }
-  const base = `${ref.providerID}/${ref.modelID}`
-  return ref.variant ? `${base} · ${ref.variant}` : base
 }
 
 export function shortModelName(model: ModelInfo): string {
@@ -224,6 +234,31 @@ export function GitCommitIcon() {
   )
 }
 
+// نقطة على خط أفقي: ده رمز الـ commit نفسه في git. اخترناه لزرار "commit بدون
+// push" لأنه النقطة الوحيدة في الصف اللي مش سهم ولا علامة، فميتلخبطش مع سهم
+// الـ push ولا مع ✕ التراجع ولا مع ↻ التحديث.
+export function GitCommitOnlyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.5 12h4.7" />
+      <path d="M15.8 12h4.7" />
+      <circle cx="12" cy="12" r="3.4" />
+    </svg>
+  )
+}
+
+// سهم نازل في صينية: نفس سهم الـ push مقلوب رأسًا على عقب، والاتنين معناهم
+// عكس بعض تمامًا — واحد طالع للفرع البعيد والتاني جاي منه.
+export function GitPullIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 9v9.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V9" />
+      <path d="M12 4v11" />
+      <path d="m7.5 10.5 4.5 4.5 4.5-4.5" />
+    </svg>
+  )
+}
+
 // علامة ✕: التراجع بيرمي الشغل، والـ ✕ معناها الإلغاء في كل حتة فبتتقرأ
 // من غير شرح. الأشكال القديمة (سهم دائري ثم سهم نازل في صينية) كانت
 // بتتلخبط مع زرار التحديث ومع زرار الـ commit — والـ ✕ مبتشبهش أي
@@ -245,6 +280,17 @@ export function GitRefreshIcon() {
     <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
       <path d="M17.7 6.3A8 8 0 1 1 12 4" />
       <path d="M9.1 2.3 12 4 9.1 5.7" />
+    </svg>
+  )
+}
+
+// عدسة مكبّرة: زخرفة حقل البحث في منتقي النماذج. SVG بنفس نظام الأيقونات
+// (currentColor) عشان تاخد لون التيمت بدل حرف يختلف من خط لخط
+export function SearchLensIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m16.5 16.5 4.5 4.5" />
     </svg>
   )
 }

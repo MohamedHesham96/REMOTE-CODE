@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { commitPushPrompt, revertAllPrompt, revertFilePrompt } from "./git-prompts"
+import { commitPrompt, commitPushPrompt, pullPrompt, pushPrompt, revertAllPrompt, revertFilePrompt } from "./git-prompts"
 import type { GitChangeFile } from "../types"
 
 function file(path: string, status: GitChangeFile["status"]): GitChangeFile {
@@ -10,6 +10,39 @@ describe("git prompts", () => {
   it("names the branch in the commit request only when there is one", () => {
     expect(commitPushPrompt([file("a.ts", "modified")], "main", "en")).toContain("branch 'main'")
     expect(commitPushPrompt([file("a.ts", "modified")], "", "en")).not.toContain("branch ''")
+  })
+
+  it("keeps the commit-only request local and forbids pushing", () => {
+    const prompt = commitPrompt([file("a.ts", "modified")], "main", "en")
+    expect(prompt).toContain("without pushing")
+    expect(prompt).toContain("branch 'main'")
+    expect(prompt).toContain("- a.ts (modified)")
+    expect(prompt).toContain("Do not push")
+  })
+
+  // الحالة اللي بيفتحها زرار الـ push على شجرة نضيفة: commits محلية
+  // مستنية الـ push ومفيش ملفات. الطلب لازم يمنع الـ commit صريح، وإلا
+  // الوكيل يدوّر على حاجة يعملها commit ويلخبط الشغل.
+  it("asks for a push only and forbids committing on a clean tree", () => {
+    const prompt = pushPrompt("main", "en")
+    expect(prompt).toContain("Push the existing local commits")
+    expect(prompt).toContain("branch 'main'")
+    expect(prompt).toContain("Do not commit")
+  })
+
+  it("omits the branch in a push when there is none", () => {
+    expect(pushPrompt("", "ar")).not.toContain("''")
+  })
+
+  it("stops at the first conflict on a pull instead of resolving it", () => {
+    const prompt = pullPrompt("main", "en")
+    expect(prompt).toContain("branch 'main'")
+    expect(prompt).toContain("stop and explain it")
+    expect(prompt).toContain("Do not commit or push")
+  })
+
+  it("omits the branch in a pull when there is none", () => {
+    expect(pullPrompt("", "ar")).not.toContain("''")
   })
 
   it("tells the agent to restore a tracked file instead of deleting it", () => {

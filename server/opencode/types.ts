@@ -1,11 +1,3 @@
-import type {
-  FormInfo,
-  OpenCodeClient,
-  OpenCodeEvent,
-  SessionInfo,
-  SessionMessageInfo,
-} from "@opencode/client"
-
 // الأشكال السلكية (wire) التي يتكلم بها `/api/*` مع الواجهة ثابتة منذ v1،
 // فطبقة المحرك تترجم إليها بدل كشف أنواع المحرك الخام. بهذا لا تتغير
 // الواجهة ولا الاختبارات السلوكية مع تبديل المحرك تحتها.
@@ -25,21 +17,12 @@ export interface Project {
 
 export type SessionStatus = { type: "idle" } | { type: "busy" } | { type: "retry" }
 
-// v2 بلا قائمة مهام — الحقل باقٍ في العقد فارغًا حتى لا تتغير الواجهة.
-export interface Todo {
-  id: string
-  content: string
-  status: "pending" | "in_progress" | "completed" | "cancelled"
-}
-
 export interface EnginePermission {
   id: string
   sessionID: string
   title: string
   pattern?: string
 }
-
-export type { FormInfo, OpenCodeClient, OpenCodeEvent, SessionInfo, SessionMessageInfo }
 
 export interface ServiceOptions {
   projectDirectory: string
@@ -57,6 +40,10 @@ export interface GitChanges {
   branch: string
   available: boolean
   files: GitChangeFile[]
+  // عدد الـ commits على الفرع المحلي اللي لسه ما وصلتش للفرع البعيد. صفر
+  // لما مفيش upstream متظبط — مش معناه "متأكد إنه مفيش"، وده مقصود عشان
+  // ما نعرضش رقم مخترع على مستودع ما بقيناش عارفين حالته.
+  unpushed: number
 }
 
 export interface ResultFile {
@@ -64,10 +51,7 @@ export interface ResultFile {
   name: string
   mime: string
   path: string
-  url: string
   downloadUrl: string
-  source: "attachment" | "output"
-  size?: number
 }
 
 export interface ConversationQuestionOption {
@@ -95,7 +79,6 @@ export interface HistoryTurn {
   prompt: string
   finalResult: string
   createdAt: number
-  completedAt: number
   steps: number
   files: ResultFile[]
 }
@@ -114,9 +97,9 @@ export interface SessionRequest {
   liveText: string
   stepsCompleted: number
   activeTool: string | null
-  todos: Todo[]
-  completedTodos: number
-  totalTodos: number
+  // أدوات المهمة الحالية بترتيب استخدامها ("قائمة المستخدم" في واجهة
+  // الديسكتوب)، مترجمة على السيرفر. الواجهة بتعرضها واحدة واحدة بدل قائمة طويلة.
+  usedTools: string[]
   resultFiles: ResultFile[]
   startedAt: number
   completedAt: number
@@ -128,9 +111,14 @@ export interface SessionRequests {
   requests: SessionRequest[]
   questions: ConversationQuestionRequest[]
   queued: number
+  // حكم كاشف الجمود: OpenCode واقف على busy من غير أي بصمة تقدّم تتغيّر
+  // فوق مهلة BUSY_STALL_MS. بيتبعت صريح عشان الواجهة تعرض "متجمّدة" بدل
+  // ما تستنتج الجمود من صمت — وكمان لأن effectiveStatus بيحوّل الحالة
+  // لـ idle عند الجمود، فبدون الحقل ده المهمة المجمّدة كانت هتبان "خلصت".
+  stalled: boolean
   // بصمة خفيفة للحالة الكاملة: السيرفر بيحسب ETag منها، والعميل يوفّر
   // إعادة التحميل لما مفيش تغيير (304). أي تغيير في النص الحي، الحالة،
-  // الطابور أو الأسئلة لازم يغيّرها — وإلا يحصل stale.
+  // الطابور، الأسئلة أو حكم الجمود لازم يغيّرها — وإلا يحصل stale.
   version: string
 }
 

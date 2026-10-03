@@ -44,7 +44,7 @@ There are two ways in. Use whichever fits — or both.
 | Dev | `http://<PC-IP>:5173` |
 | Prod | `http://<PC-IP>:7171` |
 
-Find your PC's IP with `ipconfig` (Windows) or `ip addr` (macOS/Linux). Both devices need to be on the same network, and the network must not isolate clients — guest and hotel Wi-Fi usually blocks this.
+On Windows, `build.bat` prints your PC's IP right under the banner and the exact phone URL in its READY panel, so you can skip this. Otherwise find your PC's IP with `ipconfig` or `ip addr` (macOS/Linux). Both devices need to be on the same network, and the network must not isolate clients — guest and hotel Wi-Fi usually blocks this.
 
 ### From anywhere with Tailscale
 

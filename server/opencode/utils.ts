@@ -1,5 +1,5 @@
 import { extname, basename as pathBasename } from "node:path"
-import type { SessionModelRef } from "./types.js"
+import type { ModelInfo, SessionModelRef } from "./types.js"
 
 // ── دوال خالصة (pure) مستخرجة من opencode.ts — بلا حالة ولا IO ──
 
@@ -87,6 +87,45 @@ export function titleFromUserText(text: string): string {
 
 export function directoryKey(directory: string): string {
   return directory.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase()
+}
+
+// مهام المساعد الفرعية (Task/subagent) جلسات ابن: OpenCode بيرجّعها في نفس
+// قائمة الجلسات ومعها `parentID` للمحادثة الأم. الديسكتوب بيخفيها من قائمة
+// المحادثات (`!e.parentID`)، فلازم نعمل نفس الحاجة هنا: غير كده محادثة واحدة
+// شغّالة على أربع مهام فرعية بتظهر في العدّاد كمحادثات أربع نشطة، والقائمة
+// الجانبية بتعرض المهام الفرعية كأنها محادثات مستقلة.
+//
+// الدالة بتكمّل الصعود لحد الجذر: مهمة جوه مهمة (سلسلة أعمق) بتتجمّع على
+// نفس المحادثة. وحلقة في البيانات (أب يشير لنفسه) بتوقف عند حد معيّن بدل ما
+// تعلّق. ونرجّع الجذر مع كل جلسة لأن الحالة "شغّال" بتيجي على الـ id: مهمة
+// فرعية شغّالة معناها المحادثة الأم شغّالة، فبدون الخريطة دي ما نقدرش نعرف.
+export function sessionRoots(sessions: Array<{ id: string; parentID?: string }>): {
+  roots: string[]
+  rootOf: Map<string, string>
+} {
+  const byId = new Map(sessions.map((session) => [session.id, session]))
+  const rootOf = new Map<string, string>()
+  const roots: string[] = []
+  for (const session of sessions) {
+    let root = session.id
+    const seen = new Set<string>([root])
+    let parent = session.parentID
+    while (parent && !seen.has(parent)) {
+      seen.add(parent)
+      // أب مش موجود في نفس الصفحة = نعتبر الجلسة جذر: أحسن نعرضها
+      // كأنها محادثة مستقلة من ما نخفيها خالص.
+      if (!byId.has(parent)) {
+        break
+      }
+      root = parent
+      parent = byId.get(parent)?.parentID
+    }
+    rootOf.set(session.id, root)
+    if (root === session.id) {
+      roots.push(session.id)
+    }
+  }
+  return { roots, rootOf }
 }
 
 // شكل المسار وحده يحدد صلاحيته للعرض: القائمة تجمع من ثلاث مصادر (المُعدّ
@@ -183,11 +222,65 @@ export const ACTIVITY_CACHE_MS = 3000
 // كاش قائمة الموديلات كاملة (مش الـ variants بس): الـ endpoints بطيئة ومتتكررة
 export const MODELS_CACHE_MS = 5 * 60 * 1000
 
+// كتالوج models.dev العام — مصدر النماذج المعروضة قبل ربط موفراتها.
+// يُحفظ يومًا كاملًا لأنه يتغير نادرًا، والفشل المؤقت (انقطاع النت)
+// يُعاد بعد 10 دقائق فقط حتى لا يُضرب مع كل طلب.
+export const STATIC_CATALOG_URL = "https://models.dev/api.json"
+export const STATIC_CATALOG_CACHE_MS = 24 * 60 * 60 * 1000
+export const STATIC_CATALOG_RETRY_MS = 10 * 60 * 1000
+export const STATIC_CATALOG_TIMEOUT_MS = 15000
+
+// تحليل كتالوج models.dev العام: { providerID: { id?, models: { modelID: { name?, cost? } } } }
+// الناتج للعرض فقط — معطّل (enabled: false) لأن المحرك لا يقدّمه قبل ربط
+// الموفر، وبلا سعر يُحسب غير مجاني لأن غياب السعر لا يعني المجانية.
+export function parseStaticCatalog(payload: unknown): ModelInfo[] {
+  if (!payload || typeof payload !== "object") {
+    return []
+  }
+  const items: ModelInfo[] = []
+  for (const [providerKey, entry] of Object.entries(payload as Record<string, unknown>)) {
+    if (!entry || typeof entry !== "object") {
+      continue
+    }
+    const provider = entry as { id?: unknown; models?: unknown }
+    const providerID = typeof provider.id === "string" && provider.id.trim() ? provider.id.trim() : providerKey.trim()
+    if (!providerID || !provider.models || typeof provider.models !== "object") {
+      continue
+    }
+    for (const [modelKey, info] of Object.entries(provider.models as Record<string, unknown>)) {
+      const id = modelKey.trim()
+      if (!id) {
+        continue
+      }
+      const detail = (info && typeof info === "object" ? info : {}) as { name?: unknown; cost?: unknown }
+      const name = typeof detail.name === "string" && detail.name.trim() ? detail.name.trim() : id
+      const cost = (detail.cost && typeof detail.cost === "object" ? detail.cost : null) as {
+        input?: unknown
+        output?: unknown
+        cache_read?: unknown
+        cache_write?: unknown
+      } | null
+      items.push({
+        id,
+        providerID,
+        name,
+        free: cost !== null && isFreeCost(costNumber(cost.input), costNumber(cost.output), costNumber(cost.cache_read), costNumber(cost.cache_write)),
+        enabled: false,
+      })
+    }
+  }
+  return items.sort((a, b) => a.providerID.localeCompare(b.providerID) || a.id.localeCompare(b.id))
+}
+
+function costNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0
+}
+
 // كاش قوائم الأسئلة: بتتقرأ مع كل poll للـ requests، وبتتبطل مع أحداث الأسئلة
 export const QUESTIONS_CACHE_MS = 2000
 
 // ترتيب معروف لمستويات التفكير، عشان الكيبس تظهر بترتيب متوقع مش أبجدي
-export const VARIANT_ORDER = ["minimal", "none", "low", "medium", "high", "xhigh", "max"]
+const VARIANT_ORDER = ["minimal", "none", "low", "medium", "high", "xhigh", "max"]
 
 // OpenCode بيرجّع الـ variants بشكلين حسب الـ endpoint:
 // - object map: { low: { reasoningEffort: "low" }, ... }  (من /config/providers)
@@ -261,6 +354,11 @@ export const BUSY_STALL_MS = 10 * 60 * 1000
 
 // سقف مراقبات الجمود — منع نمو غير محدود للذاكرة لجلسات كثيرة
 export const MAX_STALL_WATCHES = 200
+
+// سقف خريطة الجذور — مهمة Task بتفتح جلسة ابن مع كل نداء، والخريطة
+// بتتمسح بـ `session.deleted` بس. السقف يمنع نمو غير محدود لو الجلسات
+// القديمة ما اتحذفتش (LRU بسيط: الأقدم أولًا).
+export const MAX_TRACKED_ROOTS = 500
 
 // سباق promise ضد مهلة: يرمي خطأ لو المهلة خلصت الأول، وينضّف المؤقت
 // في الحالتين عشان ما يسرّبش مؤقتات.
