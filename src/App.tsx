@@ -5,6 +5,7 @@ import {
   base64ToUint8Array,
   createSession,
   deleteSession,
+  downloadCertificate,
   getActivity,
   getConfig,
   getGitChanges,
@@ -2015,6 +2016,17 @@ function App() {
     }
   }
 
+  // تنزيل شهادة الـ CA: الملف اللي بيتثبّت مرة على الهاتف عشان الكروم يثق
+  // بأصل HTTPS، ومن غيره المايك والإشعارات مرفوضين. الفشل بيظهر كـ toast
+  // (مش زي التنزيل الناجح اللي المتصفح بيبيّنه لوحده).
+  const downloadCertificateFile = async () => {
+    try {
+      await downloadCertificate()
+    } catch (error: unknown) {
+      addToast(error instanceof Error ? error.message : t.installCertificateFailed, "error")
+    }
+  }
+
   // مرجع مستقر لـ TopBar (تجدّده كان بيفشل الـ memo) — بيتغيّر مع soundOn فقط
   const toggleSound = useCallback(() => {
     const next = !soundOn
@@ -2321,6 +2333,7 @@ function App() {
               onDisablePush={() => void disablePush()}
               installPromptAvailable={installPrompt !== null}
               onInstallApp={() => void installApp()}
+              onDownloadCertificate={() => void downloadCertificateFile()}
               theme={theme}
               onThemeChange={(value) => setTheme(value)}
               lang={lang}

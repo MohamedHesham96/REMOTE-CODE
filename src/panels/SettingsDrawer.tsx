@@ -22,6 +22,7 @@ interface SettingsDrawerProps {
   onDisablePush: () => void
   installPromptAvailable: boolean
   onInstallApp: () => void
+  onDownloadCertificate: () => void
   theme: AppTheme
   onThemeChange: (value: AppTheme) => void
   lang: Language
@@ -48,6 +49,7 @@ export function SettingsDrawer({
   onDisablePush,
   installPromptAvailable,
   onInstallApp,
+  onDownloadCertificate,
   theme,
   onThemeChange,
   lang,
@@ -171,6 +173,13 @@ export function SettingsDrawer({
               <button className="button button-secondary" onClick={onTestSound}>{t.tryIt} 🔊</button>
               <button className={`button ${soundOn ? "button-ghost" : "button-primary"}`} onClick={onToggleSound}>{soundOn ? t.mute : t.enable}</button>
             </div>
+          </div>
+          <div className="setting-row">
+            <div>
+              <strong>🔒 {t.installCertificate}</strong>
+              <small>{t.installCertificateDesc}</small>
+            </div>
+            <button className="button button-secondary" onClick={onDownloadCertificate}>{t.download}</button>
           </div>
           {installPromptAvailable ? <button className="button button-secondary button-wide" onClick={onInstallApp}>{t.installApp}</button> : null}
           {pushState === "unsupported" ? <div className="info-box">{t.pushUnsupported}</div> : null}

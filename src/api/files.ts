@@ -47,6 +47,39 @@ export async function downloadResultFile(sessionId: string, file: ResultFile): P
   }
 }
 
+// تنزيل شهادة الـ CA من السيرفر. الراوت محمي بالتوثيق، فمينفعش رابط
+// <a download> مباشر (مايبعتش الكوكي مع التنزيل في بعض المتصفحات) — نجيبه
+// بـ fetch مع credentials ثم نحوّله blob ونزله زي أي ملف نتيجة.
+export async function downloadCertificate(): Promise<void> {
+  const response = await fetch("/api/certificate", { credentials: "include" })
+  if (!response.ok) {
+    let message = `Download failed (${response.status})`
+    try {
+      const payload = (await response.json()) as { message?: string }
+      if (payload.message) {
+        message = payload.message
+      }
+    } catch {
+      // الرد مش JSON (خطأ ثنائي) — نكمل بالرسالة الافتراضية.
+    }
+    throw new ApiError(message, response.status)
+  }
+  const blob = await response.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  try {
+    const anchor = document.createElement("a")
+    anchor.href = objectUrl
+    // اسم الملف المطابق للي السيرفر بيقترحه — أندرويد بيفتح .crt كشهادة،
+    // وiOS كـ profile، فالاسم الواضح بيسهّل على المستخدم يلاقيه.
+    anchor.download = "remotecode-ca.crt"
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+  } finally {
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 5000)
+  }
+}
+
 export async function shareResultFile(sessionId: string, file: ResultFile): Promise<boolean> {
   if (typeof navigator.share !== "function") {
     return false

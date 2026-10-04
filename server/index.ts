@@ -18,6 +18,7 @@ import { registerStatic } from "./static.js"
 import { registerHealthRoutes } from "./routes/health.js"
 import { registerAuthRoutes } from "./routes/auth.js"
 import { registerConfigRoutes } from "./routes/config.js"
+import { registerCertificateRoutes } from "./routes/certificate.js"
 import { registerProjectRoutes } from "./routes/projects.js"
 import { registerSessionRoutes } from "./routes/sessions.js"
 import { registerPinRoutes } from "./routes/pins.js"
@@ -81,6 +82,10 @@ registerHealthRoutes(app, routeContext)
 registerAuthRoutes(app, routeContext)
 
 app.use("/api", requireAuthentication(config.accessToken))
+
+// تنزيل شهادة الـ CA لازم يكون متاح بعد التوثيق وقبل بوابة الجهوزية:
+// المستخدم بيجهّز الموبايل قبل ما OpenCode يخلص، والملف مش محتاج المحرك.
+registerCertificateRoutes(app)
 
 // أي route محتاج OpenCode فعلًا يرجّع 503 واضح بدل ما يموت أو يرمي 500 مبهم.
 // المسموح بدون OpenCode: health/login/logout/config/permission/push/events (الكاش والتوثيق).

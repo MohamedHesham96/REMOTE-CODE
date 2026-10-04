@@ -40,6 +40,10 @@ const messages = {
     ar: "مرفق غير صالح",
     en: "Invalid attachment",
   },
+  certificateUnavailable: {
+    ar: "شهادة الـ CA غير متاحة على الخادم",
+    en: "The CA certificate is not available on the server",
+  },
   // النموذج المختار ما بيدعمش نوع المرفق (صورة أو PDF) — النص مقبول دايماً
   attachmentUnsupported: {
     ar: "النموذج المختار لا يدعم هذا النوع من المرفقات",

@@ -55,21 +55,18 @@ export function unlockAudio(): void {
   getContext()
 }
 
-function playTone(
-  ctx: AudioContext,
-  frequency: number,
-  startAt: number,
-  duration: number,
-  volume: number,
-  type: OscillatorType = "sine",
-): void {
+// نغمة بنقرة: بتبدأ أعلى من النغمة الهدف وتهبط ليها بسرعة، فتبان "بوب/طرقعة"
+// في أولها بدل نغمة مسطّحة تبدأ وتقف فجأة. ده اللي يدي الطابع الشبيه بصوت
+// Slack مع إن الإحساس يفضل مبهج.
+function playPop(ctx: AudioContext, frequency: number, startAt: number, duration: number, volume: number): void {
   const oscillator = ctx.createOscillator()
   const gain = ctx.createGain()
-  oscillator.type = type
-  oscillator.frequency.setValueAtTime(frequency, startAt)
-  // غلاف ناعم: صعود سريع ونزول تدريجي لطيف
+  oscillator.type = "sine"
+  oscillator.frequency.setValueAtTime(frequency * 1.9, startAt)
+  oscillator.frequency.exponentialRampToValueAtTime(frequency, startAt + 0.05)
+  // غلاف سريع: صعود في أجزاء من الألف ثم نزول ناعم — الطرقعة في الهجوم والدفء في الذيل
   gain.gain.setValueAtTime(0.0001, startAt)
-  gain.gain.exponentialRampToValueAtTime(volume, startAt + 0.03)
+  gain.gain.exponentialRampToValueAtTime(volume, startAt + 0.008)
   gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration)
   oscillator.connect(gain)
   gain.connect(ctx.destination)
@@ -77,7 +74,43 @@ function playTone(
   oscillator.stop(startAt + duration + 0.05)
 }
 
-// صوت انتهاء المهمة: فانفار إنجاز قوي — سلم صاعد + لمعة ختامية (مثل Achievement Unlocked)
+// طرقعة خشبية: انفجار ضوضاء قصير عبر مرشّح تمرير-عالٍ، بيتحطّ مع البوب في
+// أول كل نغمة. البافر متخزّن لكل معدّل عيّنات عشان ما يتولّدش من جديد كل نداء.
+let noiseCache: AudioBuffer | null = null
+function noiseBuffer(ctx: AudioContext): AudioBuffer {
+  if (noiseCache && noiseCache.sampleRate === ctx.sampleRate) {
+    return noiseCache
+  }
+  const length = Math.max(1, Math.floor(ctx.sampleRate * 0.08))
+  const buffer = ctx.createBuffer(1, length, ctx.sampleRate)
+  const data = buffer.getChannelData(0)
+  for (let i = 0; i < length; i++) {
+    // تضاؤل أسّي حاد: أعلى العيّنات في الأول، فالصوت نقرة مش ضجيج ثابت
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 4)
+  }
+  noiseCache = buffer
+  return buffer
+}
+
+function playKnock(ctx: AudioContext, startAt: number, volume: number): void {
+  const source = ctx.createBufferSource()
+  source.buffer = noiseBuffer(ctx)
+  const filter = ctx.createBiquadFilter()
+  filter.type = "highpass"
+  filter.frequency.setValueAtTime(2200, startAt)
+  const gain = ctx.createGain()
+  gain.gain.setValueAtTime(volume, startAt)
+  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.06)
+  source.connect(filter)
+  filter.connect(gain)
+  gain.connect(ctx.destination)
+  source.start(startAt)
+  source.stop(startAt + 0.09)
+}
+
+// صوت انتهاء المهمة: ثلاثة نغمات صاعدة (دو → مي → صول) بطرقعة على أول كل
+// نغمة — تتابع نغمي قصير مبهج، أوضح وأميز من النغمتين المسطّحتين السابقتين
+// ومن غير فانفار طويل يشد الانتباه.
 export function playCompletionSound(): boolean {
   if (!isSoundEnabled()) {
     return false
@@ -88,24 +121,21 @@ export function playCompletionSound(): boolean {
   }
   try {
     const now = ctx.currentTime + 0.02
-    // C5 → E5 → G5 → C6: سلم كبير صاعد يدي إحساس الانتصار
-    const notes = [523.25, 659.25, 783.99, 1046.5]
+    const notes = [1046.5, 1318.5, 1568]
     notes.forEach((freq, index) => {
-      playTone(ctx, freq, now + index * 0.12, 0.4, 0.2, "triangle")
-      // لمعة أوكتاف خفيفة للقوة والوضوح
-      playTone(ctx, freq * 2, now + index * 0.12, 0.3, 0.07, "sine")
+      const at = now + index * 0.11
+      playKnock(ctx, at, index === 0 ? 0.18 : 0.1)
+      playPop(ctx, freq, at, index === notes.length - 1 ? 0.5 : 0.3, 0.16)
     })
-    // الضربة الختامية: نغمة عالية مطوّلة تثبت الإنجاز
-    const finaleAt = now + notes.length * 0.12
-    playTone(ctx, 1318.5, finaleAt, 0.8, 0.18, "triangle")
-    playTone(ctx, 2637, finaleAt, 0.5, 0.05, "sine")
     return true
   } catch {
     return false
   }
 }
 
-// صوت مختلف للسؤال/الإذن: نغمتان للفت الانتباه
+// صوت السؤال/الإذن: طرقتان منخفضتان على نفس النغمة ("خبطة خبطة") — إيقاع
+// مختلف عن صعود الإنجاز عشان المستخدم يفرّق الحدثين من غير ما يبص، والطرقعة
+// هي اللي بتخليه مميز.
 export function playAttentionSound(): boolean {
   if (!isSoundEnabled()) {
     return false
@@ -116,8 +146,10 @@ export function playAttentionSound(): boolean {
   }
   try {
     const now = ctx.currentTime + 0.02
-    playTone(ctx, 880, now, 0.25, 0.18, "sine")
-    playTone(ctx, 987.77, now + 0.18, 0.35, 0.18, "sine")
+    playKnock(ctx, now, 0.18)
+    playPop(ctx, 659.25, now, 0.2, 0.16)
+    playKnock(ctx, now + 0.18, 0.15)
+    playPop(ctx, 659.25, now + 0.18, 0.3, 0.16)
     return true
   } catch {
     return false
