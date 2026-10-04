@@ -1,6 +1,7 @@
 import type { AppConfig } from "../types"
 import type { Language, Strings } from "../i18n"
 import { THEME_META, themeDescription, themeLabel, THEMES, type AppTheme } from "../theme"
+import { VOICE_LANGUAGES, voiceLanguageDescription, voiceLanguageLabel, type VoiceLanguage } from "../voice"
 import { SettingsIcon } from "../display"
 
 // شكل حالة الإشعارات: من App.tsx (الـ Push API check)، local type لتفادي
@@ -25,6 +26,8 @@ interface SettingsDrawerProps {
   onThemeChange: (value: AppTheme) => void
   lang: Language
   onLangChange: (value: Language) => void
+  voiceLanguage: VoiceLanguage
+  onVoiceLanguageChange: (value: VoiceLanguage) => void
   soundOn: boolean
   onTestSound: () => void
   onToggleSound: () => void
@@ -49,6 +52,8 @@ export function SettingsDrawer({
   onThemeChange,
   lang,
   onLangChange,
+  voiceLanguage,
+  onVoiceLanguageChange,
   soundOn,
   onTestSound,
   onToggleSound,
@@ -134,6 +139,27 @@ export function SettingsDrawer({
                 <span>EN</span>
                 <span>English</span>
               </button>
+            </div>
+          </div>
+          <div className="setting-row setting-row-theme">
+            <div>
+              <strong>🎤 {t.voiceInputLanguage}</strong>
+              <small>{voiceLanguageDescription(voiceLanguage, t)}</small>
+            </div>
+            <div className="theme-picker" role="radiogroup" aria-label={t.voiceInputLanguage}>
+              {VOICE_LANGUAGES.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={voiceLanguage === value}
+                  className={`theme-option${voiceLanguage === value ? " active" : ""}`}
+                  onClick={() => onVoiceLanguageChange(value)}
+                >
+                  <span className="theme-option-icon" aria-hidden>{value === "auto" ? "🤖" : value === "ar" ? "ع" : "EN"}</span>
+                  <span>{voiceLanguageLabel(value, t)}</span>
+                </button>
+              ))}
             </div>
           </div>
           <div className="setting-row">

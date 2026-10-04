@@ -33,6 +33,7 @@ import type { ActiveSession, AppConfig, AuthState, ClientEvent, ConversationQues
 import { isSoundEnabled, playAttentionSound, playCompletionSound, setSoundEnabled, unlockAudio, vibrate } from "./sound"
 import { applyTheme, getSavedTheme, nextTheme, saveTheme, themeLabel, THEME_META, type AppTheme } from "./theme"
 import { applyLanguage, getSavedLanguage, getStrings, saveLanguage, type Language } from "./i18n"
+import { getSavedVoiceLanguage, saveVoiceLanguage, type VoiceLanguage } from "./voice"
 import {
   displayTitle,
   getVarietyLevels,
@@ -50,6 +51,7 @@ import { Sidebar } from "./components/Sidebar"
 import { TopBar } from "./components/TopBar"
 import { StickyQuestions } from "./components/requests/StickyQuestions"
 import { RequestCard } from "./components/requests/RequestCard"
+import { VoiceButton } from "./components/VoiceButton"
 import { useActivityGrace } from "./hooks/useActivityGrace"
 import { useEventStream } from "./hooks/useEventStream"
 import { useGitRequests } from "./hooks/useGitRequests"
@@ -195,6 +197,7 @@ function App() {
   const [soundOn, setSoundOn] = useState<boolean>(() => isSoundEnabled())
   const [theme, setTheme] = useState<AppTheme>(() => getSavedTheme())
   const [lang, setLang] = useState<Language>(() => getSavedLanguage())
+  const [voiceLanguage, setVoiceLanguage] = useState<VoiceLanguage>(() => getSavedVoiceLanguage())
   const t = getStrings(lang)
   const langRef = useRef<Language>(lang)
   langRef.current = lang
@@ -473,6 +476,10 @@ function App() {
     applyLanguage(lang)
     saveLanguage(lang)
   }, [lang])
+
+  useEffect(() => {
+    saveVoiceLanguage(voiceLanguage)
+  }, [voiceLanguage])
 
   const toggleLanguage = useCallback(() => {
     setLang((current) => (current === "ar" ? "en" : "ar"))
@@ -2136,6 +2143,7 @@ function App() {
           <div className="composer-wrap">
             <form className="composer" onSubmit={handleSend}>
               <textarea ref={composerRef} value={composer} onChange={(event) => setComposer(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder={t.composerPlaceholder} rows={1} />
+              <VoiceButton t={t} voiceLanguage={voiceLanguage} composer={composer} onComposerChange={setComposer} onError={(message) => addToast(message, "error")} />
               <div className="composer-actions">
                 <span className="composer-hint">{t.composerHint}</span>
                 {isBusy || hasQueuedRequests ? <button type="button" className="stop-button" onClick={() => void handleAbort()}>■ {t.stop}</button> : null}
@@ -2284,6 +2292,8 @@ function App() {
               onThemeChange={(value) => setTheme(value)}
               lang={lang}
               onLangChange={(value) => setLang(value)}
+              voiceLanguage={voiceLanguage}
+              onVoiceLanguageChange={(value) => setVoiceLanguage(value)}
               soundOn={soundOn}
               onTestSound={testSound}
               onToggleSound={toggleSound}
