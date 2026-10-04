@@ -9,7 +9,8 @@ import type { Release } from "./releases"
 // كل نص هنا مزدوج اللغة (ar/en) بنفس أسلوب i18n.ts — العربية فصحى بلا لهجة،
 // والإنجليزية فصيحة. إضافة إصدار جديد = إضافة كائن بنصوص اللغتين معًا.
 //
-// التسلسل الزمني الحقيقي من الأقدم (5775b51) للأحدث (5e3836c):
+// التسلسل الزمني الحقيقي من الأقدم (5775b51) للأحدث (7500fc9):
+//   v1.6.0 (2026-10-05)  →  2 commits الإدخال الصوتي + مرفقات الرسائل + PWA وHTTPS
 //   v1.5.0 (2026-10-03)  →  8 commits تبديل الفروع + ملاحظات الإصدار + بطاقات المهام
 //   v1.4.0 (2026-10-02)  →  8 commits توجيه الطلبات + أداء العرض
 //   v1.3.0 (2026-10-01)  → 19 commit  أدوات Git + منتقي النماذج + حالة المهمة
@@ -21,6 +22,81 @@ import type { Release } from "./releases"
 // إعادة التوليد: شغّل `scripts/generate-releases.mjs` لأخذ صورة جديدة من
 // التاريخ، ثم راجع المجموعة الناتجة قبل إضافتها كإصدار جديد هنا.
 export const releases: Release[] = [
+  {
+    version: "v1.6.0",
+    date: "2026-10-05",
+    title: {
+      ar: "الإدخال الصوتي ومرفقات الرسائل مع HTTPS موثوق للهاتف",
+      en: "Voice input, message attachments, and trusted phone HTTPS",
+    },
+    summary: {
+      ar: "مايك يفرّغ كلامك داخل الكومبوزر بلغة تعرّف تختارها، وإرفاق صور وPDF وملفات نصية مربوط بقدرات النموذج، مع شهادة HTTPS موثوقة على الهاتف تفتح المايك والإشعارات وتتيح تثبيت التطبيق كـ PWA.",
+      en: "A microphone transcribes your speech into the composer in a recognition language you choose, image/PDF/text attachments gated by model capabilities, and a locally trusted phone HTTPS certificate that unlocks the mic and push and lets the app be installed as a PWA.",
+    },
+    commits: ["18e82c4", "7500fc9"],
+    changes: [
+      {
+        category: "features",
+        title: {
+          ar: "إدخال صوتي في الكومبوزر بلغة تعرّف قابلة للاختيار",
+          en: "Voice input in the composer with a configurable recognition language",
+        },
+        description: {
+          ar: "زر مايك بجانب حقل الكتابة يفرّغ الكلام لحظيًا داخل الحقل ويلصقه بعد المكتوب، مع اختيار لغة التعرّف من الإعدادات: تلقائي (لغة الجهاز) أو العربية أو English.",
+          en: "A microphone button beside the composer transcribes speech live into the field and appends it after what is typed, with the recognition language chosen in settings: auto (device language), Arabic, or English.",
+        },
+        commits: ["18e82c4"],
+      },
+      {
+        category: "features",
+        title: {
+          ar: "إرفاق صور وPDF وملفات نصية بالرسائل",
+          en: "Attach images, PDFs, and text files to messages",
+        },
+        description: {
+          ar: "زرّا إرفاق يضيفان حتى خمسة ملفات (4MB للواحد و5MB للإجمالي) مع شرائح للمعاينة والإزالة، ويمكن إرسال مرفق بلا نص. الأزرار تُقفل حسب قدرات إدخال النموذج المختار.",
+          en: "Two attach buttons add up to five files (4MB each and 5MB in total) with preview chips and removal, and an attachment can be sent with no text. The buttons disable according to the selected model's input capabilities.",
+        },
+        commits: ["7500fc9"],
+      },
+      {
+        category: "features",
+        title: {
+          ar: "تثبيت التطبيق كـ PWA على الهاتف",
+          en: "Install the app as a PWA on the phone",
+        },
+        description: {
+          ar: "مع أصل HTTPS موثوق يعمل التطبيق في سياق آمن، فيظهر زر التثبيت في الإعدادات وتُضاف RemoteCode إلى الشاشة الرئيسية وتُفتح بلا شريط المتصفح.",
+          en: "On a trusted HTTPS origin the app runs in a secure context, so the install button appears in settings and RemoteCode can be added to the home screen and opened without the browser chrome.",
+        },
+        commits: ["7500fc9"],
+      },
+      {
+        category: "improvements",
+        title: {
+          ar: "HTTPS موثوق للهاتف يفعّل المايك والإشعارات",
+          en: "Trusted phone HTTPS unlocks the microphone and push",
+        },
+        description: {
+          ar: "المشغّل يولّد شهادة موثوقة محليًا عبر mkcert ويثبت مساريها في .env ويطبع ملف CA للمتصفح، ووكيل Vite يتبع بروتوكول TLS تلقائيًا.",
+          en: "The launcher generates a locally trusted certificate via mkcert, wires its paths into .env, and prints the CA file for the phone, while the Vite proxy follows TLS automatically.",
+        },
+        commits: ["7500fc9"],
+      },
+      {
+        category: "technical",
+        title: {
+          ar: "تحقق مرفقات على السيرفر وسقف حمولة أوسع",
+          en: "Server-side attachment validation and a larger payload limit",
+        },
+        description: {
+          ar: "فحص نوع المرفق وحجمه وقدرات النموذج قبل تمريره للمحرك، ورفع سقف JSON إلى 8MB، والسماح بالمايك لنفس الأصل في Permissions-Policy.",
+          en: "Attachment type, size, and model capability are checked before reaching the engine, the JSON limit is raised to 8MB, and Permissions-Policy allows the microphone for the same origin.",
+        },
+        commits: ["18e82c4", "7500fc9"],
+      },
+    ],
+  },
   {
     version: "v1.5.0",
     date: "2026-10-03",

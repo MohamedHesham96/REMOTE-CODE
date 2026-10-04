@@ -9,6 +9,7 @@ import type {
   SessionInfo,
   SessionMessageAssistant,
   SessionMessageInfo,
+  SessionMessageUser,
 } from "@opencode/client"
 import { setTimeout as sleep } from "node:timers/promises"
 import { ensureLocalEndpoint } from "./opencode/service-launch.js"
@@ -25,6 +26,7 @@ import type {
   ModelInfo,
   Project,
   PromptAttachment,
+  RequestAttachment,
   RequestState,
   ServiceOptions,
   Session,
@@ -39,6 +41,7 @@ import {
   directoryKey,
   errorDetail,
   errorMessage,
+  fileNameFromPath,
   folderName,
   HEALTHCHECK_TIMEOUT_MS,
   isDefaultTitle,
@@ -103,6 +106,9 @@ interface RequestTurn {
   texts: string[]
   steps: number
   entries: SessionMessageAssistant[]
+  // مرفقات رسالة المستخدم (الصور/الملفات) — بتتخزّن عشان الواجهة تعرضها في
+  // الطلب، لأن المحرك بيحفظها على رسالة المستخدم نفسها.
+  attachments: RequestAttachment[]
 }
 
 export class OpenCodeService {
@@ -955,6 +961,7 @@ export class OpenCodeService {
           texts: [],
           steps: 0,
           entries: [],
+          attachments: this.turnAttachments(entry),
         }
         continue
       }
@@ -985,6 +992,24 @@ export class OpenCodeService {
 
   private messageCreated(message: SessionMessageInfo): number {
     return message.time.created
+  }
+
+  // مرفقات رسالة المستخدم بصيغة الواجهة. `uri` جاهز للعرض: المصدر `uri`
+  // (رابط data:) بيُستخدم كما هو، والمصدر `inline` (base64 خام) نبني منه
+  // data URI من النوع المخزّن. الاسم بييجي من `name` وإلا من آخر مقطع في
+  // الرابط، واسم احتياطي ثابت لو مفيش أي منهما عشان الصف ميطلعش فاضيًا.
+  private turnAttachments(entry: SessionMessageUser): RequestAttachment[] {
+    const attachments: RequestAttachment[] = []
+    for (const file of entry.files ?? []) {
+      const mime = (file.mime || "application/octet-stream").trim()
+      const uri = file.source.type === "uri"
+        ? file.source.uri
+        : `data:${mime};base64,${file.data}`
+      const fromUri = file.source.type === "uri" ? fileNameFromPath(file.source.uri, "") : ""
+      const name = (file.name || fromUri || "attachment").trim()
+      attachments.push({ name, mime, uri })
+    }
+    return attachments
   }
 
   async history(id: string, lang: ServerLang = "ar"): Promise<HistoryTurn[]> {
@@ -1116,6 +1141,7 @@ export class OpenCodeService {
         activeTool: activeTool?.name ?? null,
         usedTools: usedToolActivities(turn.entries, lang),
         resultFiles: collectResultFiles(id, turn.entries, lang, this.selectedProjectDirectory),
+        attachments: turn.attachments,
         startedAt: turn.createdAt,
         completedAt: turn.completedAt,
         updatedAt: turn.updatedAt,
@@ -1135,6 +1161,11 @@ export class OpenCodeService {
         activeTool: null,
         usedTools: [],
         resultFiles: [],
+        attachments: (item.attachments ?? []).map((attachment) => ({
+          name: attachment.name || "attachment",
+          mime: attachment.uri.startsWith("data:") ? attachment.uri.slice(5).split(/[;,]/)[0] || "application/octet-stream" : mimeFromName(attachment.name || "", "application/octet-stream"),
+          uri: attachment.uri,
+        })),
         startedAt: item.queuedAt,
         completedAt: 0,
         updatedAt: item.queuedAt,

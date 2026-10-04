@@ -3,6 +3,7 @@ import type { Strings } from "../../i18n"
 import type { RequestState, SessionRequest, ToastKind } from "../../types"
 import { useNowTick } from "../../hooks/useNowTick"
 import { ResultFilesList } from "./ResultFilesList"
+import { RequestAttachmentsList } from "./RequestAttachmentsList"
 import { TaskStatusPanel } from "./TaskStatusPanel"
 import { CopyButton } from "../CopyButton"
 import { describeRequest } from "../../utils/task-status"
@@ -167,6 +168,7 @@ function RequestRowInner({ request, expanded, onToggle, sessionId, onCopy, onToa
           {/* نفس اللوحة اللي فوق بالظبط: النص والأدوات المدوّرة من نفس
               المكوّن، فالصف والترويسة ما يختلفوش أبدًا. */}
           <TaskStatusPanel view={describeRequest(request, t)} />
+          <RequestAttachmentsList attachments={request.attachments ?? []} t={t} />
           {running ? (
             <>
               <div className="progress-track indeterminate" aria-label={t.running} />

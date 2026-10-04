@@ -91,8 +91,8 @@ function textPart(text: string): Record<string, unknown> {
   return { type: "text", text }
 }
 
-function userMessage(id: string, text: string, created: number): Record<string, unknown> {
-  return { id, type: "user", time: { created }, text }
+function userMessage(id: string, text: string, created: number, files?: Array<Record<string, unknown>>): Record<string, unknown> {
+  return { id, type: "user", time: { created }, text, ...(files ? { files } : {}) }
 }
 
 function assistantMessage(id: string, text: string, created: number, completed?: number): Record<string, unknown> {
@@ -1200,6 +1200,24 @@ describe("v2 session shapes", () => {
     const history = await service.history(SESSION)
     expect(history[0]?.files.map((file) => file.name)).toEqual(["report.pdf"])
     expect(history[0]?.finalResult).toBe("تم")
+  })
+
+  it("surfaces the user's prompt attachments on the request", async () => {
+    const { service, fake } = createService()
+
+    fake.messages = [
+      userMessage("msg_u1", "شوف الصورة", 1_000, [
+        { data: "", mime: "image/png", source: { type: "uri", uri: "data:image/png;base64,AAA" }, name: "screen.png" },
+        { data: "QkFTRTY0", mime: "application/pdf", source: { type: "inline" } },
+      ]),
+      assistantMessage("msg_a1", "تم", 1_100, 1_200),
+    ]
+
+    const result = await service.requests(SESSION)
+    expect(result.requests[0]?.attachments).toEqual([
+      { name: "screen.png", mime: "image/png", uri: "data:image/png;base64,AAA" },
+      { name: "attachment", mime: "application/pdf", uri: "data:application/pdf;base64,QkFTRTY0" },
+    ])
   })
 })
 

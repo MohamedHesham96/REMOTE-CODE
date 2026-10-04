@@ -1345,6 +1345,13 @@ html[dir="ltr"] .request-row.is-open { box-shadow: inset 3px 0 0 0 var(--accent)
 .request-action-remove:hover { color: var(--error-text); border-color: var(--red); background: rgba(255, 127, 157, 0.2); }
 .request-row-body { padding: 0 13px 14px; }
 .request-row-body .task-activity { margin-top: 13px; }
+/* مرفقات الطلب داخل الصف المفتوح: صور مصغّرة وشرائح أسماء، بنفس لغة شكل
+   مرفقات الكومبوزر لكن بلا زرار إزالة لأنها اتُبعتت فعلًا. */
+.request-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 13px; }
+.request-attachment { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 6px 3px 4px; border: 1px solid var(--accent-border); border-radius: 2px; background: var(--surface-card); }
+.request-attachment-thumb { width: 34px; height: 34px; object-fit: cover; border-radius: 2px; flex: 0 0 auto; }
+.request-attachment-icon { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: var(--muted); border: 1px solid var(--border); border-radius: 2px; background: var(--composer-bg); flex: 0 0 auto; }
+.request-attachment-name { font-size: 11px; font-weight: 600; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* الطلب الشغّال بياخد نفس شكل الصف المفتوح بالظبط — سطح مصمت طبيعي وشريط
    أكسنت — عشان يبان نضيف ومشرق زي المهمة القديمة لما تفتحها، من غير خلفية
    موحلة ولا وهج. العلامة وحدها هي اللي بتنبض لقول إن الشغل شغّال دلوقتي، فما

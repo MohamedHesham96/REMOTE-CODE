@@ -1656,6 +1656,9 @@ function App() {
         activeTool: null,
         usedTools: [],
         resultFiles: [],
+        // المرفقات تظهر فورًا في الكارت الـ optimist قبل ما السيرفر يرجّعها
+        // في /requests — بنفس الشكل اللي السيرفر بيبعته (بلا id/size).
+        attachments: files.map((file) => ({ name: file.name, mime: file.mime, uri: file.uri })),
         startedAt: now,
         completedAt: 0,
         updatedAt: now,

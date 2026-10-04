@@ -85,6 +85,15 @@ export interface HistoryTurn {
 
 export type RequestState = "queued" | "running" | "done" | "stopped"
 
+// مرفق أرسله المستخدم مع الطلب (صورة/PDF/نص). بيُقرأ من `files` على رسالة
+// المستخدم عشان الواجهة تعرض اللي اتبعت بدل ما تختفي بعد لحظة الإرسال،
+// وبيغذّي `files` مباشرة قبل الانضمام للمحرك.
+export interface RequestAttachment {
+  name: string
+  mime: string
+  uri: string
+}
+
 export interface SessionRequest {
   id: string
   index: number
@@ -101,6 +110,8 @@ export interface SessionRequest {
   // الديسكتوب)، مترجمة على السيرفر. الواجهة بتعرضها واحدة واحدة بدل قائمة طويلة.
   usedTools: string[]
   resultFiles: ResultFile[]
+  // مرفقات المستخدم في هذا الطلب — بتُقرأ من رسالة المستخدم عشان تفضل ظاهرة.
+  attachments: RequestAttachment[]
   startedAt: number
   completedAt: number
   updatedAt: number

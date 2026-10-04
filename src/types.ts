@@ -130,6 +130,14 @@ export type ClientEvent = ServerEvent | QuestionClientEvent
 export type RequestState = "queued" | "running" | "done" | "stopped"
 
 // الطلبات بتتراص في كارت واحد على شكل قائمة — الأقدم فوق والأحدث تحت.
+// مرفق أرسله المستخدم مع الطلب — بيُعرض في صف الطلب (صور مصغّرة/أسماء).
+// `uri` إما رابط data: أو رابط قابل للعرض مباشرة.
+export interface RequestAttachment {
+  name: string
+  mime: string
+  uri: string
+}
+
 export interface SessionRequest {
   id: string
   index: number
@@ -145,6 +153,9 @@ export interface SessionRequest {
   // الديسكتوب)، مترجمة على السيرفر. الواجهة بتعرضها واحدة واحدة.
   usedTools: string[]
   resultFiles: ResultFile[]
+  // مرفقات المستخدم اللي اتبعتت مع الطلب دي (صور/ملفات) — عشان تفضل ظاهرة
+  // بجانب نص الطلب بدل ما تختفي بعد الإرسال.
+  attachments: RequestAttachment[]
   startedAt: number
   completedAt: number
   updatedAt: number

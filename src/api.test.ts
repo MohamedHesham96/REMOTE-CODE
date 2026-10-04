@@ -102,6 +102,7 @@ describe("parallel requests", () => {
     activeTool: null,
     usedTools: [],
     resultFiles: [],
+    attachments: [],
     startedAt: 2,
     completedAt: 0,
     updatedAt: 2,
