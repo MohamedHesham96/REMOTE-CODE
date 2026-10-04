@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react"
 import { useVoiceInput } from "../hooks/useVoiceInput"
 import type { Strings } from "../i18n"
-import { voiceRecognitionTag, type VoiceLanguage } from "../voice"
+import { voiceLanguageCode, voiceLanguageLabel, voiceRecognitionTag, type VoiceLanguage } from "../voice"
 
 interface VoiceButtonProps {
   t: Strings
@@ -47,20 +47,29 @@ export function VoiceButton({ t, voiceLanguage, composer, onComposerChange, onEr
     start()
   }
 
+  const code = voiceLanguageCode(voiceLanguage)
+  // العنوان بيجمع الحالة واللغة الفعّالة من نفس النصوص المترجمة الموجودة —
+  // بدون مفاتيح جديدة في ملفات الـ i18n.
+  const statusLabel = `${listening ? t.voiceStop : t.voiceStart} · ${voiceLanguageLabel(voiceLanguage, t)}`
+
   return (
     <button
       type="button"
       className={`voice-button${listening ? " is-listening" : ""}`}
       onClick={handleClick}
       disabled={!supported}
-      aria-label={supported ? (listening ? t.voiceStop : t.voiceStart) : t.voiceUnsupported}
-      title={supported ? (listening ? t.voiceStop : t.voiceStart) : t.voiceUnsupported}
+      aria-label={supported ? statusLabel : t.voiceUnsupported}
+      title={supported ? statusLabel : t.voiceUnsupported}
     >
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" />
         <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
         <line x1="12" y1="19" x2="12" y2="22" />
       </svg>
+      {/* شارة لغة التعرّف في ركن الزر: اللغة الفعّالة دلوقتي مش الإعداد
+          المخزّن — "تلقائي" بتتترجم لغة الجهاز وقت الاستخدام، والمستخدم عايز
+          يشوف اللغة قبل ما يبدأ يتكلم مش بعد ما الكلام يتحوّل غلط. */}
+      <span className={`voice-lang${code === "ع" ? " voice-lang-ar" : ""}`} aria-hidden>{code}</span>
     </button>
   )
 }

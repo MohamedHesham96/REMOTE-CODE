@@ -60,3 +60,23 @@ export function voiceLanguageDescription(value: VoiceLanguage, t: Strings): stri
   }
   return t.voiceLanguageAutoDesc
 }
+
+// اللغة الفعّالة اللي التعرف هيشتغل بيها دلوقتي — نفس ترتيب حلّ useVoiceInput:
+// الإعداد الصريح، وإلا لغة الجهاز، وإلا الإنجليزي. الشارة على زر المايك
+// بتستخدمها عشان تُظهر للمستخدم لغة الجلسة الجارية فعلًا؛ "تلقائي" لوحدها
+// ما تكفيش لأن المستخدم عايز يعرف اللغة اللي كلامه هيتحوّل بيها قبل ما يتكلم.
+export function effectiveVoiceLanguage(value: VoiceLanguage): string {
+  const device = typeof navigator !== "undefined" ? navigator.language?.trim() : undefined
+  return voiceRecognitionTag(value) ?? device ?? "en-US"
+}
+
+// الشارة الصغيرة على زر المايك: "ع" للعربية، وأي لغة تانية بأول جزئين منها
+// كي يبان على الزر أنهي لغة التعرف شغالة. "EN" احتياطي لو الوسم فاضي.
+export function languageCodeOf(tag: string): string {
+  const primary = tag.split(/[-_]/)[0]?.trim().toLowerCase()
+  return primary === "ar" ? "ع" : primary ? primary.toUpperCase() : "EN"
+}
+
+export function voiceLanguageCode(value: VoiceLanguage): string {
+  return languageCodeOf(effectiveVoiceLanguage(value))
+}
