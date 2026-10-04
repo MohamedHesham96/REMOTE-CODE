@@ -252,7 +252,7 @@ export function parseStaticCatalog(payload: unknown): ModelInfo[] {
       if (!id) {
         continue
       }
-      const detail = (info && typeof info === "object" ? info : {}) as { name?: unknown; cost?: unknown }
+      const detail = (info && typeof info === "object" ? info : {}) as { name?: unknown; cost?: unknown; modalities?: unknown; attachment?: unknown }
       const name = typeof detail.name === "string" && detail.name.trim() ? detail.name.trim() : id
       const cost = (detail.cost && typeof detail.cost === "object" ? detail.cost : null) as {
         input?: unknown
@@ -260,12 +260,16 @@ export function parseStaticCatalog(payload: unknown): ModelInfo[] {
         cache_read?: unknown
         cache_write?: unknown
       } | null
+      const input = staticCatalogInput(detail)
       items.push({
         id,
         providerID,
         name,
         free: cost !== null && isFreeCost(costNumber(cost.input), costNumber(cost.output), costNumber(cost.cache_read), costNumber(cost.cache_write)),
         enabled: false,
+        // بنحفظ قدرات الإدخال للكتالوج العام كذلك: المستخدم يقدر يختار نموذج
+        // مش متوصل، فقفل زرار الصورة محتاج يعرف يدعم صور ولا لأ من غير انتظار ربط المزوّد
+        ...(input ? { capabilities: { input } } : {}),
       })
     }
   }
@@ -274,6 +278,27 @@ export function parseStaticCatalog(payload: unknown): ModelInfo[] {
 
 function costNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0
+}
+
+// قدرات إدخال الكتالوج العام: models.dev بيعرّف `modalities.input` (text /
+// image / pdf). بنقراها كما هي؛ ولو غابت و`attachment` صريح بـ true نفترض
+// نص + صورة لأن ده الحد الأدنى المعروف للموديلات اللي بتقبل مرفقات.
+function staticCatalogInput(detail: { modalities?: unknown; attachment?: unknown }): string[] | undefined {
+  const modalities = detail.modalities && typeof detail.modalities === "object"
+    ? (detail.modalities as { input?: unknown }).input
+    : undefined
+  if (Array.isArray(modalities)) {
+    const input = modalities
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .map((value) => value.trim())
+    if (input.length > 0) {
+      return input
+    }
+  }
+  if (detail.attachment === true) {
+    return ["text", "image"]
+  }
+  return undefined
 }
 
 // كاش قوائم الأسئلة: بتتقرأ مع كل poll للـ requests، وبتتبطل مع أحداث الأسئلة

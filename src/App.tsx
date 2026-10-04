@@ -29,7 +29,7 @@ import {
   subscribePush,
   unsubscribePush,
 } from "./api"
-import type { ActiveSession, AppConfig, AuthState, ClientEvent, ConversationQuestionRequest, GitChanges, HistoryTurn, ModelInfo, Permission, PinnedConversation, Project, Session, SessionModelRef, SessionRequest, SessionRequests, SessionStatus, Toast, ToastKind } from "./types"
+import type { ActiveSession, AppConfig, AuthState, ClientEvent, ComposerAttachment, ConversationQuestionRequest, GitChanges, HistoryTurn, ModelInfo, Permission, PinnedConversation, Project, Session, SessionModelRef, SessionRequest, SessionRequests, SessionStatus, Toast, ToastKind } from "./types"
 import { isSoundEnabled, playAttentionSound, playCompletionSound, setSoundEnabled, unlockAudio, vibrate } from "./sound"
 import { applyTheme, getSavedTheme, nextTheme, saveTheme, themeLabel, THEME_META, type AppTheme } from "./theme"
 import { applyLanguage, getSavedLanguage, getStrings, saveLanguage, type Language } from "./i18n"
@@ -46,6 +46,7 @@ import { releases } from "./releases-data"
 import { PanelFallback } from "./components/PanelFallback"
 import { PanelErrorBoundary } from "./components/PanelErrorBoundary"
 import { PermissionCard } from "./components/PermissionCard"
+import { ComposerAttachments } from "./components/ComposerAttachments"
 import { ProjectPicker } from "./components/projects/ProjectPicker"
 import { Sidebar } from "./components/Sidebar"
 import { TopBar } from "./components/TopBar"
@@ -59,6 +60,7 @@ import { usePinnedConversations } from "./hooks/usePinnedConversations"
 import { useScrollToBottom } from "./hooks/useScrollToBottom"
 import { useSettledStatuses } from "./hooks/useSettledStatuses"
 import { mergeActiveSessions } from "./utils/active-sessions"
+import { modelSupports } from "./utils/attachments"
 import { isTouchComposer } from "./utils/device"
 import { normalizeProjectPath } from "./utils/paths"
 import { forgetLastSession, isRequestsEmpty, loadDefaultModel, loadLastSessions, loadRecentProjects, saveDefaultModel, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
@@ -177,6 +179,14 @@ function App() {
   const [permissions, setPermissions] = useState<Permission[]>([])
   const [composer, setComposer] = useState("")
   const composerRef = useRef<HTMLTextAreaElement>(null)
+  // مرفقات الرسالة الجاية (صور/ملفات). بتتبعت مع أول رسالة وبتتفضّى بعدها.
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
+  // تصفير الكومبوزر كاملًا (نص + مرفقات) عند تبديل المحادثة/المشروع عشان
+  // ما تتسرّبش مرفقات محادثة لمحادثة تانية
+  const resetComposer = useCallback(() => {
+    setComposer("")
+    setAttachments([])
+  }, [])
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
   // حارس متزامن ضد الإرسال المزدوج: ضغطتان سريعتان قبل إعادة الرسم
@@ -764,7 +774,7 @@ function App() {
       setRawStatuses(nextStatuses)
       setActiveId(nextActive)
       activeIdRef.current = nextActive
-      setComposer("")
+      resetComposer()
       setShowSessions(false)
       setGitChanges(null)
       // الافتراضي المحفوظ بيتقري للمشروع الجديد من effect بتاع selectedProject،
@@ -781,7 +791,7 @@ function App() {
     } finally {
       setSwitchingProject(null)
     }
-  }, [addToast, refreshRequests, refreshGitChanges, selectedProject, t])
+  }, [addToast, refreshRequests, refreshGitChanges, selectedProject, t, resetComposer])
 
   // بياخد config جاهز اختياريًا عشان مسار الإقلاع ما يعيدش نداء /api/config
   // (الفحص الأول بيتأكد إن الجلسة صالحة، فبنتشارك نفس الرد مع الدخول بدل ما
@@ -1322,7 +1332,7 @@ function App() {
       setTitleDraft("")
       setRequests([])
       setRequestQuestions([])
-      setComposer("")
+      resetComposer()
       setShowSessions(false)
       return
     }
@@ -1350,7 +1360,7 @@ function App() {
     setTitleDraft("")
     setRequests([])
     setRequestQuestions([])
-    setComposer("")
+    resetComposer()
     setShowSessions(false)
   }
 
@@ -1485,7 +1495,7 @@ function App() {
         if (!next) {
           setRequests([])
           setRequestQuestions([])
-          setComposer("")
+          resetComposer()
         } else {
           await refreshRequests(next)
         }
@@ -1595,15 +1605,17 @@ function App() {
   // فتح/قفل لوحة المثبّتات
   const closePinnedPanel = () => setShowPinned(false)
 
-  // إرسال نص كطلب — المشترك بين زرار الإرسال وزرار commit و push
-  const sendPrompt = useCallback(async (rawText: string) => {
+  // إرسال نص كطلب — المشترك بين زرار الإرسال وزرار commit و push.
+  // المرفقات بتُمرَّر صريح (مش من الحالة) عشان طلبات git ما تشيلش مرفقات
+  // الكومبوزر بالغلط، ولأن النداء بيحصل بعد ما نفضّي الحالة فورًا.
+  const sendPrompt = useCallback(async (rawText: string, files: ComposerAttachment[] = []) => {
     const text = rawText.trim()
-    if (!text || sendingRef.current) {
+    if ((!text && files.length === 0) || sendingRef.current) {
       return
     }
     sendingRef.current = true
     setSending(true)
-    setComposer("")
+    resetComposer()
     // كارت optimist: بيظهر الطلب تحت اللي قبله فورًا قبل ما السيرفر يرد
     const optimisticId = `local-${++localRequestId.current}`
     try {
@@ -1630,10 +1642,12 @@ function App() {
         }
       }
       const now = Date.now()
+      // لو المستخدم بعت مرفق من غير نص، الكارت يعرض أسماء المرفقات بدل فراغ
+      const displayPrompt = text || files.map((file) => file.name).join(", ")
       setRequests((current) => [...current, {
         id: optimisticId,
         index: current.length + 1,
-        prompt: text,
+        prompt: displayPrompt,
         state: "queued",
         activity: getStrings(langRef.current).taskQueued,
         finalResult: "",
@@ -1646,7 +1660,7 @@ function App() {
         completedAt: 0,
         updatedAt: now,
       }])
-      await sendMessage(sessionId, text, undefined, isNewSession && modelForNewSession ? modelForNewSession : undefined)
+      await sendMessage(sessionId, text, undefined, isNewSession && modelForNewSession ? modelForNewSession : undefined, files)
       if (isNewSession && modelForNewSession) {
         setCurrentModel(modelForNewSession)
         setPendingModel(null)
@@ -1671,18 +1685,21 @@ function App() {
       }, 6000)
     } catch (error: unknown) {
       setRequests((current) => current.filter((request) => request.id !== optimisticId))
-      // رجّع النص بس لو المستخدم لسه ميكتبش حاجة جديدة
+      // رجّع النص والمرفقات بس لو المستخدم لسه ماكتبش/ما أضافش حاجة جديدة
       setComposer((current) => current || text)
+      if (files.length > 0) {
+        setAttachments((current) => (current.length > 0 ? current : files))
+      }
       addToast(error instanceof Error ? error.message : getStrings(langRef.current).messageSendFailed, "error")
     } finally {
       sendingRef.current = false
       setSending(false)
     }
-  }, [pendingModel, projectDefaultModel, currentModel, defaultModel, refreshRequests, refreshSessions, setSettledStatus, addToast])
+  }, [pendingModel, projectDefaultModel, currentModel, defaultModel, refreshRequests, refreshSessions, setSettledStatus, addToast, resetComposer])
 
   const handleSend = async (event?: FormEvent) => {
     event?.preventDefault()
-    await sendPrompt(composer)
+    await sendPrompt(composer, attachments)
   }
 
   // طلبات الـ git كلها جوّه hook واحد عشان الـ drawer والـ guard وحالة التأكيد
@@ -1854,15 +1871,19 @@ function App() {
   }, [refreshRequests])
 
   const displayedModel: SessionModelRef | null = activeId ? currentModel : (pendingModel || projectDefaultModel || currentModel || defaultModel)
-  // البحث في قائمة النماذج (هندسة الموديل في التوب بار) كان linear scan
-  // في كل render — بنحسبه مرة واحدة ونرجّع نفس المرجع طول ما المدخلات ما اتغيرتش.
-  const displayedModelName = useMemo(() => {
-    if (!displayedModel) {
-      return t.defaultModel
-    }
-    const found = models.find((m) => m.providerID === displayedModel.providerID && m.id === displayedModel.modelID)
-    return found ? shortModelName(found) : displayedModel.modelID
-  }, [models, displayedModel, t.defaultModel])
+  // عنصر النموذج الكامل من القائمة: عنه بنعرف قدرات الإدخال وعنه اسم العرض.
+  // البحث كان linear scan في كل render — بنحسبه مرة ونرجّع نفس المرجع.
+  const displayedModelInfo = useMemo(
+    () => (displayedModel ? models.find((m) => m.providerID === displayedModel.providerID && m.id === displayedModel.modelID) ?? null : null),
+    [models, displayedModel],
+  )
+  const displayedModelName = displayedModelInfo
+    ? shortModelName(displayedModelInfo)
+    : (displayedModel?.modelID ?? t.defaultModel)
+  // قدرات مرفقات الكومبوزر: النص دايماً متاح، والصور/PDF حسب قدرات المحرك.
+  // النموذج غير المعروف = مش بنقفل النص، بس الصور والـ PDF يفضلوا مقفولين.
+  const supportsImageAttachments = modelSupports(displayedModelInfo, "image")
+  const supportsPdfAttachments = modelSupports(displayedModelInfo, "pdf")
 
   // أي اختيار موديل/مستوى تفكير بيتحفظ كافتراضي للمشروع — عشان المحادثات
   // الجاية تبدأ بيه من غير ما تعيد اختياره كل مرة
@@ -2142,14 +2163,23 @@ function App() {
 
           <div className="composer-wrap">
             <form className="composer" onSubmit={handleSend}>
+              <ComposerAttachments
+                attachments={attachments}
+                supportsImage={supportsImageAttachments}
+                supportsPdf={supportsPdfAttachments}
+                disabled={sending}
+                onChange={setAttachments}
+                onError={(message) => addToast(message, "error")}
+                t={t}
+              />
               <textarea ref={composerRef} value={composer} onChange={(event) => setComposer(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder={t.composerPlaceholder} rows={1} />
               <VoiceButton t={t} voiceLanguage={voiceLanguage} composer={composer} onComposerChange={setComposer} onError={(message) => addToast(message, "error")} />
               <div className="composer-actions">
                 <span className="composer-hint">{t.composerHint}</span>
                 {isBusy || hasQueuedRequests ? <button type="button" className="stop-button" onClick={() => void handleAbort()}>■ {t.stop}</button> : null}
                 <button
-                  className={`send-button${composer.trim() ? " is-ready" : ""}${sending ? " is-sending" : ""}`}
-                  disabled={!composer.trim() || sending}
+                  className={`send-button${composer.trim() || attachments.length > 0 ? " is-ready" : ""}${sending ? " is-sending" : ""}`}
+                  disabled={(!composer.trim() && attachments.length === 0) || sending}
                   aria-label={t.launch}
                   title={`${t.launch} 🚀`}
                 >

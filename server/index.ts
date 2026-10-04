@@ -70,7 +70,9 @@ app.disable("x-powered-by")
 // ضغط gzip/deflate للأصول والـ JSON — يفرق على شبكات Wi-Fi الضعيفة.
 // ملاحظة: /api/events عليه `no-transform` فالضغط يتخطاه تلقائيًا ولا يعلّق الستريم.
 app.use(compression())
-app.use(express.json({ limit: "2mb" }))
+// 8MB يستوعب مرفقات الرسائل (صور/ملفات مضمّنة كـ data URI). الترميز
+// المضمّن يكبّر الحجم ~33%، وOpenCode نفسه بيعيد ضغط الصور الكبيرة.
+app.use(express.json({ limit: "8mb" }))
 
 app.use(securityHeaders)
 

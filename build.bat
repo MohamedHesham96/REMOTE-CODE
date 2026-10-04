@@ -367,19 +367,220 @@ if exist ".env" (
   )
   call :row "Configuration      " ".env created"
 )
+
+REM Restore the TLS paths that npm run setup leaves empty. setup writes
+REM APP_TLS_CERT_PATH= and APP_TLS_KEY_PATH= as empty defaults and its
+REM "if (!values.get(key))" guard treats an empty string as already set, so
+REM it never backfills them. Without this, deleting .env silently drops TLS
+REM and the phone loses the microphone (it needs a trusted HTTPS origin).
+REM
+REM Order matters: ensure_cert generates cert\server.pem + server-key.pem
+REM when they are missing (and trusts the CA so the phone browser accepts
+REM the origin), then ensure_tls points .env at them.
+call :ensure_cert
+call :ensure_tls
+
 REM :spine prints the blank line here when no tree is active, so the
 REM step block still gets its original breathing room in check mode.
 call :spine
-endlocal & goto :eof
+REM Hand CA_EXPORT and CERT_STATE to the caller: this block runs under
+REM setlocal, so without an explicit export the check screen (which reads
+REM them after :env_check returns) would always see them empty.
+endlocal & set "CA_EXPORT=%CA_EXPORT%" & set "CERT_STATE=%CERT_STATE%" & set "TLS_STATE=%TLS_STATE%" & goto :eof
+
+REM ---------------------------------------------------------------------------
+REM ensure_cert: generate a locally-trusted TLS certificate when cert\ is empty.
+REM
+REM Why this exists: the phone microphone (Web Speech API) and Web Push only
+REM work on a secure origin, and Chrome does NOT treat an untrusted cert as
+REM secure - the CA has to be in the machine's Root store. So the routine
+REM covers the whole chain, not just the files:
+REM   1. install mkcert via winget when it is missing
+REM   2. mkcert -install   -> trust the CA in the Windows Root store
+REM   3. mkcert ... localhost 127.0.0.1 <LAN_IP>  -> files with a matching SAN
+REM   4. copy the CA out to cert\rootCA.crt so the phone can install it too
+REM
+REM The SAN must carry the LAN IP. The phone opens https://<LAN_IP>:<port>,
+REM and a cert without that exact IP is rejected, whatever the Root store says.
+REM So LAN_IP is re-probed here if :show_ip has not run yet.
+REM
+REM Everything is best-effort: a failure leaves TLS off (the plain-http path
+REM keeps working) instead of aborting the launch.
+REM Exports CERT_STATE for the caller to display.
+REM ---------------------------------------------------------------------------
+:ensure_cert
+set "CERT_STATE="
+set "CA_HINT="
+REM Always resolve the CA location, even when the pair is already present, so
+REM the launcher can show the phone where to get the certificate every run.
+call :resolve_mkcert
+call :export_ca
+REM Nothing to do when the pair is already there - never touch a working cert.
+if exist "cert\server.pem" if exist "cert\server-key.pem" set "CERT_STATE=present" & goto :eof
+REM The CA row needs the LAN IP for the SAN; :lan_ip exports LAN_IP.
+if not defined LAN_IP call :lan_ip
+
+REM Resolve the binary: PATH first, then the winget package folder. winget
+REM does NOT create a Links shim for FiloSottile.mkcert - the .exe lands
+REM directly in Packages\<id>\ - so a PATH-only lookup would report "missing"
+REM right after a successful install.
+if not defined MKCERT_BIN call :install_mkcert
+if not defined MKCERT_BIN call :resolve_mkcert
+if not defined MKCERT_BIN set "CERT_STATE=no-mkcert" & goto :eof
+
+if not exist "cert" mkdir "cert" >nul 2>&1
+
+REM mkcert -install needs write access to the Root store. Run in the current
+REM user's store first (no admin prompt); if it cannot, the caller still gets
+REM the files and the browser just shows the usual one-time warning.
+call "%MKCERT_BIN%" -install >nul 2>&1
+
+set "CERT_SANS=localhost 127.0.0.1"
+if defined LAN_IP set "CERT_SANS=localhost 127.0.0.1 %LAN_IP%"
+REM Push the switch-command directory too: mkcert resolves -cert-file /
+REM -key-file relative to the shell's current directory, and cmd keeps its
+REM own per-drive cwd, so a clean "%CD%" makes the output land in cert\.
+pushd "%~dp0"
+call "%MKCERT_BIN%" -key-file "cert\server-key.pem" -cert-file "cert\server.pem" %CERT_SANS% >nul 2>&1
+set "CERT_RC=%ERRORLEVEL%"
+popd
+if not "%CERT_RC%"=="0" set "CERT_STATE=generate-failed" & goto :eof
+if not exist "cert\server.pem" set "CERT_STATE=generate-failed" & goto :eof
+if not exist "cert\server-key.pem" set "CERT_STATE=generate-failed" & goto :eof
+
+REM Hand the phone something to trust: mkcert keeps its root at CAROOT, and
+REM the copied .crt is what gets installed on the device once per phone.
+call :export_ca
+
+set "CERT_STATE=created"
+goto :eof
+
+REM ---------------------------------------------------------------------------
+REM resolve_ca_path: export CA_SOURCE (the CA mkcert actually trusts) and
+REM CA_EXPORT (the copy inside the project). Prefers the project copy when it
+REM exists, so the printed path is one the user can hand to a phone.
+REM ---------------------------------------------------------------------------
+:resolve_ca_path
+set "CA_SOURCE="
+set "CA_EXPORT="
+if exist "cert\rootCA.crt" set "CA_EXPORT=%CD%\cert\rootCA.crt"
+if defined MKCERT_BIN for /f "usebackq delims=" %%r in (`"%MKCERT_BIN%" -CAROOT 2^>nul`) do set "MKCERT_CAROOT=%%r"
+if not defined MKCERT_CAROOT if exist "%LOCALAPPDATA%\mkcert\rootCA.pem" set "MKCERT_CAROOT=%LOCALAPPDATA%\mkcert"
+if defined MKCERT_CAROOT if exist "%MKCERT_CAROOT%\rootCA.pem" set "CA_SOURCE=%MKCERT_CAROOT%\rootCA.pem"
+goto :eof
+
+REM ---------------------------------------------------------------------------
+REM export_ca: refresh cert\rootCA.crt from the mkcert CAROOT so the project
+REM always carries a current copy for the phone. Silent when the source is
+REM missing - the launcher still runs, it just cannot offer the file.
+REM ---------------------------------------------------------------------------
+:export_ca
+call :resolve_ca_path
+if not defined CA_SOURCE goto :eof
+if not exist "cert" mkdir "cert" >nul 2>&1
+copy /y "%CA_SOURCE%" "cert\rootCA.crt" >nul 2>&1
+set "CA_EXPORT=%CD%\cert\rootCA.crt"
+goto :eof
+
+REM ---------------------------------------------------------------------------
+REM resolve_mkcert: export MKCERT_BIN = path to mkcert.exe, or leave it empty.
+REM Checks PATH first (a manually installed copy), then the winget package
+REM folder, whose exact directory name carries a source suffix we cannot
+REM hardcode - so it is globbed with a plain wildcard.
+REM ---------------------------------------------------------------------------
+:resolve_mkcert
+set "MKCERT_BIN="
+for /f "delims=" %%m in ('where mkcert 2^>nul') do if not defined MKCERT_BIN set "MKCERT_BIN=%%m"
+if defined MKCERT_BIN goto :eof
+REM `for /d` instead of `dir /b /s`: dir rejects /s when the directory part
+REM itself carries a wildcard, so the glob has to walk the folder names and
+REM then test for the exe inside each match.
+for /d %%d in ("%LOCALAPPDATA%\Microsoft\WinGet\Packages\FiloSottile.mkcert_*") do if exist "%%~fd\mkcert.exe" if not defined MKCERT_BIN set "MKCERT_BIN=%%~fd\mkcert.exe"
+if defined MKCERT_BIN goto :eof
+for /d %%d in ("%USERPROFILE%\scoop\apps\mkcert\*") do if exist "%%~fd\mkcert.exe" if not defined MKCERT_BIN set "MKCERT_BIN=%%~fd\mkcert.exe"
+goto :eof
+
+REM ---------------------------------------------------------------------------
+REM install_mkcert: best-effort winget install of FiloSottile.mkcert.
+REM The install lands in a per-user path that may not be on PATH yet, so the
+REM common shim locations are probed before giving up. Failures are silent -
+REM :ensure_cert reports the outcome.
+REM ---------------------------------------------------------------------------
+:install_mkcert
+echo %C_DIM%  ^|%C_RESET%  mkcert not found - installing via winget...
+where winget >nul 2>&1
+if errorlevel 1 goto :eof
+call winget install --id FiloSottile.mkcert --exact --accept-source-agreements --accept-package-agreements --silent >nul 2>&1
+REM Refresh PATH from the registry so a just-installed shim is visible.
+set "PATH=%PATH%;%LOCALAPPDATA%\Microsoft\WinGet\Links;%USERPROFILE%\scoop\shims"
+goto :eof
+
+REM ---------------------------------------------------------------------------
+REM ensure_tls: point .env at cert\server.pem + cert\server-key.pem whenever
+REM both files exist and the .env values are still empty.
+REM
+REM Only the two TLS lines are rewritten (read-modify-write via a temp file),
+REM so the access token and VAPID keys are never touched. External URLs and
+REM any line this block does not understand are preserved verbatim.
+REM A non-empty value is left alone on purpose: switching TLS off is a
+REM deliberate choice, so the launcher must not re-enable it behind your back.
+REM Exports TLS_STATE for the caller to display.
+REM ---------------------------------------------------------------------------
+:ensure_tls
+set "TLS_STATE="
+if not exist "cert\server.pem" set "TLS_STATE=no-cert" & goto :eof
+if not exist "cert\server-key.pem" set "TLS_STATE=no-cert" & goto :eof
+if not exist ".env" set "TLS_STATE=no-env" & goto :eof
+
+set "TLS_CUR_CERT="
+set "TLS_CUR_KEY="
+for /f "usebackq tokens=1,2 delims==" %%a in (".env") do (
+  if "%%a"=="APP_TLS_CERT_PATH" set "TLS_CUR_CERT=%%b"
+  if "%%a"=="APP_TLS_KEY_PATH" set "TLS_CUR_KEY=%%b"
+)
+if defined TLS_CUR_CERT if defined TLS_CUR_KEY set "TLS_STATE=already" & goto :eof
+
+if exist ".env.remotecode-tmp" del ".env.remotecode-tmp" >nul 2>&1
+set "TLS_WROTE_CERT="
+set "TLS_WROTE_KEY="
+for /f "usebackq delims=" %%l in (".env") do (
+  set "TLS_LINE=%%l"
+  setlocal EnableDelayedExpansion
+  if "!TLS_LINE:~0,18!"=="APP_TLS_CERT_PATH=" (
+    echo APP_TLS_CERT_PATH=cert/server.pem>>".env.remotecode-tmp"
+    endlocal & set "TLS_WROTE_CERT=1"
+  ) else if "!TLS_LINE:~0,17!"=="APP_TLS_KEY_PATH=" (
+    echo APP_TLS_KEY_PATH=cert/server-key.pem>>".env.remotecode-tmp"
+    endlocal & set "TLS_WROTE_KEY=1"
+  ) else (
+    endlocal
+    echo %%l>>".env.remotecode-tmp"
+  )
+)
+REM Append whichever key is missing from the file entirely (a hand-trimmed
+REM .env may not carry the line at all).
+if not defined TLS_WROTE_CERT echo APP_TLS_CERT_PATH=cert/server.pem>>".env.remotecode-tmp"
+if not defined TLS_WROTE_KEY echo APP_TLS_KEY_PATH=cert/server-key.pem>>".env.remotecode-tmp"
+
+move /y ".env.remotecode-tmp" ".env" >nul 2>&1
+if errorlevel 1 (
+  del ".env.remotecode-tmp" >nul 2>&1
+  set "TLS_STATE=failed"
+  goto :eof
+)
+set "TLS_STATE=configured"
+goto :eof
 
 REM Read APP_PORT and OPENCODE_SERVER_URL from .env into BACKEND_PORT / OC_URL.
 :read_env
 set "BACKEND_PORT=7171"
 set "OC_URL="
+set "TLS_ON="
 if exist ".env" (
   for /f "usebackq tokens=1,2 delims==" %%a in (".env") do (
     if "%%a"=="APP_PORT" set "BACKEND_PORT=%%b"
     if "%%a"=="OPENCODE_SERVER_URL" set "OC_URL=%%b"
+    if "%%a"=="APP_TLS_CERT_PATH" if not "%%b"=="" set "TLS_ON=1"
   )
 )
 goto :eof
@@ -463,6 +664,13 @@ call :read_env
 echo   Backend port:       %BACKEND_PORT%
 echo   Frontend port:      5173
 echo   Backend language:   %APP_LANG% ^(console output^)
+if defined TLS_ON (echo   TLS:                enabled ^(phone mic + push work^)) else (echo   TLS:                off ^(http only - phone mic blocked^))
+if "%CERT_STATE%"=="created" echo   Certificate:        %ICON_OK%%C_RESET%  generated + CA trusted
+if "%CERT_STATE%"=="present" echo   Certificate:        found ^(cert\server.pem^)
+if "%CERT_STATE%"=="no-mkcert" echo   Certificate:        %ICON_WARN%%C_RESET%  mkcert missing - install it, then rerun
+if "%CERT_STATE%"=="generate-failed" echo   Certificate:        %ICON_ERR%%C_RESET%  generation failed
+REM Always printed: this is the file to install on the phone once per device.
+if defined CA_EXPORT echo   Phone CA:           %C_CYAN%%CA_EXPORT%%C_RESET%
 echo   Health endpoint:    %C_CYAN%http://127.0.0.1:%BACKEND_PORT%/api/health%C_RESET%
 echo.
 if not defined OC_URL call :ensure_opencode_cli
@@ -549,11 +757,15 @@ echo %C_BOLD%%C_CYAN%  READY - PRODUCTION%C_RESET%
 echo.
 echo   Status     %ICON_RUN%%C_RESET%  RUNNING
 echo   Mode       Production ^(single port - 5173 stays closed, this is normal^)
+if defined TLS_ON (echo   Security   HTTPS ^(trusted cert - phone mic + push work^)) else (echo   Security   %ICON_WARN%%C_RESET%  HTTP only - the phone microphone is blocked without HTTPS)
 echo   URL        %C_CYAN%http://localhost:%BACKEND_PORT%%C_RESET%
 REM Reuses the LAN_IP :show_ip already detected under the banner; the probe
 REM is only repeated if that line somehow never ran.
 if not defined LAN_IP call :lan_ip
 if defined LAN_IP echo   Phone      %C_CYAN%http://%LAN_IP%:%BACKEND_PORT%%C_RESET%  %C_GRAY%^(same Wi-Fi, no VPN^)%C_RESET%
+if defined LAN_IP if defined TLS_ON echo   %C_GRAY%             ^(accept the certificate warning once per device^)%C_RESET%
+REM Same CA row as dev: the phone has to trust this file for HTTPS + mic.
+if defined CA_EXPORT echo   Phone CA   %C_CYAN%%CA_EXPORT%%C_RESET%
 echo.
 call :footer
 echo   Starting production server ^(Ctrl+C to stop^)...
@@ -632,6 +844,17 @@ REM Reuses the LAN_IP :show_ip already detected under the banner; the probe
 REM is only repeated if that line somehow never ran.
 if not defined LAN_IP call :lan_ip
 if defined LAN_IP echo   Phone      %C_CYAN%http://%LAN_IP%:5173%C_RESET%  %C_GRAY%^(same Wi-Fi, no VPN^)%C_RESET%
+if not defined TLS_ON echo   Security   %ICON_WARN%%C_RESET%  HTTP only - the phone microphone is blocked without HTTPS
+REM In dev the certificate is served by the backend on APP_PORT, so the
+REM phone can reach it directly for a trusted HTTPS origin (the mic needs
+REM one, and Vite's own dev server has no TLS). The proxy in vite.config.ts
+REM follows APP_TLS_* and talks https to the backend, so both paths work.
+if defined TLS_ON if defined LAN_IP echo   Phone TLS  %C_CYAN%https://%LAN_IP%:%BACKEND_PORT%%C_RESET%  %C_GRAY%^(use this for the microphone^)%C_RESET%
+if defined TLS_ON if defined LAN_IP echo   %C_GRAY%             accept the certificate warning once per device%C_RESET%
+REM The CA file the phone has to trust. Printed every run so the path is
+REM always one glance away instead of an mkcert -CAROOT lookup.
+if defined CA_EXPORT echo   Phone CA   %C_CYAN%%CA_EXPORT%%C_RESET%
+if defined CA_EXPORT if defined TLS_ON echo   %C_GRAY%             install once on the phone to trust the HTTPS origin%C_RESET%
 echo.
 call :footer
 echo   Opening %C_CYAN%http://localhost:5173%C_RESET% in your browser once backend + frontend are up...

@@ -177,4 +177,41 @@ describe("parseStaticCatalog", () => {
     expect(parseStaticCatalog("oops")).toEqual([])
     expect(parseStaticCatalog({ acme: null, broken: { models: null }, empty: {} })).toEqual([])
   })
+
+  it("يحفظ قدرات الإدخال من modalities عشان قفل زرار الصورة", () => {
+    const items = parseStaticCatalog({
+      anthropic: {
+        models: {
+          vision: { name: "Vision", modalities: { input: ["text", "image", "pdf"], output: ["text"] } },
+          text: { name: "Text", modalities: { input: ["text"], output: ["text"] } },
+        },
+      },
+    })
+
+    expect(items).toEqual([
+      {
+        id: "text",
+        providerID: "anthropic",
+        name: "Text",
+        free: false,
+        enabled: false,
+        capabilities: { input: ["text"] },
+      },
+      {
+        id: "vision",
+        providerID: "anthropic",
+        name: "Vision",
+        free: false,
+        enabled: false,
+        capabilities: { input: ["text", "image", "pdf"] },
+      },
+    ])
+  })
+
+  it("قدرات غائبة تفضل غائبة بدل ما تُخمّن", () => {
+    const items = parseStaticCatalog({ acme: { models: { plain: { name: "Plain" } } } })
+    expect(items).toEqual([
+      { id: "plain", providerID: "acme", name: "Plain", free: false, enabled: false },
+    ])
+  })
 })

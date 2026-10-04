@@ -11,6 +11,7 @@ const DIRECTORY = process.cwd()
 interface FakeClient {
   dispatched: string[]
   deliveries: string[]
+  promptFiles: Array<Array<Record<string, unknown>>>
   abortCalls: number
   messages: Array<Record<string, unknown>>
   sessions: Array<Record<string, unknown>>
@@ -34,6 +35,7 @@ function createFakeClient(raw: { running: boolean }): FakeClient {
   const fake: FakeClient = {
     dispatched: [],
     deliveries: [],
+    promptFiles: [],
     abortCalls: 0,
     messages: [],
     sessions: [sessionSummary(SESSION, DIRECTORY)],
@@ -43,9 +45,10 @@ function createFakeClient(raw: { running: boolean }): FakeClient {
     permission: {},
   }
   fake.session = {
-    prompt: (options: { text?: string; delivery?: string }) => {
+    prompt: (options: { text?: string; delivery?: string; files?: Array<Record<string, unknown>> }) => {
       fake.dispatched.push(options.text ?? "")
       fake.deliveries.push(options.delivery ?? "")
+      fake.promptFiles.push(options.files ?? [])
       return Promise.resolve({ id: "inbox_1", sessionID: SESSION })
     },
     interrupt: () => {
@@ -165,6 +168,24 @@ describe("parallel request queue", () => {
 
     expect(fake.dispatched).toEqual(["الأول"])
     expect(service.hasPendingWork(SESSION)).toBe(true)
+  })
+
+  it("يمرّر المرفقات مع الطلب كـ files بصيغة OpenCode", async () => {
+    const { service, fake } = createService()
+
+    await service.prompt(SESSION, "شوف الصورة", undefined, undefined, [
+      { uri: "data:image/png;base64,AAAA", name: "photo.png" },
+    ])
+
+    expect(fake.promptFiles).toEqual([[{ uri: "data:image/png;base64,AAAA", name: "photo.png" }]])
+  })
+
+  it("الطلب بلا مرفقات مايبعتش files", async () => {
+    const { service, fake } = createService()
+
+    await service.prompt(SESSION, "نص فقط")
+
+    expect(fake.promptFiles).toEqual([[]])
   })
 
   it("sends the queued requests in order once the session goes idle", async () => {

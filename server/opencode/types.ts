@@ -131,6 +131,18 @@ export interface ModelInfo {
   status?: string
   // الـ variants اللي OpenCode بيسمح بيها للموديل ده (مثل high / max / low)
   variants?: string[]
+  // قدرات الإدخال حسب المحرك: text / image / pdf. الواجهة بتقفل زرار الصورة
+  // أو PDF على أساسها. غيابها = النموذج مش معروف للمحرك لسه (كتالوج قديم)
+  // فما نقفلش زرار النص، لكن الصور تتفلتر حسب اللي معروف.
+  capabilities?: { input: string[] }
+}
+
+// مرفق مرسل مع الطلب: `uri` لازم يكون رابط data: (محتوى مضمّن). OpenCode
+// ما بيدعمش روابط HTTP للمرفقات، وملفات المتصفح مش متاحة للمحرك أصلاً،
+// فالترميز المضمّن هو الطريق الوحيد من الهاتف.
+export interface PromptAttachment {
+  uri: string
+  name?: string
 }
 
 export interface ActiveSession {

@@ -205,6 +205,19 @@ export interface ModelInfo {
   enabled: boolean
   status?: string
   variants?: string[]
+  // قدرات الإدخال: text / image / pdf. الواجهة بتقفل زرار الصورة أو PDF
+  // حسبها. غيابها = النموذج مش معروف لسه، فالصور تتعامل كغير مدعومة.
+  capabilities?: { input: string[] }
+}
+
+// مرفق محمّل في الكومبوزر قبل الإرسال: `uri` رابط data: مضمّن (نفس الشكل
+// اللي OpenCode بيقبله)، والباقي للعرض والإزالة.
+export interface ComposerAttachment {
+  id: string
+  name: string
+  mime: string
+  size: number
+  uri: string
 }
 
 export interface SessionModelRef {

@@ -1,5 +1,5 @@
 import { ApiError, request } from "./http"
-import type { HistoryTurn, SessionModelRef, SessionRequests } from "../types"
+import type { ComposerAttachment, HistoryTurn, SessionModelRef, SessionRequests } from "../types"
 
 // كاش ETag لطلبات المحادثة: السيرفر يرجّع 304 فاضي لما مفيش تغيير،
 // فنرجّع آخر payload من الذاكرة — نفس المرجع (reference) عشان React
@@ -88,10 +88,18 @@ export function getHistory(id: string, lang: "ar" | "en" = "ar"): Promise<Histor
   return request<HistoryTurn[]>(`/api/session/${encodeURIComponent(id)}/history?lang=${lang}`)
 }
 
-export function sendMessage(id: string, text: string, agent?: string, model?: SessionModelRef): Promise<{ accepted: boolean; queued: boolean }> {
+// المرفقات بتتبعت كـ { uri, name } جوه `attachments`؛ السيرفر يتحقق من
+// النوع والحجم قبل ما يمرّرها للمحرك كـ data URI مضمّن.
+export function sendMessage(id: string, text: string, agent?: string, model?: SessionModelRef, attachments?: ComposerAttachment[]): Promise<{ accepted: boolean; queued: boolean }> {
+  const files = attachments?.map((attachment) => ({ uri: attachment.uri, name: attachment.name }))
   return request<{ accepted: boolean; queued: boolean }>(`/api/session/${encodeURIComponent(id)}/message`, {
     method: "POST",
-    body: JSON.stringify({ text, ...(agent ? { agent } : {}), ...(model ? { model } : {}) }),
+    body: JSON.stringify({
+      text,
+      ...(agent ? { agent } : {}),
+      ...(model ? { model } : {}),
+      ...(files && files.length > 0 ? { attachments: files } : {}),
+    }),
   })
 }
 

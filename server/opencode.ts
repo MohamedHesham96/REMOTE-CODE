@@ -24,6 +24,7 @@ import type {
   HistoryTurn,
   ModelInfo,
   Project,
+  PromptAttachment,
   RequestState,
   ServiceOptions,
   Session,
@@ -86,6 +87,8 @@ interface QueuedPrompt {
   text: string
   agent?: string
   model?: SessionModelRef
+  // مرفقات الطلب (صور/ملفات) بتروح مع الـ prompt نفسه لحظة تنفيذه
+  attachments?: PromptAttachment[]
   queuedAt: number
   attempts: number
 }
@@ -165,6 +168,7 @@ export class OpenCodeService {
       enabled: boolean
       status: string
       variants: string[] | undefined
+      capabilities: { input: string[] }
     }>
   } | null = null
   // إلغاء تكرار الطلبات المتزامنة: نفس المورد المطلوب لحظيًا يشارك promise واحدة
@@ -1218,12 +1222,13 @@ export class OpenCodeService {
 
   // المستخدم يقدر يبعت كذا طلب ورا بعض من غير ما يستنى. لو الجلسة شغالة
   // الطلب بيروح في طابور specific للجلسة، ولو هي فاضية بيتنفذ على طول.
-  async prompt(id: string, text: string, agent?: string, model?: SessionModelRef): Promise<{ queued: boolean }> {
+  async prompt(id: string, text: string, agent?: string, model?: SessionModelRef, attachments?: PromptAttachment[]): Promise<{ queued: boolean }> {
     const item: QueuedPrompt = {
       id: `q${++this.promptSeq}`,
       text,
       ...(agent ? { agent } : {}),
       ...(model?.providerID && model?.modelID ? { model } : {}),
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
       queuedAt: Date.now(),
       attempts: 0,
     }
@@ -1246,7 +1251,8 @@ export class OpenCodeService {
     // الـ catch في pumpQueue يعيد الطلب أو يسقطه بعد MAX_PROMPT_ATTEMPTS،
     // بدل ما runningSessions يتجمّد والكارت يفضل "شغّال" للأبد.
     // v2 يقبل النص فقط في prompt — الوكيل والموديل يُضبطان على الجلسة
-    // أولًا (كما كان v1 يفعل ضمنيًا مع كل طلب).
+    // أولًا (كما كان v1 يفعل ضمنيًا مع كل طلب). المرفقات بتروح مع النص في
+    // نفس النداء كـ `files` بصيغة OpenCode (رابط data: مضمّن + اسم).
     await withTimeout(
       (async () => {
         if (item.agent) {
@@ -1262,7 +1268,16 @@ export class OpenCodeService {
             },
           })
         }
-        await this.requireClient().session.prompt({ sessionID: id, text: item.text, ...(delivery ? { delivery } : {}) })
+        const files = item.attachments?.map((attachment) => ({
+          uri: attachment.uri,
+          ...(attachment.name ? { name: attachment.name } : {}),
+        }))
+        await this.requireClient().session.prompt({
+          sessionID: id,
+          text: item.text,
+          ...(files && files.length > 0 ? { files } : {}),
+          ...(delivery ? { delivery } : {}),
+        })
       })(),
       PROMPT_DISPATCH_TIMEOUT_MS,
       "Prompt dispatch",
@@ -1582,6 +1597,7 @@ export class OpenCodeService {
     enabled: boolean
     status: string
     variants: string[] | undefined
+    capabilities: { input: string[] }
   }> }> {
     const directory = this.selectedProjectDirectory
     const cached = this.variantsCache
@@ -1598,6 +1614,7 @@ export class OpenCodeService {
       enabled: boolean
       status: string
       variants: string[] | undefined
+      capabilities: { input: string[] }
     }> = []
     try {
       const response = await this.requireClient().model.list({ location: this.location(directory) })
@@ -1619,6 +1636,8 @@ export class OpenCodeService {
           enabled: model.enabled,
           status: model.status,
           variants: variantIds(model.variants),
+          // نموذج المحرك بيوفر القدرات دايمًا، لكن نتحوّط للكتالوجات القديمة
+          capabilities: { input: model.capabilities?.input ?? [] },
         })
       }
       this.variantsCache = { directory, expiresAt: Date.now() + VARIANTS_CACHE_MS, map, items }
@@ -1709,6 +1728,7 @@ export class OpenCodeService {
           enabled: model.enabled,
           status: model.status,
           variants: model.variants,
+          capabilities: model.capabilities,
         }) satisfies ModelInfo)
         .sort((a, b) => a.providerID.localeCompare(b.providerID) || a.id.localeCompare(b.id)),
     )

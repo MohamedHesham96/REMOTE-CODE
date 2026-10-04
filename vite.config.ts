@@ -4,7 +4,11 @@ import react from "@vitejs/plugin-react"
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "")
   const backendPort = Number.parseInt(env.APP_PORT?.trim() || "7171", 10) || 7171
-  const backendTarget = `http://127.0.0.1:${backendPort}`
+  // الباك بيشتغل HTTPS لما APP_TLS_* متظبطين (لتفعيل PWA/push من الهاتف).
+  // الـ proxy لازم يتبع نفس البروتوكول وإلا يكلّم مقبس TLS بطلب HTTP فيقفل
+  // الاتصال ويطلع "socket hang up". الشهادة محلية موقّعة ذاتيًا فنسمح بيها.
+  const backendTls = Boolean(env.APP_TLS_CERT_PATH?.trim() && env.APP_TLS_KEY_PATH?.trim())
+  const backendTarget = `${backendTls ? "https" : "http"}://127.0.0.1:${backendPort}`
   return {
   plugins: [react()],
   // وضع هادئ: إخفاء سطور "ready" وإعادة التحسين — التحذيرات والأخطاء تظهر فقط
@@ -29,6 +33,7 @@ export default defineConfig(({ mode }) => {
         target: backendTarget,
         changeOrigin: true,
         ws: true,
+        ...(backendTls ? { secure: false } : {}),
         timeout: 30000,
         configure: (proxy) => {
           // الباك بيفتح فورًا ويفضل شغال، فالخطأ هنا معناه

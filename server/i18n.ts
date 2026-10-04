@@ -28,6 +28,23 @@ const messages = {
     ar: "الرسالة طويلة جدًا",
     en: "The message is too long",
   },
+  tooManyAttachments: {
+    ar: "عدد المرفقات أكبر من المسموح",
+    en: "Too many attachments",
+  },
+  attachmentTooLarge: {
+    ar: "حجم المرفق أكبر من المسموح",
+    en: "The attachment is too large",
+  },
+  invalidAttachment: {
+    ar: "مرفق غير صالح",
+    en: "Invalid attachment",
+  },
+  // النموذج المختار ما بيدعمش نوع المرفق (صورة أو PDF) — النص مقبول دايماً
+  attachmentUnsupported: {
+    ar: "النموذج المختار لا يدعم هذا النوع من المرفقات",
+    en: "The selected model does not support this attachment type",
+  },
   modelRequired: {
     ar: "اختر نموذجًا",
     en: "A model is required",
