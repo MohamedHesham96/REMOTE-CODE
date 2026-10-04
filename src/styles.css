@@ -1391,7 +1391,18 @@ html[dir="ltr"] .request-row.request-row-running { box-shadow: inset 3px 0 0 0 v
    rgba للمتصفحات الأقدم. */
 .task-summary { --phase-color: var(--accent); --phase-dot: var(--accent); --phase-border: var(--accent-border); --phase-fill: var(--accent-soft-bg2); --phase-wash: transparent; }
 .task-summary[data-phase="running"] { --phase-wash: color-mix(in srgb, var(--accent) 10%, transparent); }
-.task-summary[data-phase="waiting"],
+/* انتظار مشروع (سؤال أو إذن أو سكوت): الوهج الأصفر على الكارت نفسه كان
+   متعب للعين كل ما الحالة تفضل مفتوحة، فالكارت بيرجع شكله الطبيعي — الحدود
+   والتظليل والتعبئة بلون الافتراضي — والأصفر بيتبقى على رسالة الحالة بس
+   (الشارة والنقطة وسطر النشاط) عشان الحالة تفضل مقروءة من غير تلوين كامل. */
+.task-summary[data-phase="waiting"] {
+  --phase-color: var(--accent); --phase-dot: var(--accent);
+  --phase-border: var(--accent-border);
+  --phase-fill: var(--accent-soft-bg2);
+  --phase-wash: transparent;
+}
+/* متجمدة: مشكلة حقيقية مثبتة من كاشف الجمود في السيرفر، فالتحذير الأصفر على
+   الكارت هنا مقصود ومش متشال زي حالة الانتظار. */
 .task-summary[data-phase="stuck"] {
   --phase-color: var(--yellow); --phase-dot: var(--yellow);
   --phase-border: rgba(245, 199, 108, 0.35);
@@ -1418,10 +1429,17 @@ html[dir="ltr"] .request-row.request-row-running { box-shadow: inset 3px 0 0 0 v
 /* عدّاد "الأداة كام من إجمالي الأدوات المستخدمة" — بيوضّح إن السطر بيتقلّب
    على قائمة مش نص واحد، من غير ما يزحم سطر الحالة. */
 .task-panel-used-count { margin-inline-start: 5px; color: var(--task-activity-text); font-size: 9px; font-weight: 800; opacity: 0.62; }
-/* شكل النقطة بس اللي بيتغيّر لكل مرحلة (اللون جاي من المتغيرات فوق).
-   الحركة مقصورة على "قيد التنفيذ" وحدها، فأي حالة تانية بتوقف نبض
-   الشغل بدل ما تخلّي المستخدم يفتكر إن OpenCode لسه بيشتغل. */
-.task-panel[data-phase="waiting"] .task-panel-dot { border: 2px solid var(--phase-dot, var(--yellow)); background: transparent; box-shadow: none; }
+/* شكل النقطة بس اللي بيتغيّر لكل مرحلة. الحركة مقصورة على "قيد التنفيذ"
+   وحدها، فأي حالة تانية بتوقف نبض الشغل بدل ما تخلّي المستخدم يفتكر إن
+   OpenCode لسه بيشتغل. اللون في أغلب المراحل جاي من `--phase-dot` فوق،
+   ما عدا الانتظار اللي بيثبّت أصفر رسالة الحالة مباشرة. */
+/* في الانتظار: الأصفر على رسالة الحالة بس — النقطة (حلقة فاضية) والشارة
+   وسطر النشاط — والكارت حواليها يفضل بلونه الطبيعي. الشارة والنشاط
+   بيتحددوا هنا صراحةً لأن `--phase-color` و`--phase-dot` بقوا بلون الافتراضي
+   في الكارت عشان الشريط العلوي والحدود ما تبقاش صفراء. */
+.task-panel[data-phase="waiting"] .task-panel-dot { border: 2px solid var(--yellow); background: transparent; box-shadow: none; }
+.task-panel[data-phase="waiting"] .task-panel-label,
+.task-panel[data-phase="waiting"] .task-panel-activity { color: var(--yellow); }
 .task-panel[data-phase="stuck"] .task-panel-dot { border-radius: 1px; background: var(--phase-dot, var(--yellow)); transform: rotate(45deg); box-shadow: none; }
 .task-panel[data-phase="error"] .task-panel-dot { background: var(--phase-dot, var(--red)); box-shadow: 0 0 0 4px rgba(239, 105, 105, 0.12); }
 .task-panel[data-phase="completed"] .task-panel-dot { background: var(--phase-dot, var(--green)); box-shadow: 0 0 0 4px rgba(66, 215, 162, 0.1); }
