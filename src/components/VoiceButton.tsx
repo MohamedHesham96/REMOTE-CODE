@@ -1,7 +1,6 @@
-import { useEffect, useRef } from "react"
 import { useVoiceInput } from "../hooks/useVoiceInput"
 import type { Strings } from "../i18n"
-import { voiceLanguageCode, voiceLanguageLabel, voiceRecognitionTag, type VoiceLanguage } from "../voice"
+import { nextVoiceLanguage, voiceLanguageCode, voiceLanguageLabel, voiceRecognitionTag, type VoiceLanguage } from "../voice"
 
 interface VoiceButtonProps {
   t: Strings
@@ -11,25 +10,22 @@ interface VoiceButtonProps {
   composer: string
   onComposerChange: (text: string) => void
   onError: (message: string) => void
+  // تبديل لغة التعرّف من جنب المايك من غير ما يفتح الإعدادات.
+  onVoiceLanguageChange: (value: VoiceLanguage) => void
 }
 
 // زر مايك جنب حقل الكتابة: ضغطة تبدأ الاستماع، والكلام بيتفرّغ لحظة بلحظة
-// جوه الحقل نفسه عشان المستخدم يشوفه وهو بيحصّل ويصحّح قبل الإرسال.
-export function VoiceButton({ t, voiceLanguage, composer, onComposerChange, onError }: VoiceButtonProps) {
-  const baseRef = useRef("")
-  // أحدث قيمة للـ composer حتى في لحن المستمعين (الـ callbacks جوه الـ hook
-  // بيتخزنوا في refs فما يبقاش عندنا stale closure). التحديث في effect مش
-  // أثناء الرندر — الـ ref مش بيانات رسم.
-  const composerRef = useRef(composer)
-  useEffect(() => {
-    composerRef.current = composer
-  }, [composer])
-
-  const { supported, listening, start, stop } = useVoiceInput({
+// جوه الحقل نفسه عشان المستخدم يشوفه وهو بيحصّل ويصحّح قبل الإرسال. وزر
+// القفل (زيه زي الوتساب) بيثبّت الاستماع: المايك يفضل سامع مهما طال الصمت
+// لحد ما المستخدم يقفله بنفسه. وزر اللغة جنب القفل بيلفّ لغة التعرّف:
+// تلقائي ← عربي ← إنجليزي. تجميع النص (الأساس + المُفرّغ) مسؤولية الهوك،
+// وهنا بس بنكتب اللي بيوصلنا في الحقل.
+export function VoiceButton({ t, voiceLanguage, composer, onComposerChange, onError, onVoiceLanguageChange }: VoiceButtonProps) {
+  const { supported, listening, locked, start, stop, toggleLock } = useVoiceInput({
     language: voiceRecognitionTag(voiceLanguage),
-    onTranscript: (text) => {
-      const base = baseRef.current
-      onComposerChange(base ? `${base} ${text}`.trim() : text)
+    baseText: composer,
+    onText: (text) => {
+      onComposerChange(text)
     },
     onError: (kind) => {
       onError(kind === "denied" ? t.voiceMicDenied : t.voiceRecognitionFailed)
@@ -41,9 +37,6 @@ export function VoiceButton({ t, voiceLanguage, composer, onComposerChange, onEr
       stop()
       return
     }
-    // سجّل المكتوب دلوقتي قبل بداية الاستماع — ده الأساس اللي هيتبني عليه
-    // الكلام الجديد، وده سبب إن baseRef يتبت هنا مش في تأثير ثانٍ
-    baseRef.current = composerRef.current
     start()
   }
 
@@ -51,25 +44,54 @@ export function VoiceButton({ t, voiceLanguage, composer, onComposerChange, onEr
   // العنوان بيجمع الحالة واللغة الفعّالة من نفس النصوص المترجمة الموجودة —
   // بدون مفاتيح جديدة في ملفات الـ i18n.
   const statusLabel = `${listening ? t.voiceStop : t.voiceStart} · ${voiceLanguageLabel(voiceLanguage, t)}`
+  const lockLabel = locked ? t.voiceUnlock : t.voiceLock
+  const languageLabel = `${t.voiceInputLanguage}: ${voiceLanguageLabel(voiceLanguage, t)}`
 
   return (
-    <button
-      type="button"
-      className={`voice-button${listening ? " is-listening" : ""}`}
-      onClick={handleClick}
-      disabled={!supported}
-      aria-label={supported ? statusLabel : t.voiceUnsupported}
-      title={supported ? statusLabel : t.voiceUnsupported}
-    >
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" />
-        <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
-        <line x1="12" y1="19" x2="12" y2="22" />
-      </svg>
-      {/* شارة لغة التعرّف في ركن الزر: اللغة الفعّالة دلوقتي مش الإعداد
-          المخزّن — "تلقائي" بتتترجم لغة الجهاز وقت الاستخدام، والمستخدم عايز
-          يشوف اللغة قبل ما يبدأ يتكلم مش بعد ما الكلام يتحوّل غلط. */}
-      <span className={`voice-lang${code === "ع" ? " voice-lang-ar" : ""}`} aria-hidden>{code}</span>
-    </button>
+    <div className="voice-control">
+      <button
+        type="button"
+        className={`voice-button${listening ? " is-listening" : ""}${locked ? " is-locked" : ""}`}
+        onClick={handleClick}
+        disabled={!supported}
+        aria-label={supported ? statusLabel : t.voiceUnsupported}
+        title={supported ? statusLabel : t.voiceUnsupported}
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" />
+          <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+          <line x1="12" y1="19" x2="12" y2="22" />
+        </svg>
+      </button>
+      <div className="voice-actions">
+        {listening ? (
+          <button
+            type="button"
+            className={`voice-lock${locked ? " is-locked" : ""}`}
+            onClick={toggleLock}
+            aria-pressed={locked}
+            aria-label={lockLabel}
+            title={lockLabel}
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="4.5" y="10.5" width="15" height="9.5" rx="2.2" />
+              <path d="M8 10.5V7.4a4 4 0 0 1 7.6-1.7" />
+            </svg>
+          </button>
+        ) : null}
+        {/* زر اللغة: بيلفّ الإعداد تلقائي → عربي → إنجليزي، والحرف ظاهر عليه
+            عشان المستخدم يعرف اللغة الفعّالة قبل ما يتكلم. */}
+        <button
+          type="button"
+          className="voice-lang-switch"
+          onClick={() => onVoiceLanguageChange(nextVoiceLanguage(voiceLanguage))}
+          disabled={!supported}
+          aria-label={languageLabel}
+          title={languageLabel}
+        >
+          {code}
+        </button>
+      </div>
+    </div>
   )
 }

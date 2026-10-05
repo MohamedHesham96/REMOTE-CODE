@@ -1075,20 +1075,34 @@ h2.session-title-editable { cursor: pointer; }
 .stop-button:hover { background: rgba(255, 127, 157, 0.2); transform: translateY(-1px); }
 
 /* زر المايك: شكل مربع كبير بيكّف الضغط بالشكل (.stop-button مسطّح وصغير)،
-   ولما الاستماع شغال بيفرّق بنبض أحمر عشان العين تلحظ الحالة من بعيد */
+   ولما الاستماع شغال بيفرّق بنبض أحمر عشان العين تلحظ الحالة من بعيد.
+   الغلاف `.voice-control` عمودي عشان زر القفل يقعد تحت المايك من غير ما
+   يزحّط صف الأدوات. */
+.voice-control { position: relative; display: flex; flex-direction: column; align-items: center; align-self: center; flex: 0 0 auto; gap: 2px; }
 .voice-button { position: relative; width: 44px; height: 44px; min-height: 0; flex: 0 0 auto; align-self: center; display: flex; align-items: center; justify-content: center; gap: 4px; margin-inline-start: 0; padding: 0; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 1px; color: var(--muted); background: var(--surface-card); box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.18); transition: transform 0.18s ease, box-shadow 0.18s ease, color 0.18s ease, border-color 0.18s ease; cursor: pointer; }
 .voice-button:hover:not(:disabled) { transform: translateY(-2px); color: var(--accent-strong); border-color: var(--accent-border); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22); }
 .voice-button:active:not(:disabled) { transform: scale(0.97); }
 .voice-button:disabled { cursor: not-allowed; filter: saturate(0.35) brightness(0.75); opacity: 0.6; }
 .voice-button.is-listening { color: #fff; border-color: rgba(255, 127, 157, 0.55); background: rgba(255, 127, 157, 0.14); box-shadow: 0 0 0 3px rgba(255, 127, 157, 0.12), 0 8px 22px rgba(0, 0, 0, 0.45); animation: voice-pulse 1.15s ease-in-out infinite; }
-/* شارة لغة التعرّف في ركن زر المايك: علامة صغيرة بتقول أنهي لغة التعرّف
-   شغالة دلوقتي (لغة الإعداد، أو لغة الجهاز وقت "تلقائي"). لون واحد لكل
-   اللغات — درجات النيلي نفسها المستخدمة في شارة اللغة بالشريط العلوي —
-   لأن الأخضر هنا كان بيتقاطع مع لون "مكتملة" في مراحل المهمة، والشارة
-   معلومة ثابتة مش حالة نجاح. الحرف العربي أكتر حجمًا بس عشان يفضل مقروء،
-   من غير ظل عشان ما تزدش إجهاد بصري على زر صغير أصلًا. */
-.voice-lang { position: absolute; bottom: 2px; inset-inline-start: 2px; min-width: 14px; height: 12px; display: grid; place-items: center; padding: 0 3px; border-radius: 1px; background: linear-gradient(135deg, #4f46e5, #2563eb); color: #fff; font-size: 7px; font-weight: 800; line-height: 1; letter-spacing: 0.03em; pointer-events: none; }
-.voice-lang.voice-lang-ar { font-size: 9.5px; padding-bottom: 1px; }
+/* وضع القفل: النبض الأحمر الهادئ بيتحوّل لظل مستقر أخضر — إشارة إن المايك
+   مثبّت ومش محتاج متابعة. لون النجاح هنا مقصود (معلومة حالة) ومش بيتقاطع
+   مع مراحل المهمة لأنه على زر منفصل في الـ composer. */
+.voice-button.is-locked { border-color: rgba(66, 215, 162, 0.6); background: rgba(66, 215, 162, 0.16); box-shadow: 0 0 0 3px rgba(66, 215, 162, 0.14), 0 8px 22px rgba(0, 0, 0, 0.45); animation: none; }
+/* صف الأزرار الصغيرة تحت المايك: القفل (وقت الاستماع) وزر تبديل اللغة.
+   الاتنين جنب بعض في سطر واحد تحت المايك مباشرةً. */
+.voice-actions { display: flex; align-items: center; justify-content: center; gap: 3px; }
+/* زر القفل الصغير تحت المايك — بيظهر بس وقت الاستماع، بنفس لغة الوتساب */
+.voice-lock { width: 26px; height: 18px; display: grid; place-items: center; padding: 0; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 1px; color: var(--muted); background: var(--surface-card); cursor: pointer; transition: transform 0.15s ease, color 0.18s ease, border-color 0.18s ease, background 0.18s ease; }
+.voice-lock:hover { color: var(--accent-strong); border-color: var(--accent-border); }
+.voice-lock:active { transform: scale(0.94); }
+.voice-lock.is-locked { color: #fff; border-color: rgba(66, 215, 162, 0.65); background: rgba(66, 215, 162, 0.22); }
+/* زر تبديل لغة التعرّف: بيلفّ تلقائي ← عربي ← إنجليزي، والحرف ظاهر عليه عشان
+   المستخدم يعرف اللغة الفعّالة قبل ما يتكلم. نفس درجات النيلي المستخدمة في
+   شارة اللغة على المايك واللافتة بالشريط العلوي، فعلامة اللغة موحّدة. */
+.voice-lang-switch { min-width: 26px; height: 18px; display: grid; place-items: center; padding: 0 4px; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 1px; color: #fff; background: linear-gradient(135deg, #4f46e5, #2563eb); font-size: 8px; font-weight: 800; line-height: 1; letter-spacing: 0.03em; cursor: pointer; transition: transform 0.15s ease, filter 0.18s ease; }
+.voice-lang-switch:hover:not(:disabled) { filter: brightness(1.12); transform: translateY(-1px); }
+.voice-lang-switch:active:not(:disabled) { transform: scale(0.94); }
+.voice-lang-switch:disabled { cursor: not-allowed; filter: saturate(0.35) brightness(0.75); opacity: 0.6; }
 @keyframes voice-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 127, 157, 0.35), 0 8px 22px rgba(0, 0, 0, 0.45); } 50% { box-shadow: 0 0 0 7px rgba(255, 127, 157, 0.06), 0 8px 22px rgba(0, 0, 0, 0.45); } }
 
 .drawer-backdrop { position: fixed; z-index: 20; inset: 0; display: flex; justify-content: flex-start; background: var(--scrim); backdrop-filter: blur(4px); }

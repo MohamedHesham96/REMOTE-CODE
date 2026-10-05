@@ -2188,7 +2188,7 @@ function App() {
                 t={t}
               />
               <textarea ref={composerRef} value={composer} onChange={(event) => setComposer(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder={t.composerPlaceholder} rows={1} />
-              <VoiceButton t={t} voiceLanguage={voiceLanguage} composer={composer} onComposerChange={setComposer} onError={(message) => addToast(message, "error")} />
+              <VoiceButton t={t} voiceLanguage={voiceLanguage} composer={composer} onComposerChange={setComposer} onError={(message) => addToast(message, "error")} onVoiceLanguageChange={(value) => setVoiceLanguage(value)} />
               <div className="composer-actions">
                 <span className="composer-hint">{t.composerHint}</span>
                 {isBusy || hasQueuedRequests ? <button type="button" className="stop-button" onClick={() => void handleAbort()}>■ {t.stop}</button> : null}

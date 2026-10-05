@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { effectiveVoiceLanguage, languageCodeOf, voiceLanguageCode } from "./voice"
+import { effectiveVoiceLanguage, languageCodeOf, nextVoiceLanguage, voiceLanguageCode } from "./voice"
 
 // الشارة على زر المايك لازم تقول اللغة الفعلية للتعرّف مش الإعداد المخزّن،
 // فمن غير اختبار ده ممكن الشارة تكدب على المستخدم عن لغة جلسته — خصوصًا
@@ -38,5 +38,13 @@ describe("voiceLanguageCode", () => {
   it("الشارة بتتبنى من الإعداد الصريح مباشرة", () => {
     expect(voiceLanguageCode("ar")).toBe("ع")
     expect(voiceLanguageCode("en")).toBe("EN")
+  })
+})
+
+describe("nextVoiceLanguage", () => {
+  it("بيلفّ تلقائي ← عربي ← إنجليزي ← تلقائي", () => {
+    expect(nextVoiceLanguage("auto")).toBe("ar")
+    expect(nextVoiceLanguage("ar")).toBe("en")
+    expect(nextVoiceLanguage("en")).toBe("auto")
   })
 })
