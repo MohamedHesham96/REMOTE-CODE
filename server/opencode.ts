@@ -254,6 +254,22 @@ export class OpenCodeService {
     return this.client
   }
 
+  // المسار اللي بنمرّره للمحرك لازم يطابق الصيغة القانونية (canonical) المسجّلة
+  // عنده؛ وإلا الجلسة تتخزّن بمفتاح مسار مختلف (`\` مقابل `/` أو حالة حرف
+  // القرص على ويندوز) فتفضل موجودة في نفس القاعدة لكن مخفية من قوائم العميل
+  // الآخر (الديسكتوب) لأن مطابقة المسار حساسة للشكل. بنرجّع canonical لو
+  // المشروع مسجّل، وإلا المسار كما هو قبل أول تسجيل.
+  private async canonicalDirectory(directory: string): Promise<string> {
+    try {
+      const registered = await this.requireClient().project.list()
+      const match = registered.find((project) => directoryKey(project.canonical) === directoryKey(directory))
+      return match?.canonical ?? directory
+    } catch {
+      // فشل السجل يبقي المسار كما هو — أفضل من تعطيل الإنشاء
+      return directory
+    }
+  }
+
   private location(directory = this.selectedProjectDirectory): { directory: string } {
     return { directory }
   }
@@ -313,6 +329,11 @@ export class OpenCodeService {
       })
     }
     await this.health()
+    // المسار الافتراضي (`OPENCODE_PROJECT_DIR`) يُوحّد مع الصيغة القانونية
+    // للمحرك فور الاتصال، فأي نداء لاحق — قوائم المشاريع/الجلسات والإنشاء
+    // والإعداد — يستخدم نفس المفتاح بدل نسخة شكلية مختلفة تخفي الجلسات عن
+    // العملاء الآخرين (نفس علة مطابقة المسار على ويندوز).
+    this.selectedProjectDirectory = await this.canonicalDirectory(this.selectedProjectDirectory)
   }
 
   async startEvents(): Promise<void> {
@@ -864,9 +885,10 @@ export class OpenCodeService {
     }
 
     // v2 بلا project.current: الاختيار حالة محلية فقط، والموقع يُمرَّر
-    // مع كل نداء — فلا تسجيل ولا تبديل على مستوى المحرك.
+    // مع كل نداء — فلا تسجيل ولا تبديل على مستوى المحرك. ونحوّل المسار
+    // لصيغته القانونية عشان الجلسات الجديدة تتخزّن بمفتاح يطابق باقي العملاء.
     this.selectedProjectId = project.id
-    this.selectedProjectDirectory = project.worktree
+    this.selectedProjectDirectory = await this.canonicalDirectory(project.worktree)
     return project
   }
 
@@ -886,9 +908,13 @@ export class OpenCodeService {
     // just like on desktop. A custom title would make native generation skip.
     const cleanTitle = stripMobileSuffix((title || "").trim())
     const useTitle = cleanTitle && !isDefaultTitle(cleanTitle) ? cleanTitle : undefined
+    // نحسم المسار القانوني هنا كذلك: لو فشل التوحيد عند الاتصال (سجل متعطّل
+    // لحظيًا) تبقى الجلسة الأولى الجديدة هي فرصة التصحيح قبل الكتابة.
+    const directory = await this.canonicalDirectory(this.selectedProjectDirectory)
+    this.selectedProjectDirectory = directory
     const created = await this.requireClient().session.create({
       ...(useTitle ? { title: useTitle } : {}),
-      location: this.location(),
+      location: this.location(directory),
     })
     const session = this.toSession(created)
 

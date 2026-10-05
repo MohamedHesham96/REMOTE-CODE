@@ -1063,6 +1063,45 @@ describe("project list filtering", () => {
   })
 })
 
+describe("canonical project directory", () => {
+  it("يوحّد المسار القانوني عند الاختيار والإنشاء", async () => {
+    const created: Array<Record<string, unknown>> = []
+    const service = new OpenCodeService({ projectDirectory: "E:/mSales/app" })
+    const internals = service as unknown as {
+      selectedProjectDirectory: string
+      client: {
+        project: { list: () => Promise<unknown[]> }
+        session: {
+          list: () => Promise<{ data: unknown[]; cursor: object }>
+          create: (input: Record<string, unknown>) => Promise<Record<string, unknown>>
+        }
+      }
+    }
+    internals.client = {
+      project: {
+        // المحرك يعرف المشروع بصيغة ويندوز القانونية (شرطة مائلة عكسية)
+        list: () => Promise.resolve([
+          { id: "p1", canonical: "E:\\mSales\\app", name: "app", time: { created: 1, updated: 2, active: 0 } },
+        ]),
+      },
+      session: {
+        list: () => Promise.resolve({ data: [], cursor: {} }),
+        create: (input) => {
+          created.push(input)
+          return Promise.resolve(sessionSummary("ses_new", "E:\\mSales\\app"))
+        },
+      },
+    }
+
+    // المشروع المُعدّ مكتوب بصيغة مختلفة (سلاش)، والاختيار لازم يرجّعه قانونيًا
+    await service.selectProject("E:\\mSales\\app")
+    expect(internals.selectedProjectDirectory).toBe("E:\\mSales\\app")
+
+    await service.createSession()
+    expect(created[0]).toMatchObject({ location: { directory: "E:\\mSales\\app" } })
+  })
+})
+
 describe("v2 session shapes", () => {
   it("maps session list items to the stable wire format", async () => {
     const { service } = createService()
