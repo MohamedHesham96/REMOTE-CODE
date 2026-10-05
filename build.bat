@@ -789,13 +789,14 @@ echo.
 call :show_ip
 echo.
 
-REM Same step shape as prod, but the last stage checks ports instead of
-REM building: 1 = :env_check, 2 = firewall rules,
-REM 3 = :ensure_opencode_cli, 4 = :port_check x2.
+REM Same shape as prod, but dev also builds the client for the phone:
+REM 1 = :env_check, 2 = firewall rules, 3 = :ensure_opencode_cli,
+REM 4 = vite build (serves the HTTPS origin the phone opens), 5 = :port_check x2.
 set "STEP_NAME_1=Check environment"
 set "STEP_NAME_2=Configure network"
 set "STEP_NAME_3=Ensure OpenCode CLI"
-set "STEP_NAME_4=Check ports"
+set "STEP_NAME_4=Build for phone"
+set "STEP_NAME_5=Check ports"
 call :steps_begin "Start Project"
 
 call :step_start 1
@@ -829,9 +830,26 @@ if defined OC_FAIL (
 )
 call :spine
 
+REM Build the client before starting: the backend serves dist/ on APP_PORT,
+REM and the phone opens that exact HTTPS origin for the mic + PWA - without
+REM a build here it meets whatever stale bundle the last build left behind
+REM (the same reason a retired version number lingers on the phone).
+call :step_start 4
+call :step_info "vite build for the phone HTTPS origin"
+echo %C_DIM%  ^|%C_RESET%    %C_CYAN%^>^>%C_RESET%  Building frontend...
+call npm run build:client --silent
+if errorlevel 1 (
+  call :step_fail 4
+  call :fatal "Build failed." "Fix the errors above and retry."
+  exit /b 1
+)
+echo %C_DIM%  ^|%C_RESET%    %ICON_OK%%C_RESET%  Build              done
+call :step_done 4
+call :spine
+
 call :port_check 5173
 call :port_check %BACKEND_PORT%
-call :step_now 4 "Ports  5173 + %BACKEND_PORT% checked"
+call :step_now 5 "Ports  5173 + %BACKEND_PORT% checked"
 
 echo %C_BOLD%%C_CYAN%  READY - DEVELOPMENT%C_RESET%
 echo.

@@ -19,7 +19,7 @@ cd REMOTE-CODE
 .\build.bat
 ```
 
-`build.bat` checks your tools, opens the firewall, creates `.env` with a random access token and push keys, then starts everything. Use `.\build.bat prod` for a production build on a single port.
+`build.bat` checks your tools, opens the firewall, creates `.env` with a random access token and push keys, rebuilds the client for the phone's HTTPS origin, then starts everything. Use `.\build.bat prod` for a production build on a single port.
 
 ### Any OS
 
