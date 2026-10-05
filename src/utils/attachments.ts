@@ -1,3 +1,4 @@
+import type { Strings } from "../i18n"
 import type { ComposerAttachment, ModelInfo } from "../types"
 
 // مرفقات الكومبوزر: صور وملفات نصية وPDF. الحدود هنا بتحمي من تجاوز سقف
@@ -63,6 +64,120 @@ export function attachmentLimitError(existing: ComposerAttachment[], size: numbe
     return "totalTooLarge"
   }
   return null
+}
+
+export type AttachmentRejection = AttachmentLimitError | "unsupported" | "imageDisabled" | "pdfDisabled" | "readFailed"
+
+export interface AttachmentAddResult {
+  attachments: ComposerAttachment[]
+  rejection: AttachmentRejection | null
+}
+
+// إضافة ملفات للمرفقات: تحقق النوع، ثم قدرة النموذج، ثم الحدود، وأخيراً القراءة.
+// أول ملف مرفوض هو اللي بيحدد رسالة الخطأ، والباقي بياخد فرصته عادي.
+export async function addAttachmentFiles(
+  existing: ComposerAttachment[],
+  files: readonly File[],
+  supports: { image: boolean; pdf: boolean },
+): Promise<AttachmentAddResult> {
+  const next = [...existing]
+  let rejection: AttachmentRejection | null = null
+  for (const file of files) {
+    const modality = attachmentModality(file.name, file.type)
+    if (!modality) {
+      rejection ??= "unsupported"
+      continue
+    }
+    if (modality === "image" && !supports.image) {
+      rejection ??= "imageDisabled"
+      continue
+    }
+    if (modality === "pdf" && !supports.pdf) {
+      rejection ??= "pdfDisabled"
+      continue
+    }
+    const limit = attachmentLimitError(next, file.size)
+    if (limit) {
+      rejection ??= limit
+      continue
+    }
+    try {
+      next.push({
+        id: attachmentId(),
+        name: file.name || "file",
+        mime: file.type || "application/octet-stream",
+        size: file.size,
+        uri: await readFileAsDataUrl(file),
+      })
+    } catch {
+      rejection ??= "readFailed"
+    }
+  }
+  return { attachments: next, rejection }
+}
+
+export function attachmentRejectionMessage(rejection: AttachmentRejection, t: Strings): string {
+  switch (rejection) {
+    case "imageDisabled":
+      return t.attachImageDisabled
+    case "pdfDisabled":
+      return t.attachPdfUnsupported
+    case "tooMany":
+      return t.attachmentTooMany
+    case "tooLarge":
+      return t.attachmentTooLarge
+    case "totalTooLarge":
+      return t.attachmentTotalTooLarge
+    case "readFailed":
+      return t.attachmentReadFailed
+    default:
+      return t.attachmentUnsupported
+  }
+}
+
+// استخراج الملفات من حافظة النظام عند اللصق. بعض المتصفحات بتحط الملف في
+// items وبعضها في files، فبنجرّب items الأول ونرجع لـ files عند الفراغ.
+// العناصر النصية (kind !== "file") بتتخطى عشان اللصق النصي العادي ما يتأثرش.
+export function clipboardFiles(clipboard: DataTransfer): File[] {
+  const fromItems: File[] = []
+  for (const item of Array.from(clipboard.items)) {
+    if (item.kind !== "file") {
+      continue
+    }
+    const file = item.getAsFile()
+    if (file) {
+      fromItems.push(file)
+    }
+  }
+  if (fromItems.length > 0) {
+    return fromItems
+  }
+  return Array.from(clipboard.files)
+}
+
+// قراءة الصور من الحافظة عبر Clipboard API غير المتزامن. الأهم إنها تتنادى
+// من جوّه حدث اللصق نفسه، لأن سياق اللصق الموثوق بيدّي إذن القراءة بدون
+// طلب — ودي الطريقة اللي بتشتغل على الموبايل لما فعل اللصق مايوصّلش ملفات.
+export async function readClipboardFiles(): Promise<File[]> {
+  if (typeof navigator === "undefined" || typeof navigator.clipboard?.read !== "function") {
+    return []
+  }
+  try {
+    const items = await navigator.clipboard.read()
+    const files: File[] = []
+    for (const item of items) {
+      const type = item.types.find((candidate) => candidate.startsWith("image/"))
+      if (!type) {
+        continue
+      }
+      const blob = await item.getType(type)
+      files.push(new File([blob], `clipboard.${type.split("/")[1] || "png"}`, { type }))
+    }
+    return files
+  } catch {
+    // رفض إذن أو حافظة فاضية — مفيش حاجة نضيفها
+    return []
+  }
 }
 
 export function formatBytes(size: number): string {

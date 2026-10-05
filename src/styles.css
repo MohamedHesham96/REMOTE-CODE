@@ -1038,8 +1038,8 @@ h2.session-title-editable { cursor: pointer; }
 .composer { width: 100%; display: flex; flex-direction: column; gap: 6px; padding: 6px 8px; border: 1px solid var(--accent-border); border-radius: 1px; background: var(--composer-bg); box-shadow: 0 8px 35px rgba(0,0,0,0.16); }
 .composer:focus-within { border-color: rgba(139,124,255,0.62); box-shadow: 0 0 0 3px rgba(139,124,255,0.1); }
 /* النص سطر كامل لوحده فوق شريط الأزرار. */
-.composer textarea { width: 100%; min-width: 0; min-height: 22px; overflow: hidden; resize: none; border: 0; outline: 0; color: var(--text); background: transparent; line-height: 1.5; font-size: 15px; font-weight: 500; padding: 0; direction: rtl; text-align: right; vertical-align: middle; }
-.composer textarea::placeholder { color: var(--composer-placeholder); }
+.composer .composer-input { width: 100%; min-width: 0; min-height: 22px; overflow: hidden; border: 0; outline: 0; color: var(--text); background: transparent; line-height: 1.5; font-size: 15px; font-weight: 500; padding: 0; direction: rtl; text-align: right; white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
+.composer .composer-input:empty::before { content: attr(data-placeholder); color: var(--composer-placeholder); pointer-events: none; }
 /* شرائط المرفقات المختارة: سطر كامل فوق أزرار الشريط. */
 .attachments-strip { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
 .attachment-chip { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 4px 3px 6px; border: 1px solid var(--accent-border); border-radius: 2px; background: var(--surface-card); }
@@ -1714,7 +1714,7 @@ html[dir="ltr"] .request-row.request-row-running { box-shadow: inset 3px 0 0 0 v
   .composer-wrap { padding-right: 12px; padding-left: 12px; }
   .composer-hint { display: none; }
   .composer { padding: 6px 8px; border-radius: 1px; }
-  .composer textarea { min-height: 30px; line-height: 1.6; font-size: 16px; }
+  .composer .composer-input { min-height: 30px; line-height: 1.6; font-size: 16px; }
   .welcome-state { margin-top: 35px; }
   .welcome-state h2 { font-size: 21px; }
   .login-card { padding: 30px 23px; border-radius: 1px; }
@@ -1747,7 +1747,7 @@ html[dir="ltr"] .sidebar { border-left: 0; border-right: 1px solid var(--border)
 html[dir="ltr"] .drawer { margin-right: 0; margin-left: auto; border-right: 0; border-left: 1px solid var(--border); padding: calc(27px + env(safe-area-inset-top)) 27px 27px; }
 html[dir="ltr"] .drawer-backdrop { justify-content: flex-end; }
 html[dir="ltr"] .new-session, html[dir="ltr"] .session-select, html[dir="ltr"] .pinned-select, html[dir="ltr"] .project-switch, html[dir="ltr"] .project-option, html[dir="ltr"] .model-card, html[dir="ltr"] .question-option, html[dir="ltr"] .suggestions button{ text-align: left; }
-html[dir="ltr"] .composer textarea { direction: ltr; text-align: left; }
+html[dir="ltr"] .composer .composer-input { direction: ltr; text-align: left; }
 html[dir="ltr"] .session-item.active,
 html[dir="ltr"] [data-theme="glass"] .session-item.active { box-shadow: inset 2px 0 0 0 var(--accent-strong), inset 0 0 0 1px var(--session-item-ring); }
 html[dir="ltr"] .copy-result { left: auto; right: 10px; }

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
 import {
   ApiError,
   abortSession,
@@ -42,12 +42,13 @@ import {
   samePath,
   shortModelName,
 } from "./display"
-import { ACTIVE_GRACE_MS, COMPOSER_MAX_LINES, RECENT_PROJECTS_KEY, emptyConfig } from "./constants"
+import { ACTIVE_GRACE_MS, RECENT_PROJECTS_KEY, emptyConfig } from "./constants"
 import { releases } from "./releases-data"
 import { PanelFallback } from "./components/PanelFallback"
 import { PanelErrorBoundary } from "./components/PanelErrorBoundary"
 import { PermissionCard } from "./components/PermissionCard"
 import { ComposerAttachments } from "./components/ComposerAttachments"
+import { ComposerInput } from "./components/ComposerInput"
 import { ProjectPicker } from "./components/projects/ProjectPicker"
 import { Sidebar } from "./components/Sidebar"
 import { TopBar } from "./components/TopBar"
@@ -61,8 +62,7 @@ import { usePinnedConversations } from "./hooks/usePinnedConversations"
 import { useScrollToBottom } from "./hooks/useScrollToBottom"
 import { useSettledStatuses } from "./hooks/useSettledStatuses"
 import { mergeActiveSessions } from "./utils/active-sessions"
-import { modelSupports } from "./utils/attachments"
-import { isTouchComposer } from "./utils/device"
+import { addAttachmentFiles, attachmentRejectionMessage, modelSupports } from "./utils/attachments"
 import { normalizeProjectPath } from "./utils/paths"
 import { forgetLastSession, isRequestsEmpty, loadDefaultModel, loadLastSessions, loadRecentProjects, saveDefaultModel, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
 
@@ -179,7 +179,7 @@ function App() {
   const [statuses, setSettledStatus] = useSettledStatuses(rawStatuses)
   const [permissions, setPermissions] = useState<Permission[]>([])
   const [composer, setComposer] = useState("")
-  const composerRef = useRef<HTMLTextAreaElement>(null)
+  const composerRef = useRef<HTMLDivElement>(null)
   // مرفقات الرسالة الجاية (صور/ملفات). بتتبعت مع أول رسالة وبتتفضّى بعدها.
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   // تصفير الكومبوزر كاملًا (نص + مرفقات) عند تبديل المحادثة/المشروع عشان
@@ -1710,30 +1710,20 @@ function App() {
   // يفضلوا في مكان واحد بدل ما App يوزّعهم
   const gitRequests = useGitRequests(gitChanges, sending, langRef.current, sendPrompt)
 
-  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter يبعت على الديسكتوب بس. على الموبايل سيبه يسلك سطر جديد عادي.
-    // isComposing: لو المستخدم بيكمّل كلمة بلغة تانية (إixes عربي/إنجليزي)
-    // Enter بيسجّل الكلمة مش يبعت الطلب.
-    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !isTouchComposer()) {
-      event.preventDefault()
-      void handleSend()
-    }
-  }
-
-  // البوكس بيكبر مع كل سطر جديد لحد 6 سطور بس، وبعدها بيفتح 스크ول جوه
-  useLayoutEffect(() => {
-    const element = composerRef.current
-    if (!element) {
+  // إضافة الملفات الملصوقة كمرفقات بنفس قواعد الأزرار (نوع/قدرة النموذج/حدود)
+  const handleComposerFiles = (files: File[]) => {
+    if (files.length === 0) {
       return
     }
-    element.style.height = "auto"
-    const styles = window.getComputedStyle(element)
-    const lineHeight = Number.parseFloat(styles.lineHeight) || Number.parseFloat(styles.fontSize) * 1.5 || 22
-    const maxHeight = Math.round(lineHeight * COMPOSER_MAX_LINES)
-    const contentHeight = element.scrollHeight
-    element.style.height = `${Math.min(contentHeight, maxHeight)}px`
-    element.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden"
-  }, [composer])
+    void addAttachmentFiles(attachments, files, { image: supportsImageAttachments, pdf: supportsPdfAttachments }).then(({ attachments: next, rejection }) => {
+      if (next.length !== attachments.length) {
+        setAttachments(next)
+      }
+      if (rejection) {
+        addToast(attachmentRejectionMessage(rejection, t), "error")
+      }
+    })
+  }
 
   const handleAbort = async () => {
     if (!activeId) {
@@ -2178,7 +2168,14 @@ function App() {
 
           <div className="composer-wrap">
             <form className="composer" onSubmit={handleSend}>
-              <textarea ref={composerRef} value={composer} onChange={(event) => setComposer(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder={t.composerPlaceholder} rows={1} />
+              <ComposerInput
+                inputRef={composerRef}
+                value={composer}
+                onChange={setComposer}
+                onSubmit={() => void handleSend()}
+                onFiles={handleComposerFiles}
+                placeholder={t.composerPlaceholder}
+              />
               <div className="composer-toolbar">
                 <ComposerAttachments
                   attachments={attachments}

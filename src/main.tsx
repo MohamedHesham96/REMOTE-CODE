@@ -1,6 +1,7 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import App from "./App"
+import { PasteDiagnostic } from "./components/PasteDiagnostic"
 import { applyTheme, getSavedTheme } from "./theme"
 import { applyLanguage, getSavedLanguage } from "./i18n"
 import "./styles.css"
@@ -32,8 +33,14 @@ if ("serviceWorker" in navigator) {
   })
 }
 
+// /paste-test أو ?pasteTest=1: صفحة تشخيص مؤقتة (بدون تسجيل دخول) للصق الصور.
+const pasteTestParams = new URLSearchParams(window.location.search)
+const isPasteTest = window.location.pathname.replace(/\/+$/, "") === "/paste-test"
+  || pasteTestParams.get("pasteTest") === "1"
+  || window.location.hash === "#paste-test"
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    {isPasteTest ? <PasteDiagnostic /> : <App />}
   </StrictMode>,
 )

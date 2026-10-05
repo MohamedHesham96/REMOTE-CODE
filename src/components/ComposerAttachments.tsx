@@ -3,13 +3,10 @@ import type { Strings } from "../i18n"
 import type { ComposerAttachment } from "../types"
 import {
   IMAGE_ACCEPT,
-  attachmentId,
-  attachmentLimitError,
-  attachmentModality,
+  addAttachmentFiles,
+  attachmentRejectionMessage,
   documentAccept,
   formatBytes,
-  readFileAsDataUrl,
-  type AttachmentLimitError,
 } from "../utils/attachments"
 
 interface ComposerAttachmentsProps {
@@ -23,66 +20,29 @@ interface ComposerAttachmentsProps {
   t: Strings
 }
 
-function limitMessage(limit: AttachmentLimitError, t: Strings): string {
-  if (limit === "tooLarge") {
-    return t.attachmentTooLarge
-  }
-  if (limit === "totalTooLarge") {
-    return t.attachmentTotalTooLarge
-  }
-  return t.attachmentTooMany
-}
-
 // مرفقات الكومبوزر: زرار صورة وزرار ملف + شرائط المرفقات المختارة.
-// القراءة بتحصل هنا (data URL مضمّن) والتحقق قبلها عشان ما نقراش ملف
-// مرفوض أصلاً. القفل حسب قدرات النموذج — الواجهة والسيرفر يتحققوا مع بعض.
+// القراءة والتحقق بتحصلوا في addAttachmentFiles، وهو نفسه اللي بيخدم اللصق
+// من الحافظة عشان القواعد ما تتكررش.
 export function ComposerAttachments({ attachments, supportsImage, supportsPdf, disabled, onChange, onError, t }: ComposerAttachmentsProps) {
   const imageInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleSelection = async (list: FileList | null, kind: "image" | "document"): Promise<void> => {
-    if (!list || list.length === 0) {
+  const addFiles = async (list: readonly File[]): Promise<void> => {
+    if (list.length === 0) {
       return
     }
-    const next = [...attachments]
-    const rejected: string[] = []
-    for (const file of Array.from(list)) {
-      const modality = attachmentModality(file.name, file.type)
-      if (!modality || (kind === "image" && modality !== "image")) {
-        rejected.push(t.attachmentUnsupported)
-        continue
-      }
-      if (modality === "image" && !supportsImage) {
-        rejected.push(t.attachImageDisabled)
-        continue
-      }
-      if (modality === "pdf" && !supportsPdf) {
-        rejected.push(t.attachPdfUnsupported)
-        continue
-      }
-      const limit = attachmentLimitError(next, file.size)
-      if (limit) {
-        rejected.push(limitMessage(limit, t))
-        continue
-      }
-      try {
-        const uri = await readFileAsDataUrl(file)
-        next.push({
-          id: attachmentId(),
-          name: file.name || "file",
-          mime: file.type || "application/octet-stream",
-          size: file.size,
-          uri,
-        })
-      } catch {
-        rejected.push(t.attachmentReadFailed)
-      }
-    }
+    const { attachments: next, rejection } = await addAttachmentFiles(attachments, list, { image: supportsImage, pdf: supportsPdf })
     if (next.length !== attachments.length) {
       onChange(next)
     }
-    if (rejected.length > 0) {
-      onError(rejected[0])
+    if (rejection) {
+      onError(attachmentRejectionMessage(rejection, t))
+    }
+  }
+
+  const handleSelection = async (list: FileList | null): Promise<void> => {
+    if (list) {
+      await addFiles(Array.from(list))
     }
   }
 
@@ -127,7 +87,7 @@ export function ComposerAttachments({ attachments, supportsImage, supportsPdf, d
         accept={IMAGE_ACCEPT}
         multiple
         onChange={(event) => {
-          void handleSelection(event.target.files, "image")
+          void handleSelection(event.target.files)
           reset(imageInputRef)
         }}
       />
@@ -138,7 +98,7 @@ export function ComposerAttachments({ attachments, supportsImage, supportsPdf, d
         accept={documentAccept(supportsPdf)}
         multiple
         onChange={(event) => {
-          void handleSelection(event.target.files, "document")
+          void handleSelection(event.target.files)
           reset(fileInputRef)
         }}
       />
