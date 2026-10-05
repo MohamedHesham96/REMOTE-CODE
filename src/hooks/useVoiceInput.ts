@@ -11,7 +11,6 @@ interface SpeechRecognitionInstanceLike {
   interimResults: boolean
   maxAlternatives: number
   onresult: ((event: SpeechRecognitionResultEventLike) => void) | null
-  onspeechstart: (() => void) | null
   onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null
   onend: (() => void) | null
   start: () => void
@@ -116,22 +115,22 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
   const failedRef = useRef(false)
   // مؤقت إعادة التشغيل في وضع القفل.
   const restartTimerRef = useRef<number | null>(null)
+  // إعادة تشغيل مقصودة (تبديل القفل أو إعادة بناء الجلسة): عشان onend بتاع
+  // الجلسة القديمة ما يبدأش إعادة تانية فوق إعادة toggleLock.
+  const intentionalRestartRef = useRef(false)
   // بناء جلسة جديدة من جوه onend من غير مرجعية ذاتية على start.
   const beginRef = useRef<() => void>(() => {})
 
-  // النص المُفرّغ النهائي المتراكم عبر كل الجلسات. كل onresult بيعيد حسابه
-  // *من الأول* من مصفوفة النتائج الكاملة، فمفيش أي إضافة تراكمية بتعمل
-  // تكرار (ده اللي كان بيكرّر "كيف كيف كيف" مع المبدئي اللي بيتراجع).
-  const finalizedRef = useRef("")
-  // النص النهائي اللي كان موجود *قبل* ما المتحدث يبدأ الجملة الحالية. عشان
-  // Web Speech بيمسح نتائج الجملة الجارية ويبدأها من جديد مع كل تنفّس، بنرجّع
-  // الأساس ده في كل مرة نتائج الجملة الجارية تتصفّر — فما فيش فقد للكلام.
+  // النص النهائي المتفَق عليه من الجلسات اللي فاتت + نص الحقل الأصلي. ده اللي
+  // بنبني عليه الجلسة الجارية، وبيتحدّث **مرة واحدة** عند إعادة التشغيل في
+  // اللوك أو تبديل القفل. المجموع المعروض = baseRef + نص الجلسة الحالي.
   const baseRef = useRef("")
   // آخر نص كامل بعتناه للحقل — بنقارن بيه عشان ما نبعتش نفس النص مرتين.
   const lastSentRef = useRef("")
-  // الجلسة الحالية بتبني نصها من results، فهي محتاجة تشوف الأساس اللي كان
-  // *قبل* ما تتكتب، وده بيتثبّت في onspeechstart.
-  const pendingRef = useRef("")
+  // آخر نص نهائي اتعرّف عليه في الجلسة. بنستخدمه للحالتين: نرصد لو المتصفح بدأ
+  // مصفوفة نتائج جديدة (فبنضم القديم للأساس مرة واحدة)، وعند إعادة التشغيل في
+  // اللوك بنضمه للأساس. بيبدأ فاضي مع كل جلسة.
+  const lastFinalRef = useRef("")
   // أحدث قيمة للـ callbacks واللغة والأساس.
   const optionsRef = useRef({ language, baseText, onText, onError })
   useEffect(() => {
@@ -157,54 +156,47 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     failedRef.current = false
     const recognition = new Ctor()
     recognition.lang = optionsRef.current.language ?? deviceLanguage() ?? "en-US"
-    // continuous=false: المتصفح بيقفل التعرف لوحده بمجرد ما يحسّ بالصمت،
-    // فالمستخدم بيخلّص جملته ومش محتاج يضغط إيقاف. وضع القفل بيعيد تشغيل
-    // الجلسة كل ما تقفل عشان يفضل سامع.
-    recognition.continuous = false
+    // القفل بيحدّد نمط الجلسة: مقفول = continuous عشان المتصفح يفضل سامع في
+    // جلسة واحدة من غير إعادة تشغيل (الإعادة هي اللي كانت بتلخبط الكلام وتمزجه).
+    // مفتوح = continuous=false عشان المتصفح يقفل لوحده عند الصمت زي الأصل.
+    recognition.continuous = lockedRef.current
     recognition.interimResults = true
     recognition.maxAlternatives = 1
 
-    // الجلسة الجارية بتبدأ من الأساس اللي كان متسجّل وقت بداية الكلام.
-    pendingRef.current = baseRef.current
+    // نص الجلسة (المحلي) يبدأ من الصفر؛ التراكم بيتخزّن في baseRef عند الإعادة
+    // بس (إعادة تشغيل في اللوك أو تبديل القفل).
+    lastFinalRef.current = ""
 
-    // أول ما المتحدث يبدأ الجملة الجارية، الجلسة بتسجّل النص اللي قبلها. لو
-    // شغّلنا وسكتنا (مفيش كلام)، الأساس يفضل زي ما هو.
-    recognition.onspeechstart = () => {
-      pendingRef.current = baseRef.current
-    }
-
-    // النص بيتحسب من مصفوفة النتائج الكاملة في كل حدث:
-    //   sessionText = نهائي الجلسة + مبدئي الجلسة
-    // وبنقارن مع اللي اتسجّل في الحدث اللي قبله. لو المبدئي اتقلّص (المحرك
-    // بيرجع في كلمة وكان بيجرّبها)، بنعرف إن الجملة الجارية بدأت من جديد؛
-    // بنحفظ النص اللي قبلها في baseRef عشان ما يضيعش. الحفظ مش بيتكرر لأن
-    // بنطلب إن الجملة دي تكون أصغر فعلاً من اللي قبلها.
-    let lastSessionText = ""
+    // نص الجلسة بيتحسب من مصفوفة النتائج الكاملة **من الأول في كل حدث**. ده
+    // المصدر الوحيد للحقيقة: في continuous mode الـ results شايلة كل النتائج
+    // النهائية من أول الجلسة، فمفيش داعي نجمع بأنفسنا (اللي كان بيكرّر) ولا
+    // نرصد تقلّص المبدئي (اللي كان بيلخبط الأساس في اللوك). المجموع المعروض =
+    // الأساس المتفَق عليه + نص الجلسة الحالي.
     recognition.onresult = (event) => {
       let finalText = ""
       let interimText = ""
       for (let i = 0; i < event.results.length; i++) {
         const result = event.results[i]
-        // أي نتيجة واحدة مش نهائية معناها إن الجملة لسه مفتوحة. لو لقيناها،
-        // كل اللي بعدها بيتعامل كمبدئي.
-        if (i >= event.resultIndex && !result.isFinal) {
-          interimText += result[0].transcript
-        } else {
+        // التصنيف على أساس isFinal لكل نتيجة لوحدها. من غير أي اعتماد على
+        // resultIndex: في continuous mode النتيجة اللي كانت نهائية ممكن
+        // المحرّك يرجّعها مبدئية تاني وهو بيصحّح، فتعاملها كنهائية كان بيخلط
+        // الكلام ("howhowhowhow are"). isFinal هو المصدر الوحيد للحقيقة.
+        if (result.isFinal) {
           finalText += result[0].transcript
+        } else {
+          interimText += result[0].transcript
         }
       }
       finalText = finalText.trim()
-      const sessionText = `${finalText}${interimText}`.trim()
-      // الجملة الجارية بدأت من جديد (المبدئي اتقلّص) → اللي قبلها يتحفظ.
-      if (sessionText.length < lastSessionText.length) {
-        baseRef.current = pendingRef.current
+      // لو نص الحدث الحالي مش بيكمل نص الحدث اللي قبله (المتصفح بدأ مصفوفة
+      // نتائج جديدة لجملة جديدة)، نضم النص القديم للأساس مرة واحدة عشان ما
+      // يضيعش. لو بيكمله (نفس الجلسة بتكبر) مش محتاجين أي حاجة.
+      const previousFinal = lastFinalRef.current
+      if (previousFinal && !finalText.startsWith(previousFinal)) {
+        baseRef.current = joinChunks(baseRef.current, previousFinal)
       }
-      lastSessionText = sessionText
-      // نهائي الجلسة = نهائي اللي قبلها + نهائي الجلسة دي، بفاصل مسافة عشان
-      // الجمل اللي بعد السكوت ما تلزقش في بعض ("إزيك" مش "عليكمإزيك").
-      finalizedRef.current = joinChunks(finalizedRef.current, finalText)
-      // النص المعروض = الأساس + النهائي المتراكم + المبدئي اللحظي، بينهم مسافات.
-      const next = joinChunks(compose(baseRef.current, finalizedRef.current), interimText.trim())
+      lastFinalRef.current = finalText
+      const next = joinChunks(compose(baseRef.current, finalText), interimText.trim())
       if (next && next !== lastSentRef.current) {
         lastSentRef.current = next
         optionsRef.current.onText(next)
@@ -228,11 +220,18 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     recognition.onend = () => {
       // الجلسة خلصت (إيقاف يدوي أو صمت من المتصفح): امسح الجلسة الحالية.
       recognitionRef.current = null
+      // إعادة تشغيل مقصودة (تبديل القفل) بتتولّى هي البناء، فما نعملش إعادة
+      // تانية من هنا عشان ما يحصلش تشغيل مزدوج يلخبط الكلام.
+      if (intentionalRestartRef.current) {
+        intentionalRestartRef.current = false
+        return
+      }
       if (lockedRef.current && !failedRef.current) {
         // وضع القفل: المتصفح قفل الجلسة عند الصمت رغم إننا لسه مقفولين،
-        // فبنبدأ جلسة جديدة عشان المايك يفضل سامع. النص النهائي محفوظ في
-        // finalizedRef والأساس في baseRef، فالإعادة بتكمّل من غير تكرار.
-        baseRef.current = finalizedRef.current
+        // فبنبدأ جلسة جديدة عشان المايك يفضل سامع. بنضم نهائي الجلسة الحالية
+        // للأساس **مرة واحدة** عشان الجلسة الجديدة تكمّل من غير ما تكرّر
+        // الكلام اللي اتقال (lastFinalRef هيتصفّر في beginSession).
+        baseRef.current = joinChunks(baseRef.current, lastFinalRef.current)
         clearRestartTimer()
         restartTimerRef.current = window.setTimeout(() => {
           restartTimerRef.current = null
@@ -270,7 +269,6 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     // بداية استماع جديدة من ضغطة المستخدم: الأساس يتثبّت على اللي في الحقل
     // دلوقتي، والتراكم يبدأ من الصفر.
     baseRef.current = optionsRef.current.baseText
-    finalizedRef.current = ""
     lastSentRef.current = baseRef.current
     beginSession()
   }, [beginSession])
@@ -283,8 +281,9 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     recognitionRef.current?.stop()
   }, [clearRestartTimer])
 
-  // قفل/إلغاء قفل الاستماع. القفل بيخلي الجلسة تفضل سامعة: المتصفح بيقفلها
-  // عند الصمت وبنرجّع نفتحها تاني عشان ما يقفلش من نفسه.
+  // قفل/إلغاء قفل الاستماع. القفل بيغيّر نمط الجلسة (continuous أو لأ)، فلازم
+  // نعيد بناء الجلسة عشان تاخد النمط الجديد. بنضم نهائي الجلسة الحالية للأساس
+  // مرة واحدة قبل الإعادة عشان الكلام ما يضيعش ولا يتكرر.
   const toggleLock = useCallback(() => {
     if (!recognitionRef.current) {
       return
@@ -292,7 +291,18 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     const next = !lockedRef.current
     lockedRef.current = next
     setLocked(next)
-  }, [])
+    // ادفع النص النهائي الحالي للأساس وابدأ جلسة جديدة بالنمط الجديد. علم
+    // الإعادة المقصودة بيمنع onend بتاع الجلسة القديمة من إعادة تانية.
+    baseRef.current = joinChunks(baseRef.current, lastFinalRef.current)
+    intentionalRestartRef.current = true
+    clearRestartTimer()
+    recognitionRef.current?.abort()
+    recognitionRef.current = null
+    restartTimerRef.current = window.setTimeout(() => {
+      restartTimerRef.current = null
+      beginRef.current()
+    }, LOCK_RESTART_DELAY_MS)
+  }, [clearRestartTimer])
 
   // ميكروفون مفتوح وهو مفيش مكوّن يستقبل الكلام = تسريب؛ اقفل الجلسة مع unmount
   useEffect(() => () => {

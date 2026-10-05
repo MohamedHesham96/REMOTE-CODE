@@ -57,7 +57,7 @@ export function VoiceButton({ t, voiceLanguage, composer, onComposerChange, onEr
         aria-label={supported ? statusLabel : t.voiceUnsupported}
         title={supported ? statusLabel : t.voiceUnsupported}
       >
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" />
           <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
           <line x1="12" y1="19" x2="12" y2="22" />
@@ -73,10 +73,27 @@ export function VoiceButton({ t, voiceLanguage, composer, onComposerChange, onEr
             aria-label={lockLabel}
             title={lockLabel}
           >
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="4.5" y="10.5" width="15" height="9.5" rx="2.2" />
-              <path d="M8 10.5V7.4a4 4 0 0 1 7.6-1.7" />
+            {/* الأيقونة بتبدّل مع الحالة. القفل المقفول: شريطة على شكل ∩ قاعدة
+                أرجلها الاتنين على حافة الجسم (مقفول). القفل المفتوح: الشريطة
+                مرفوعة لفوق وقاعدة رجلها اليمنى مش واصلة للحافة (فتحة واضحة). */}
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              {locked ? (
+                <>
+                  <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+                  <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" />
+                  <line x1="12" y1="14.5" x2="12" y2="16.5" />
+                </>
+              ) : (
+                <>
+                  <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+                  <path d="M8 10.5V6.5a4 4 0 0 1 7.4-2.1" />
+                  <line x1="12" y1="14.5" x2="12" y2="16.5" />
+                </>
+              )}
             </svg>
+            {/* وسم beta: الميزة لسه تجريبية، فبنكتب الكلمة على الزر نفسه عشان
+                المستخدم ياخد باله إنها مش مكتملة الاستقرار بعد. */}
+            <span className="voice-lock-beta" aria-hidden>beta</span>
           </button>
         ) : null}
         {/* زر اللغة: بيلفّ الإعداد تلقائي → عربي → إنجليزي، والحرف ظاهر عليه
