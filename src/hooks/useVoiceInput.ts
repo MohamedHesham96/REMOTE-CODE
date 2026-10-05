@@ -53,6 +53,11 @@ function deviceLanguage(): string | undefined {
 // يمنع حلقة محمومة لو المتصفح بيرجّع end فورًا بعد كل start.
 const LOCK_RESTART_DELAY_MS = 250
 
+// مهلة الصمت قبل إغلاق الاستماع في الوضع غير المقفول: بعد آخر كلام بنستنى
+// الفترة دي عشان المستخدم يكمّل جملته أو ياخد نفسه، وبعدها نقفل. ده اللي
+// بيمنع المايك إنه يقفل بسرعة عند أول وقفة قصيرة في وسط الكلام.
+const SILENCE_TIMEOUT_MS = 2500
+
 // الفاصل اللي بيفصل الأساس (اللي كان في الحقل) عن الكلام المُفرّغ.
 const JOINT = " "
 
@@ -115,9 +120,9 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
   const failedRef = useRef(false)
   // مؤقت إعادة التشغيل في وضع القفل.
   const restartTimerRef = useRef<number | null>(null)
-  // إعادة تشغيل مقصودة (تبديل القفل أو إعادة بناء الجلسة): عشان onend بتاع
-  // الجلسة القديمة ما يبدأش إعادة تانية فوق إعادة toggleLock.
-  const intentionalRestartRef = useRef(false)
+  // مؤقت الصمت في الوضع غير المقفول: بيتصفّر مع كل نتيجة، ولما السكون يكمل
+  // مهلة الصمت بنقفل الجلسة. في وضع القفل بيتم تجاهله خالص.
+  const silenceTimerRef = useRef<number | null>(null)
   // بناء جلسة جديدة من جوه onend من غير مرجعية ذاتية على start.
   const beginRef = useRef<() => void>(() => {})
 
@@ -144,6 +149,13 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     }
   }, [])
 
+  const clearSilenceTimer = useCallback(() => {
+    if (silenceTimerRef.current !== null) {
+      window.clearTimeout(silenceTimerRef.current)
+      silenceTimerRef.current = null
+    }
+  }, [])
+
   // بناء الجلسة الفعلية. بتتنادى من start (تصفير التراكم) ومن onend في وضع
   // القفل (الحفاظ على التراكم) عشان المايك يفضل سامع.
   const beginSession = useCallback(() => {
@@ -156,10 +168,11 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     failedRef.current = false
     const recognition = new Ctor()
     recognition.lang = optionsRef.current.language ?? deviceLanguage() ?? "en-US"
-    // القفل بيحدّد نمط الجلسة: مقفول = continuous عشان المتصفح يفضل سامع في
-    // جلسة واحدة من غير إعادة تشغيل (الإعادة هي اللي كانت بتلخبط الكلام وتمزجه).
-    // مفتوح = continuous=false عشان المتصفح يقفل لوحده عند الصمت زي الأصل.
-    recognition.continuous = lockedRef.current
+    // continuous=true دايمًا عشان المتصفح ما يقفلش عند أول وقفة قصيرة في وسط
+    // الكلام — كده المستخدم يقدر يكمّل جملته براحته. الإغلاق في الوضع غير
+    // المقفول بيتم بمؤقت الصمت (بعد آخر كلمة بمهلة)، وفي وضع القفل بيتم
+    // تجاهل المؤقت فالجلسة تفضل سامعة لحد ما المستخدم يقفلها بنفسه.
+    recognition.continuous = true
     recognition.interimResults = true
     recognition.maxAlternatives = 1
 
@@ -201,6 +214,17 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
         lastSentRef.current = next
         optionsRef.current.onText(next)
       }
+      // أي كلام جديد (نهائي أو مبدئي) بيصفّر مهلة الصمت: بنستنى سكون كامل
+      // المهلة قبل الإغلاق. في وضع القفل مفيش إغلاق أصلاً.
+      clearSilenceTimer()
+      if (!lockedRef.current) {
+        silenceTimerRef.current = window.setTimeout(() => {
+          silenceTimerRef.current = null
+          if (!lockedRef.current) {
+            recognition.stop()
+          }
+        }, SILENCE_TIMEOUT_MS)
+      }
     }
     recognition.onerror = (event) => {
       // no-speech حالة طبيعية (المستخدم سكت) مش خطأ، وaborted بسبب إيقاف
@@ -220,12 +244,7 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     recognition.onend = () => {
       // الجلسة خلصت (إيقاف يدوي أو صمت من المتصفح): امسح الجلسة الحالية.
       recognitionRef.current = null
-      // إعادة تشغيل مقصودة (تبديل القفل) بتتولّى هي البناء، فما نعملش إعادة
-      // تانية من هنا عشان ما يحصلش تشغيل مزدوج يلخبط الكلام.
-      if (intentionalRestartRef.current) {
-        intentionalRestartRef.current = false
-        return
-      }
+      clearSilenceTimer()
       if (lockedRef.current && !failedRef.current) {
         // وضع القفل: المتصفح قفل الجلسة عند الصمت رغم إننا لسه مقفولين،
         // فبنبدأ جلسة جديدة عشان المايك يفضل سامع. بنضم نهائي الجلسة الحالية
@@ -248,6 +267,17 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     try {
       recognition.start()
       setListening(true)
+      // حتى لو المستخدم ما اتكلمش خالص، منسيبش المايك مفتوح للأبد في الوضع
+      // غير المقفول: مهلة الصمت بتقفل الجلسة لو مفيش أي كلام.
+      if (!lockedRef.current) {
+        clearSilenceTimer()
+        silenceTimerRef.current = window.setTimeout(() => {
+          silenceTimerRef.current = null
+          if (!lockedRef.current) {
+            recognition.stop()
+          }
+        }, SILENCE_TIMEOUT_MS)
+      }
     } catch {
       // start() بيقدر يرمي لو الجلسة السابقة لسه مـ finalizing
       recognitionRef.current = null
@@ -256,7 +286,7 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
       setListening(false)
       optionsRef.current.onError("failed")
     }
-  }, [clearRestartTimer])
+  }, [clearRestartTimer, clearSilenceTimer])
 
   useEffect(() => {
     beginRef.current = beginSession
@@ -278,12 +308,13 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     lockedRef.current = false
     setLocked(false)
     clearRestartTimer()
+    clearSilenceTimer()
     recognitionRef.current?.stop()
-  }, [clearRestartTimer])
+  }, [clearRestartTimer, clearSilenceTimer])
 
-  // قفل/إلغاء قفل الاستماع. القفل بيغيّر نمط الجلسة (continuous أو لأ)، فلازم
-  // نعيد بناء الجلسة عشان تاخد النمط الجديد. بنضم نهائي الجلسة الحالية للأساس
-  // مرة واحدة قبل الإعادة عشان الكلام ما يضيعش ولا يتكرر.
+  // قفل/إلغاء قفل الاستماع. القفل بيلغي مهلة الصمت (الجلسة تفضل سامعة لحد ما
+  // يقفلها المستخدم). بندفع النص النهائي الحالي للأساس مرة واحدة، ومش محتاجين
+  // نعيد بناء الجلسة لأن continuous=true في الحالتين.
   const toggleLock = useCallback(() => {
     if (!recognitionRef.current) {
       return
@@ -291,24 +322,27 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     const next = !lockedRef.current
     lockedRef.current = next
     setLocked(next)
-    // ادفع النص النهائي الحالي للأساس وابدأ جلسة جديدة بالنمط الجديد. علم
-    // الإعادة المقصودة بيمنع onend بتاع الجلسة القديمة من إعادة تانية.
-    baseRef.current = joinChunks(baseRef.current, lastFinalRef.current)
-    intentionalRestartRef.current = true
-    clearRestartTimer()
-    recognitionRef.current?.abort()
-    recognitionRef.current = null
-    restartTimerRef.current = window.setTimeout(() => {
-      restartTimerRef.current = null
-      beginRef.current()
-    }, LOCK_RESTART_DELAY_MS)
-  }, [clearRestartTimer])
+    // قفل/فك القفل بيغيّر تشغيل مؤقت الصمت بس: مقفول = وقّف المؤقت، مفتوح =
+    // شغّله من جديد عشان الجلسة تقفل لوحدها لو المستخدم سكت.
+    if (next) {
+      clearSilenceTimer()
+    } else {
+      clearSilenceTimer()
+      silenceTimerRef.current = window.setTimeout(() => {
+        silenceTimerRef.current = null
+        if (!lockedRef.current) {
+          recognitionRef.current?.stop()
+        }
+      }, SILENCE_TIMEOUT_MS)
+    }
+  }, [clearSilenceTimer])
 
   // ميكروفون مفتوح وهو مفيش مكوّن يستقبل الكلام = تسريب؛ اقفل الجلسة مع unmount
   useEffect(() => () => {
     clearRestartTimer()
+    clearSilenceTimer()
     recognitionRef.current?.abort()
-  }, [clearRestartTimer])
+  }, [clearRestartTimer, clearSilenceTimer])
 
   return { supported, listening, locked, start, stop, toggleLock }
 }
