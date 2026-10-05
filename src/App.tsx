@@ -48,6 +48,7 @@ import { PanelFallback } from "./components/PanelFallback"
 import { PanelErrorBoundary } from "./components/PanelErrorBoundary"
 import { PermissionCard } from "./components/PermissionCard"
 import { ComposerAttachments } from "./components/ComposerAttachments"
+import { ComposerClipboardButton } from "./components/ComposerClipboardButton"
 import { ComposerInput } from "./components/ComposerInput"
 import { ProjectPicker } from "./components/projects/ProjectPicker"
 import { Sidebar } from "./components/Sidebar"
@@ -1725,6 +1726,16 @@ function App() {
     })
   }
 
+  // إدراج نص ملصوق من الحافظة في آخر المسودة مع مسافة فاصلة عند الحاجة
+  const handleComposerText = (text: string) => {
+    setComposer((current) => {
+      if (!current) {
+        return text
+      }
+      return /\s$/.test(current) ? current + text : `${current} ${text}`
+    })
+  }
+
   const handleAbort = async () => {
     if (!activeId) {
       return
@@ -2183,6 +2194,13 @@ function App() {
                   supportsPdf={supportsPdfAttachments}
                   disabled={sending}
                   onChange={setAttachments}
+                  onError={(message) => addToast(message, "error")}
+                  t={t}
+                />
+                <ComposerClipboardButton
+                  disabled={sending}
+                  onFiles={handleComposerFiles}
+                  onText={handleComposerText}
                   onError={(message) => addToast(message, "error")}
                   t={t}
                 />

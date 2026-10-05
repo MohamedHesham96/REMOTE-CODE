@@ -155,29 +155,60 @@ export function clipboardFiles(clipboard: DataTransfer): File[] {
   return Array.from(clipboard.files)
 }
 
-// قراءة الصور من الحافظة عبر Clipboard API غير المتزامن. الأهم إنها تتنادى
-// من جوّه حدث اللصق نفسه، لأن سياق اللصق الموثوق بيدّي إذن القراءة بدون
-// طلب — ودي الطريقة اللي بتشتغل على الموبايل لما فعل اللصق مايوصّلش ملفات.
-export async function readClipboardFiles(): Promise<File[]> {
-  if (typeof navigator === "undefined" || typeof navigator.clipboard?.read !== "function") {
-    return []
+// محتوى الحافظة اللي بيهم الكومبوزر: صور + نص.
+export interface ClipboardContents {
+  files: File[]
+  text: string
+}
+
+// أسطر فاضية في أول/آخر النص المنسوخ (بتيجي كتير مع النسخ من محررات) بتخلي
+// اللصق يبان وكأنه بيضيف سطر جديد قبل النص — فبنشيلها ونسيب الأسطر الداخلية.
+function stripEdgeNewlines(text: string): string {
+  return text.replace(/^(?:\r?\n)+/, "").replace(/(?:\r?\n)+$/, "")
+}
+
+// قراءة الحافظة عبر Clipboard API غير المتزامن. بنقرا الصور والنص مع بعض
+// لأن زرار اللصق لازم يشتغل للحالتين. لو `read` مش متاح أو اترفض، بنرجع
+// لـ `readText` للنص على الأقل.
+export async function readClipboard(): Promise<ClipboardContents> {
+  const contents: ClipboardContents = { files: [], text: "" }
+  const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard
+  if (!clipboard) {
+    return contents
   }
-  try {
-    const items = await navigator.clipboard.read()
-    const files: File[] = []
-    for (const item of items) {
-      const type = item.types.find((candidate) => candidate.startsWith("image/"))
-      if (!type) {
-        continue
+  if (typeof clipboard.read === "function") {
+    try {
+      const items = await clipboard.read()
+      for (const item of items) {
+        const imageType = item.types.find((type) => type.startsWith("image/"))
+        if (imageType) {
+          const blob = await item.getType(imageType)
+          contents.files.push(new File([blob], `clipboard.${imageType.split("/")[1] || "png"}`, { type: imageType }))
+          continue
+        }
+        if (!contents.text && item.types.includes("text/plain")) {
+          const blob = await item.getType("text/plain")
+          contents.text = stripEdgeNewlines(await blob.text())
+        }
       }
-      const blob = await item.getType(type)
-      files.push(new File([blob], `clipboard.${type.split("/")[1] || "png"}`, { type }))
+    } catch {
+      // إذن مرفوض أو حافظة فاضية — هنجرّب readText تحت
     }
-    return files
-  } catch {
-    // رفض إذن أو حافظة فاضية — مفيش حاجة نضيفها
-    return []
   }
+  if (!contents.text && typeof clipboard.readText === "function") {
+    try {
+      contents.text = stripEdgeNewlines(await clipboard.readText())
+    } catch {
+      // تجاهل — مفيش نص متاح
+    }
+  }
+  return contents
+}
+
+// قراءة الصور بس. الأهم إنها تتنادى من جوّه حدث اللصق نفسه، لأن سياق اللصق
+// الموثوق بيدّي إذن القراءة بدون طلب.
+export async function readClipboardFiles(): Promise<File[]> {
+  return (await readClipboard()).files
 }
 
 export function formatBytes(size: number): string {

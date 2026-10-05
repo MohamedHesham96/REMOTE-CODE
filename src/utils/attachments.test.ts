@@ -12,6 +12,7 @@ import {
   documentAccept,
   formatBytes,
   modelSupports,
+  readClipboard,
   readClipboardFiles,
 } from "./attachments"
 
@@ -182,6 +183,47 @@ describe("readClipboardFiles", () => {
       },
     })
     expect(await readClipboardFiles()).toEqual([])
+  })
+})
+
+describe("readClipboard", () => {
+  it("يقرا الصور والنص مع بعض", async () => {
+    const image = new Blob(["x"], { type: "image/png" })
+    vi.stubGlobal("navigator", {
+      clipboard: {
+        read: async () => [
+          { types: ["text/plain", "image/png"], getType: async () => image },
+          { types: ["text/plain"], getType: async () => new Blob(["hello"], { type: "text/plain" }) },
+        ],
+        readText: async () => "fallback",
+      },
+    })
+    const result = await readClipboard()
+    expect(result.files).toHaveLength(1)
+    expect(result.files[0]?.type).toBe("image/png")
+    expect(result.text).toBe("hello")
+  })
+
+  it("يرجع للنص عبر readText لو read مش متاح", async () => {
+    vi.stubGlobal("navigator", {
+      clipboard: { readText: async () => "نص" },
+    })
+    const result = await readClipboard()
+    expect(result.files).toEqual([])
+    expect(result.text).toBe("نص")
+  })
+
+  it("يشيل الأسطر الفاضية من أول وآخر النص", async () => {
+    vi.stubGlobal("navigator", {
+      clipboard: { readText: async () => "\n\nمرحبا\n\n" },
+    })
+    const result = await readClipboard()
+    expect(result.text).toBe("مرحبا")
+  })
+
+  it("يرجّع فاضي لما Clipboard API مش متاح", async () => {
+    vi.stubGlobal("navigator", {})
+    expect(await readClipboard()).toEqual({ files: [], text: "" })
   })
 })
 
