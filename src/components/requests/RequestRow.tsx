@@ -6,7 +6,9 @@ import { ResultFilesList } from "./ResultFilesList"
 import { RequestAttachmentsList } from "./RequestAttachmentsList"
 import { TaskStatusPanel } from "./TaskStatusPanel"
 import { CopyButton } from "../CopyButton"
+import { MarkdownText } from "../MarkdownText"
 import { describeRequest } from "../../utils/task-status"
+import { parseMarkdownBlocks } from "../../utils/markdown-table"
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react"
 import { tailPreview } from "../../utils/preview"
 
@@ -43,10 +45,15 @@ const COLLAPSED_CHAR_BUDGET = 400
 // `fromEnd` بيقلب المطوي: بدل ما يعرض أول النص، بيعرض آخره. مستخدم في
 // "النتيجة النهائية" عشان الخلاصة تبان من غير "عرض كامل".
 //
+// `rich`: يشغّل عرض جداول ماركداون كجداول حقيقية (النتيجة النهائية والنص
+// المباشر). بنعرضها "غنية" في الحالة الكاملة بس؛ وهي مطويّة بنرجع للنص الخام
+// لأن القصّ البصري line-clamp على حاوية -webkit-box ما بيقصش صفوف جدول، ولأن
+// tailPreview بيشتغل على النص الخام أصلًا.
+//
 // memo: بيتنادى ٣ مرات في كل صف (prompt, liveResult, finalResult). مع
 // `useNowTick` اللي بيوقظ الكارت كل ثانية، من غير memo كان بيتعاد حساب
 // `text.split("\n")` و`tailPreview` في كل مرة حتى لو النص ما اتغيّرش.
-const ExpandableText = memo(function ExpandableText({ text, maxLines = 6, className = "", trailing = null, fromEnd = false, t }: { text: string; maxLines?: number; className?: string; trailing?: ReactNode; fromEnd?: boolean; t: Strings }) {
+const ExpandableText = memo(function ExpandableText({ text, maxLines = 6, className = "", trailing = null, fromEnd = false, rich = false, t }: { text: string; maxLines?: number; className?: string; trailing?: ReactNode; fromEnd?: boolean; rich?: boolean; t: Strings }) {
   const [isExpanded, setIsExpanded] = useState(false)
   // الكسر (split/طول/سقف) بيتحسب مرة واحدة على أول رندر، وبعدها النصوص
   // المطوية بتتجمد طالما `text` نفسه ما اتغيّرش — ده اللي بيخلّي memo يشتغل.
@@ -54,6 +61,12 @@ const ExpandableText = memo(function ExpandableText({ text, maxLines = 6, classN
     const lines = text.split("\n")
     const shouldTruncate = lines.length > maxLines || text.length > COLLAPSED_CHAR_BUDGET
     if (!shouldTruncate) {
+      return null
+    }
+    // الرد اللي فيه جدول ماركداون ما بنقصّوش نصيًا: القصّ بيسيب صفوف الجدول
+    // خام ("| a | b |") وده بالظبط اللي عايزين نمنعه. صندوق النتيجة بيسكول
+    // لوحده (max-height) في الحالتين، فالجدول بيبان مرتّب من غير "عرض كامل".
+    if (rich && parseMarkdownBlocks(text).some((block) => block.kind === "table")) {
       return null
     }
     return {
@@ -65,11 +78,11 @@ const ExpandableText = memo(function ExpandableText({ text, maxLines = 6, classN
         ? "…" + tailPreview(text, maxLines, COLLAPSED_CHAR_BUDGET)
         : lines.slice(0, maxLines).join("\n") + "…",
     }
-  }, [text, maxLines, fromEnd])
+  }, [text, maxLines, fromEnd, rich])
   const toggle = useCallback(() => setIsExpanded((current) => !current), [])
 
   if (collapse === null) {
-    return <span className={className}>{text}{trailing}</span>
+    return <span className={className}>{rich ? <MarkdownText text={text} /> : text}{trailing}</span>
   }
 
   const displayText = isExpanded ? text : collapse.collapsed
@@ -80,7 +93,7 @@ const ExpandableText = memo(function ExpandableText({ text, maxLines = 6, classN
         className={!isExpanded && collapse.clamp ? "expandable-body is-collapsed" : "expandable-body"}
         style={!isExpanded && collapse.clamp ? { WebkitLineClamp: maxLines, lineClamp: maxLines } : undefined}
       >
-        {displayText}
+        {isExpanded && rich ? <MarkdownText text={text} /> : displayText}
         {trailing}
       </span>
       <button
@@ -186,8 +199,8 @@ function RequestRowInner({ request, expanded, onToggle, sessionId, onCopy, onToa
           {/* زرار النسخ في ترويسة الكارت: على الموبايل القاعدة بتخلّي .copy-result
               ثابتة فتيجي تحت النص الطويل — المستخدم بيشوفه بعد ما ينزل لآخر الرد.
               جوّه ترويسة فيها العنوان والزرار مع بعض يفضل فوق دايمًا. */}
-          {running && request.liveText ? <div className="final-result live-result"><div className="final-result-head"><div className="final-result-label">{t.liveResponse}</div><CopyButton className="copy-result" text={request.liveText} onCopy={onCopy} label={t.copyResult} t={t} /></div><div className="final-result-text"><ExpandableText text={request.liveText} t={t} trailing={<span className="live-cursor" aria-hidden>▍</span>} /></div></div> : null}
-          {request.finalResult && !running ? <div className="final-result"><div className="final-result-head"><div className="final-result-label">{t.finalResult}</div><CopyButton className="copy-result" text={request.finalResult} onCopy={onCopy} label={t.copyResult} t={t} /></div><div className="final-result-text"><ExpandableText text={request.finalResult} fromEnd t={t} /></div></div> : null}
+          {running && request.liveText ? <div className="final-result live-result"><div className="final-result-head"><div className="final-result-label">{t.liveResponse}</div><CopyButton className="copy-result" text={request.liveText} onCopy={onCopy} label={t.copyResult} t={t} /></div><div className="final-result-text"><ExpandableText text={request.liveText} rich t={t} trailing={<span className="live-cursor" aria-hidden>▍</span>} /></div></div> : null}
+          {request.finalResult && !running ? <div className="final-result"><div className="final-result-head"><div className="final-result-label">{t.finalResult}</div><CopyButton className="copy-result" text={request.finalResult} onCopy={onCopy} label={t.copyResult} t={t} /></div><div className="final-result-text"><ExpandableText text={request.finalResult} rich fromEnd t={t} /></div></div> : null}
           {sessionId && request.resultFiles.length > 0 ? <ResultFilesList files={request.resultFiles} sessionId={sessionId} onToast={onToast} t={t} /> : null}
           {sessionId && !running && request.resultFiles.length === 0 && request.finalResult ? <div className="result-files-hint">{t.noResultFileHint}</div> : null}
         </div>

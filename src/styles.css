@@ -1508,6 +1508,21 @@ html[dir="ltr"] .request-row.request-row-running { box-shadow: inset 3px 0 0 0 v
    صف الطلب) الزرار جنب النص عادي وبيفضل مكانه. */
 .final-result-text .expand-toggle { position: sticky; bottom: 0; z-index: 1; background: var(--surface-card); box-shadow: 0 -10px 12px -10px rgba(0, 0, 0, 0.55); }
 .final-result-text .expand-toggle:hover { background: var(--surface-raised); }
+/* جداول ماركداون في ردّ OpenCode. كانت بتطلع سطورًا مبطّطة "| a | b |" لأن
+   النص بيتعرض خام، والغلاف بيسكول أفقيًا بدل ما يكسّر عرض الكارت على الموبايل
+   لما الجدول يبقى أعرض من الشاشة. الخلايا بتلغي pre-wrap الموروث عشان الأعمدة
+   تلفّ في سطرها بدل ما تسحب العرض. */
+.md-table-wrap { display: block; margin: 10px 0; max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 1px; }
+.md-table { width: 100%; border-collapse: collapse; font-size: 12.5px; line-height: 1.7; white-space: normal; }
+.md-table th, .md-table td { padding: 8px 11px; border-bottom: 1px solid var(--border); border-inline-end: 1px solid var(--border); text-align: start; vertical-align: top; overflow-wrap: anywhere; }
+.md-table th:last-child, .md-table td:last-child { border-inline-end: 0; }
+.md-table tbody tr:last-child td { border-bottom: 0; }
+.md-table thead th { color: var(--text-strong); background: var(--accent-soft-bg2); font-weight: 800; }
+.md-table tbody tr:nth-child(even) { background: var(--surface-card2); }
+.md-align-center { text-align: center; }
+.md-align-right { text-align: right; }
+.md-align-left { text-align: left; }
+.md-text { white-space: pre-wrap; }
 /* زر نسخ موحّد لكل رسالة في الطلب: أيقونة بس، وبت expanding transiently
   |label "تم النسخ" أول ما تنسخ. */
 .copy-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 1px solid transparent; border-radius: 1px; color: var(--copy-result); background: transparent; font: inherit; font-size: 10px; font-weight: 700; white-space: nowrap; cursor: pointer; transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease; }

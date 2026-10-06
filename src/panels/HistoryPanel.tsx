@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react"
 import { fileDownloadUrl } from "../api"
+import { MarkdownText } from "../components/MarkdownText"
+import { parseMarkdownBlocks } from "../utils/markdown-table"
 import { formatDateTime } from "../display"
 import type { Language, Strings } from "../i18n"
 import type { HistoryTurn } from "../types"
@@ -83,8 +85,11 @@ export function HistoryPanel({
             {filtered.map((turn) => {
               const isOpen = expanded.has(turn.id)
               const result = turn.finalResult.trim()
-              const isLong = result.length > 400
-              const visibleResult = !isLong || isOpen ? result : `${result.slice(0, 400)}…`
+              // الرد اللي فيه جدول ما بنقصّوش نصيًا عشان الجدول يبان مرتّب؛
+              // صندوق السجل بيسكول لوحده لما يطول.
+              const hasTable = result.includes("|") && parseMarkdownBlocks(result).some((block) => block.kind === "table")
+              const collapsible = result.length > 400 && !hasTable
+              const visibleResult = collapsible && !isOpen ? `${result.slice(0, 400)}…` : result
               return (
                 <article className="history-card" key={turn.id}>
                   <div className="history-card-top">
@@ -101,9 +106,9 @@ export function HistoryPanel({
                     <div className="history-label">✅ {t.finalResult}</div>
                     {result ? (
                       <>
-                        <div className={isLong && !isOpen ? "history-result-text is-collapsed" : "history-result-text"}>{visibleResult}</div>
+                        <div className={collapsible && !isOpen ? "history-result-text is-collapsed" : "history-result-text"}>{collapsible && !isOpen ? visibleResult : <MarkdownText text={result} />}</div>
                         <div className="history-actions">
-                          {isLong ? (
+                          {collapsible ? (
                             <button className="history-copy" onClick={() => toggleExpanded(turn.id)}>
                               {isOpen ? `${t.showLess} ↑` : `${t.showMore} ↓`}
                             </button>
