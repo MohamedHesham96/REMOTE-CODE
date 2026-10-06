@@ -162,10 +162,7 @@ export const ProjectDropdown = memo(ProjectDropdownInner)
 
 // memo: شاشة اختيار المشروع الكاملة — مع `memo` إعادة الرسم محصورة في
 // تغيير `projects` أو `query`، مش في كل تحديث للمحادثات النشطة.
-// `title` و`subtitle` و`onClose` اختيارية: حين تُعرض الشاشة كمنتقي "محادثة
-// جديدة" فوق التطبيق نبدّل النص ونضيف زر إلغاء يرجع بلا تغيير المشروع، أما
-// عرضها الافتراضي عند بدء التطبيق (بلا مشروع مفتوح) فيبقى زي ما هو.
-function ProjectPickerInner({ projects, selectedId, switchingKey, recentPaths, onSelect, t, lang, title, subtitle, onClose }: {
+function ProjectPickerInner({ projects, selectedId, switchingKey, recentPaths, onSelect, t, lang }: {
   projects: Project[]
   selectedId?: string
   switchingKey: string | null
@@ -173,9 +170,6 @@ function ProjectPickerInner({ projects, selectedId, switchingKey, recentPaths, o
   onSelect: (project: Project) => void
   t: Strings
   lang: Language
-  title?: string
-  subtitle?: string
-  onClose?: () => void
 }) {
   const [query, setQuery] = useState("")
   const sorted = useSortedProjects(projects, query, selectedId, recentPaths, lang)
@@ -185,8 +179,8 @@ function ProjectPickerInner({ projects, selectedId, switchingKey, recentPaths, o
         <div className="project-picker-header">
           <div className="brand-mark"><img src="/icon.svg" alt="OpenCode" /></div>
           <div className="eyebrow">RemoteCode</div>
-          <h1>{title ?? t.chooseProject}</h1>
-          <p>{subtitle ?? t.chooseFromList}</p>
+          <h1>{t.chooseProject}</h1>
+          <p>{t.chooseFromList}</p>
         </div>
         <div className="project-dropdown-standalone">
           <input
@@ -205,13 +199,6 @@ function ProjectPickerInner({ projects, selectedId, switchingKey, recentPaths, o
           )}
         </div>
         {switchingKey ? <div className="picker-loading"><span className="loader" /> {t.openingProject}</div> : null}
-        {/* الإلغاء مقفول أثناء تبديل مشروع جارٍ: التبديل خلاص اتحرك، والقفل
-            يمنع إغلاق الشاشة في نص الطلب. */}
-        {onClose ? (
-          <button type="button" className="button button-ghost button-wide" onClick={onClose} disabled={switchingKey !== null}>
-            {t.cancel}
-          </button>
-        ) : null}
       </div>
     </main>
   )

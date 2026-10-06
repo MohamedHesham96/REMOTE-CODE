@@ -200,10 +200,6 @@ function App() {
   const [loginError, setLoginError] = useState("")
   const [showSessions, setShowSessions] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  // منتقي مشروع المحادثة الجديدة: المحادثة ما تتربطش تلقائيًا بالمشروع
-  // المفتوح (فتح مشروع لمتابعة شغل مش اختيار له)، فزرار ➕ بيفتح المنتقي
-  // والمستخدم يختار المشروع بنفسه قبل ما تبدأ المسودة.
-  const [pickingNewSession, setPickingNewSession] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<InstallPrompt | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [pushState, setPushState] = useState<"unknown" | "enabled" | "unsupported" | "blocked">("unknown")
@@ -1328,23 +1324,26 @@ function App() {
     setAccessToken("")
   }
 
-  // فتح منتقي المشاريع من زرار "محادثة جديدة": المحادثة الجديدة ما تتربطش
-  // تلقائيًا بالمشروع المفتوح حاليًا — فتح مشروع لمجرد متابعة شغل (زي RemoteCode
-  // اللي فيه جلسة مساعد) مش اختيار له، والمستخدم يختار مشروع المحادثة بنفسه.
-  const requestNewSession = () => {
+  // فتح مسودة جديدة في المشروع المفتوح حاليًا: فتح مشروع لمتابعة شغل هو
+  // السياق اللي المستخدم شايفه، فالمحادثة الجديدة بتبدأ فيه مباشرة بلا خطوة
+  // اختيار إضافية.
+  const handleNewSession = async () => {
     if (!selectedProject || switchingProject) {
       return
     }
-    setPickingNewSession(true)
-  }
-
-  // الاختيار وصل: نبدّل المشروع لو مختلف، وبعدها نفتح مسودة فاضية فيه.
-  // المنتقي (بزرار الإلغاء) يفضل مفتوح أثناء التبديل فيعرض "جارٍ فتح المشروع".
-  const startNewSessionInProject = async (project: Project) => {
-    // لو الجلسة الحالية فاضية ومفيهاش أي رسالة: امسحها الأول عشان متتراكمش.
-    // الحذف قبل أي تبديل عشان الجلسة اليتيمة ما تفضلش في المشروع القديم.
+    // لو واقف على مسودة فاضية أصلًا: فقط نضف الكتابة
+    if (!activeIdRef.current) {
+      setEditingSessionId(null)
+      setTitleDraft("")
+      setRequests([])
+      setRequestQuestions([])
+      resetComposer()
+      setShowSessions(false)
+      return
+    }
+    // لو الجلسة الحالية فاضية ومفيهاش أي رسالة: امسحها الأول عشان متتراكمش
     const currentId = activeIdRef.current
-    if (currentId && isRequestsEmpty(requests)) {
+    if (isRequestsEmpty(requests)) {
       try {
         await deleteSession(currentId)
       } catch {
@@ -1358,8 +1357,6 @@ function App() {
         return next
       })
     }
-    await openProject(project)
-    setPickingNewSession(false)
     // مسودة جديدة بدون حفظ على السيرفر — الحفظ يحصل مع أول رسالة فقط
     setActiveId(null)
     activeIdRef.current = null
@@ -1370,8 +1367,8 @@ function App() {
     resetComposer()
     setShowSessions(false)
   }
-  const startNewSessionInProjectRef = useRef(startNewSessionInProject)
-  startNewSessionInProjectRef.current = startNewSessionInProject
+  const handleNewSessionRef = useRef(handleNewSession)
+  handleNewSessionRef.current = handleNewSession
 
   const selectSession = async (nextId: string) => {
     if (nextId === activeIdRef.current) {
@@ -1556,20 +1553,12 @@ function App() {
   // كل رندر، فالـ memo عليهم بيفشل وكل الرندراه بتعيد بناء شجرة كاملة.
   const openProjectRef = useRef(openProject)
   openProjectRef.current = openProject
-  const requestNewSessionRef = useRef(requestNewSession)
-  requestNewSessionRef.current = requestNewSession
   const handleSelectProjectSidebar = useCallback((project: Project) => {
     void openProjectRef.current(project)
   }, [])
   const handleNewSessionSidebar = useCallback(() => {
-    requestNewSessionRef.current()
+    void handleNewSessionRef.current()
   }, [])
-  // اختيار مشروع المحادثة الجديدة من المنتقي: نفس قاعدة المراجع فوق —
-  // الـ callback يفضل ثابت المرجع والـ ProjectPicker الـ memo يعمل bail-out.
-  const handlePickNewSessionProject = useCallback((project: Project) => {
-    void startNewSessionInProjectRef.current(project)
-  }, [])
-  const closeNewSessionPicker = useCallback(() => setPickingNewSession(false), [])
 
   // Stable wrappers للـ TopBar عشان نفس السبب: handlers زي handleAbort/handleSend
   // تتجدّد كل رندر، والـ TopBar الـ memo بيفشل في توفير bail-out.
@@ -2376,25 +2365,6 @@ function App() {
             />
           </PanelErrorBoundary>
         </Suspense>
-      ) : null}
-
-      {/* منتقي مشروع المحادثة الجديدة: طبقة فوق التطبيق فالشاشة اللي وراها
-          تفضل زي ما هي، والمحادثة ما تبدأش إلا بعد اختيار صريح للمشروع. */}
-      {pickingNewSession ? (
-        <div className="new-session-picker-overlay">
-          <ProjectPicker
-            projects={projects}
-            selectedId={selectedProject.worktree}
-            switchingKey={switchingProject}
-            recentPaths={recentProjects}
-            onSelect={handlePickNewSessionProject}
-            onClose={closeNewSessionPicker}
-            title={t.newSessionPickProject}
-            subtitle={t.newSessionPickProjectHint}
-            t={t}
-            lang={lang}
-          />
-        </div>
       ) : null}
 
       <div className="toast-stack" aria-live="polite">

@@ -1200,10 +1200,6 @@ h2.session-title-editable { cursor: pointer; }
 .model-footnote { margin-top: 12px; color: var(--muted); font-size: 10px; line-height: 1.8; }
 
 .project-screen { min-height: 100dvh; display: grid; place-items: center; padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom)); background: radial-gradient(circle at 50% -20%, rgba(113, 94, 255, 0.28), transparent 42%), var(--bg); }
-/* منتقي مشروع المحادثة الجديدة: طبقة كاملة فوق التطبيق، فالشاشة اللي وراها
-   تفضل زي ما هي والمستخدم يرجع لها فورًا لو ألغى. الخلفية الصلبة تمنع
-   الشاشة اللي تحت من الظهور أثناء السكرول. */
-.new-session-picker-overlay { position: fixed; z-index: 45; inset: 0; overflow-y: auto; background: var(--bg); }
 .project-picker { width: min(100%, 760px); padding: clamp(24px, 5vw, 48px); border: 1px solid var(--border); border-radius: 1px; background: var(--grad-card); box-shadow: var(--shadow); }
 .project-picker-header { text-align: center; }
 .project-picker-header .brand-mark { margin: 0 auto 23px; }
