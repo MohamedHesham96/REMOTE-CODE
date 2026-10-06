@@ -9,7 +9,8 @@ import type { Release } from "./releases"
 // كل نص هنا مزدوج اللغة (ar/en) بنفس أسلوب i18n.ts — العربية فصحى بلا لهجة،
 // والإنجليزية فصيحة. إضافة إصدار جديد = إضافة كائن بنصوص اللغتين معًا.
 //
-// التسلسل الزمني الحقيقي من الأقدم (5775b51) للأحدث (7500fc9):
+// التسلسل الزمني الحقيقي من الأقدم (5775b51) للأحدث (4757294):
+//   v1.7.0 (2026-10-06)  →  13 commit قفل المايك واللصق ومثبّتات النماذج والجداول
 //   v1.6.0 (2026-10-05)  →  2 commits الإدخال الصوتي + مرفقات الرسائل + PWA وHTTPS
 //   v1.5.0 (2026-10-03)  →  8 commits تبديل الفروع + ملاحظات الإصدار + بطاقات المهام
 //   v1.4.0 (2026-10-02)  →  8 commits توجيه الطلبات + أداء العرض
@@ -22,6 +23,203 @@ import type { Release } from "./releases"
 // إعادة التوليد: شغّل `scripts/generate-releases.mjs` لأخذ صورة جديدة من
 // التاريخ، ثم راجع المجموعة الناتجة قبل إضافتها كإصدار جديد هنا.
 export const releases: Release[] = [
+  {
+    version: "v1.7.0",
+    date: "2026-10-06",
+    title: {
+      ar: "قفل المايك ولصق الحافظة ومثبّتات النماذج على السيرفر",
+      en: "Mic lock, clipboard paste, and server-side pinned models",
+    },
+    summary: {
+      ar: "تثبيت الاستماع الصوتي حتى يفضل يسجّل مع كل وقفة، ولصق صورة أو نص من الحافظة مباشرة في الكومبوزر، ومثبّتات النماذج صارت على السيرفر فتنحفظ لكل الأجهزة، مع جداول Markdown تُعرض كجداول حقيقية.",
+      en: "Lock voice dictation so it keeps recording through every pause, paste an image or text straight from the clipboard into the composer, move pinned models to the server so they are shared across devices, and render Markdown tables as real tables.",
+    },
+    commits: [
+      "7decc6d",
+      "b303a6a",
+      "626ad3f",
+      "bffa52a",
+      "e82b53a",
+      "96497f6",
+      "607439e",
+      "848404b",
+      "29247d6",
+      "a570296",
+      "f32a242",
+      "c6cc239",
+      "4757294",
+    ],
+    changes: [
+      {
+        category: "features",
+        title: {
+          ar: "قفل الاستماع الصوتي ومبدّل لغة التعرّف بجوار المايك",
+          en: "Lock voice dictation and switch its language beside the mic",
+        },
+        description: {
+          ar: "زر قفل بجوار المايك يُبقي الاستماع شغّالًا مهما طال الصمت حتى يُفتح يدويًا، وزر اللغة يبدّل بين التلقائي والعربية والإنجليزية من غير فتح الإعدادات.",
+          en: "A lock button beside the microphone keeps recognition running however long the silence lasts until you release it yourself, and a language button cycles between auto, Arabic, and English without opening settings.",
+        },
+        commits: ["626ad3f"],
+      },
+      {
+        category: "features",
+        title: {
+          ar: "لصق صورة أو نص من الحافظة داخل الكومبوزر",
+          en: "Paste a clipboard image or text into the composer",
+        },
+        description: {
+          ar: "حقل الكتابة صار محرّرًا قابلًا للتحرير فتلتصق فيه صور الحافظة على الموبايل، وزر الصاق يقرؤ الحافظة مباشرة فيرسل الصورة مرفقًا ويضع النص في الحقل.",
+          en: "The composer is now a rich editable field so clipboard images paste on mobile, and a paste button reads the clipboard directly, sending the image as an attachment and placing the text in the field.",
+        },
+        commits: ["29247d6", "a570296"],
+      },
+      {
+        category: "features",
+        title: {
+          ar: "مثبّتات النماذج على السيرفر ومزامنة بين الأجهزة",
+          en: "Pinned models on the server, synced across devices",
+        },
+        description: {
+          ar: "حتى خمسة نماذج مثبتة بقت ملفًا على السيرفر تُبثّ لكل الأجهزة، فالتثبيت من الموبايل يوصل للويب والعكس، مع مزامنة أول مرة للقائمة المخزّنة محليًا.",
+          en: "Up to five pinned models now live in a server file streamed to every device, so pinning on the phone reaches the web and vice versa, with a one-time merge of locally stored pins.",
+        },
+        commits: ["f32a242"],
+      },
+      {
+        category: "features",
+        title: {
+          ar: "جداول Markdown تظهر كجداول حقيقية",
+          en: "Markdown tables render as real tables",
+        },
+        description: {
+          ar: "نتائج المهام وسجل المحادثات يفصلان جداول Markdown ويرسمونها بأعمدة ومحاذاة، بدل الأسطر المتكسّرة زي ما كانت تظهر.",
+          en: "Task results and conversation history parse Markdown tables and render them with columns and alignment, instead of the broken pipe-separated lines they used to show.",
+        },
+        commits: ["4757294"],
+      },
+      {
+        category: "features",
+        title: {
+          ar: "تنزيل شهادة الأمان من الإعدادات",
+          en: "Download the security certificate from settings",
+        },
+        description: {
+          ar: "زر في الإعدادات ينزّل شهادة الـ CA مباشرة على الهاتف، فثبتّها خطوة واحدة بدل البحث عنها في ملفات السيرفر قبل تشغيل المايك والإشعارات.",
+          en: "A settings button downloads the CA certificate straight to the phone, so installing it is one step instead of hunting for it in the server files before enabling the mic and notifications.",
+        },
+        commits: ["b303a6a"],
+      },
+      {
+        category: "improvements",
+        title: {
+          ar: "لغة التعرّف الفعّالة ظاهرة على زر المايك",
+          en: "The mic button shows the effective recognition language",
+        },
+        description: {
+          ar: "شارة صغيرة على الزر بتقول اللغة اللي الكلام هيتحوّل بيها فعلًا (ع للإنجليزية مثلًا) بدل كلمة «تلقائي» المبهمة، مع توحيد ألوان الشارات في الواجهة.",
+          en: "A small badge on the button names the language speech is actually transcribed with (AR, EN, and so on) instead of the vague auto label, with badge colors unified across the UI.",
+        },
+        commits: ["7decc6d"],
+      },
+      {
+        category: "improvements",
+        title: {
+          ar: "مستوى التفكير يتبع آخر موديل ضغطت عليه",
+          en: "The thinking level follows the last model you tapped",
+        },
+        description: {
+          ar: "اختيار موديل جديد في القائمة ينقل مستوى التفكير فورًا من غير انتظار رد السيرفر، فمستويات الموديل القديم ما تفضلش معروضة بعد الاختيار.",
+          en: "Picking a new model in the list switches the thinking level immediately without waiting for the server, so the old model's levels no longer linger after the selection.",
+        },
+        commits: ["f32a242"],
+      },
+      {
+        category: "improvements",
+        title: {
+          ar: "نغمة أوضح عند انتهاء المهمة",
+          en: "A clearer tone when a task finishes",
+        },
+        description: {
+          ar: "صوت اكتمال المهمة بقى ثلاث نغمات صاعدة مع طرقعة خشبية في أول كل نغمة بدل النغمتين المسطّحتين السابقتين.",
+          en: "The task-completion sound is now three rising notes with a wooden knock on each instead of the two flat tones before.",
+        },
+        commits: ["b303a6a"],
+      },
+      {
+        category: "fixes",
+        title: {
+          ar: "المايك ما بيقفلش عند أول وقفة قصيرة",
+          en: "The mic no longer closes at the first short pause",
+        },
+        description: {
+          ar: "بعد آخر كلمة في وضع الاستماع الحر بننتظر مهلة صمت قبل الإغلاق بدل ما المتصفح يقفل عند أول سكون في وسط الكلام، والوضع المقفول بيتجاهل المهلة خالص.",
+          en: "After the last word, unlocked listening waits out a grace period before closing instead of the browser stopping at the first silence mid-sentence, and the locked mode ignores the timer entirely.",
+        },
+        commits: ["96497f6"],
+      },
+      {
+        category: "fixes",
+        title: {
+          ar: "التفريغ الصوتي يفضل في سطر واحد",
+          en: "Voice dictation stays on one line",
+        },
+        description: {
+          ar: "محركات التعرّف كانت ترجع فواصل أسطر بين النتائج فتنكسر الجملة في نص الحقل، وبقت كل المسافات المتكررة والأسطر بتتطوى في مسافة واحدة.",
+          en: "Recognition engines returned line breaks between results, which broke sentences mid-field; repeated spaces and newlines now collapse into a single space.",
+        },
+        commits: ["c6cc239"],
+      },
+      {
+        category: "fixes",
+        title: {
+          ar: "جلسات المشروع تظهر في تطبيق الديسكتوب",
+          en: "Project sessions show up in the desktop app",
+        },
+        description: {
+          ar: "المسار كان يُمرَّر للمحرك كما هو، فاختلاف الشرطات أو حالة الأحرف على ويندوز كان يخزّن الجلسات بمفتاح مسار مختلف فتظهر موجودة في القاعدة ومخفية عن باقي العملاء؛ دلوقتي بيتوحّد على الصيغة المسجّلة عند المحرك.",
+          en: "The path was passed to the engine as given, so a slash or drive-case difference on Windows stored sessions under a different key and left them in the database but hidden from other clients; it is now canonicalized to the engine's registered form.",
+        },
+        commits: ["607439e"],
+      },
+      {
+        category: "performance",
+        title: {
+          ar: "بحث أسرع في منتقي النماذج",
+          en: "Faster search in the model picker",
+        },
+        description: {
+          ar: "النص المصغّر والترتيب وخريطة المفاتيح بتتحسب مرة واحدة لكل كتالوج بدل كل حرف، والنتايج بتتحدّث بقيمة مؤجّلة فالكتابة ما بتعلقش على الموبايل.",
+          en: "Lowercased text, ordering, and the key map are computed once per catalog instead of per keystroke, and results update on a deferred value so typing never stalls on the phone.",
+        },
+        commits: ["f32a242"],
+      },
+      {
+        category: "uiux",
+        title: {
+          ar: "أدوات الكومبوزر في شريط واحد فوق الحقل",
+          en: "Composer tools in one toolbar above the field",
+        },
+        description: {
+          ar: "أزرار الإرفاق واللصق والمايك صارت صفًا واحدًا فوق حقل الكتابة بدل ما تتناثر، والقفل معلّم كتجريبي بشارة تحت أيقونته.",
+          en: "The attach, paste, and mic buttons now sit in a single row above the input instead of scattering, and the lock is marked experimental with a badge under its icon.",
+        },
+        commits: ["bffa52a", "e82b53a"],
+      },
+      {
+        category: "technical",
+        title: {
+          ar: "بناء العميل تلقائيًا في وضع التطوير",
+          en: "The client is built automatically in dev mode",
+        },
+        description: {
+          ar: "تشغيل وضع التطوير بقى يبني الواجهة قبل ما يقف، فالهاتف اللي بيفتح أصل HTTPS بيشوف النسخة الحالية بدل حزمة قديمة من آخر بناء.",
+          en: "Launching dev mode now builds the client before starting, so the phone opening the HTTPS origin sees the current bundle instead of a stale one from an earlier build.",
+        },
+        commits: ["848404b"],
+      },
+    ],
+  },
   {
     version: "v1.6.0",
     date: "2026-10-05",
