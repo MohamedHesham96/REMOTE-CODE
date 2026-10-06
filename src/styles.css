@@ -1399,6 +1399,10 @@ html[dir="ltr"] .request-row.request-row-running { box-shadow: inset 3px 0 0 0 v
 .request-row-queued .request-row-state { color: var(--yellow); background: rgba(245, 199, 108, 0.18); background: color-mix(in srgb, var(--yellow) 18%, transparent); }
 .request-row-stopped .request-row-mark { border-color: var(--error-border); color: var(--red); background: var(--error-bg); }
 .request-row-stopped .request-row-state { color: var(--error-text); }
+/* متخطّى: الطلب ما اكتملش لكن السبب قرار المستخدم نفسه — فبلون محايد
+   باهت بدل الأخضر (خلوص كاذب) أو الأحمر (مشكلة مش موجودة). */
+.request-row-skipped .request-row-mark { border-color: var(--border); color: var(--muted); background: var(--composer-bg); }
+.request-row-skipped .request-row-state { color: var(--muted); }
 .task-running { border-color: rgba(139, 124, 255, 0.75); border-color: color-mix(in srgb, var(--accent) 75%, transparent); box-shadow: 0 16px 50px rgba(87, 72, 210, 0.28); }
 /* طلب مستني في الطابور: باهت شوية عشان واضح إنه لسه ماشتغلش */
 .task-queued { border-style: dashed; opacity: 0.82; }
@@ -1446,6 +1450,8 @@ html[dir="ltr"] .request-row.request-row-running { box-shadow: inset 3px 0 0 0 v
 }
 .task-summary[data-phase="error"] { --phase-color: var(--error-text); --phase-dot: var(--red); --phase-border: var(--error-border); --phase-fill: var(--error-bg); --phase-wash: color-mix(in srgb, var(--red) 9%, transparent); }
 .task-summary[data-phase="completed"] { --phase-color: var(--green); --phase-dot: var(--green); --phase-border: var(--green-border); --phase-fill: var(--green-bg); --phase-wash: color-mix(in srgb, var(--green) 9%, transparent); }
+/* متخطّاة: قرار المستخدم، لا نجاح ولا فشل — لون محايد بلا توهّج. */
+.task-summary[data-phase="skipped"] { --phase-color: var(--muted); --phase-dot: var(--muted); --phase-border: var(--border); --phase-fill: var(--composer-bg); --phase-wash: transparent; }
 /* لوحة حالة المهمة: أشهر حاجة في الكارت — شارة الحالة على مستوى المحادثة
    وسطر "OpenCode بيعمل إيه دلوقتي". جوّه الترويسة الثابتة عشان تفضل
    قدام العين أثناء التمرير، وتوصّل حالة الكارت من غير فتح أي صف.
@@ -1475,6 +1481,10 @@ html[dir="ltr"] .request-row.request-row-running { box-shadow: inset 3px 0 0 0 v
 .task-panel[data-phase="stuck"] .task-panel-dot { border-radius: 1px; background: var(--phase-dot, var(--yellow)); transform: rotate(45deg); box-shadow: none; }
 .task-panel[data-phase="error"] .task-panel-dot { background: var(--phase-dot, var(--red)); box-shadow: 0 0 0 4px rgba(239, 105, 105, 0.12); }
 .task-panel[data-phase="completed"] .task-panel-dot { background: var(--phase-dot, var(--green)); box-shadow: 0 0 0 4px rgba(66, 215, 162, 0.1); }
+.task-panel[data-phase="skipped"] { background: var(--composer-bg); }
+.task-panel[data-phase="skipped"] .task-panel-dot { border: 2px solid var(--muted); background: transparent; box-shadow: none; }
+.task-panel[data-phase="skipped"] .task-panel-label,
+.task-panel[data-phase="skipped"] .task-panel-activity { color: var(--muted); }
 .final-result-label { color: var(--task-request-label); font-size: 10px; font-weight: 700; }
 .task-activity { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--task-activity-text); font-size: 13px; font-weight: 700; line-height: 1.7; }
 .activity-pulse { width: 10px; height: 10px; flex: 0 0 10px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s infinite; }

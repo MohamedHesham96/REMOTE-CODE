@@ -1,6 +1,6 @@
 import type { Strings } from "../i18n"
 import { TASK_QUIET_MS } from "../constants"
-import type { SessionRequest, SessionStatus, TaskPhase } from "../types"
+import type { RequestState, SessionRequest, SessionStatus, TaskPhase } from "../types"
 
 // حالة المهمة المعروضة في لوحة الحالة
 //
@@ -41,6 +41,14 @@ export interface TaskStatusView {
 
 function view(phase: TaskPhase, label: string, activity: string, live: boolean, usedTools: string[] = []): TaskStatusView {
   return { phase, label, activity, usedTools, live }
+}
+
+// الطلب "استقرّ" لما يبقى مش شغّال ومش مستني: خلص، اتوقف، أو اتخطّاه المستخدم.
+// الحالات دي ما بتخليش المحادثة "تحمل" وما بتستدعي تحديثًا مستمرًا. القاعدة
+// مشتركة بين حكم "شغالة دلوقتي" وحكم "محتاجة تحديث" في App، وأي حالة نهائية
+// جديدة لازم تتضاف هنا مرة واحدة بدل ما تتكرر الشروط في كل موضع.
+export function isSettledRequest(state: RequestState): boolean {
+  return state === "done" || state === "stopped" || state === "skipped"
 }
 
 export function describeTask(input: TaskStatusInput, t: Strings): TaskStatusView {
@@ -109,6 +117,14 @@ export function describeTask(input: TaskStatusInput, t: Strings): TaskStatusView
     return view("waiting", t.taskPhaseWaiting, t.taskQueuedDetail, false)
   }
 
+  // ٨) آخر طلب اتخطّاه المستخدم بإيده. التخطّي قرار مقصود مش خلاص ومش مشكلة:
+  // المحرك بيقفل رسالة الطلب كأنها خلصت، فبدون الفرع ده كانت المهمة تبان
+  // "مكتملة" كذبًا. بيتقال بس لما آخر طلب هو المتخطّى؛ لو سبقه أو لحقه شغل
+  // حقيقي فالمرحلة الأعلى بتاخد الحق.
+  if (latest !== undefined && latest.state === "skipped") {
+    return view("skipped", t.taskPhaseSkipped, t.taskSkippedDetail, false)
+  }
+
   // مكتملة: رسالة الاكتمال بس من غير سرد أدوات — تثبيت أداة بصيغة المضارع
   // تحت "مكتملة" بيوهم إن في شغل لسه بيتنفّذ، والمهمة خلصت.
   return view("completed", t.taskPhaseCompleted, t.taskCompletedDetail, false)
@@ -131,6 +147,8 @@ export function describeRequest(request: SessionRequest, t: Strings): TaskStatus
       return view("waiting", t.taskPhaseWaiting, request.activity || t.taskQueuedDetail, false)
     case "stopped":
       return view("error", t.taskPhaseError, t.taskErrorDetail, false)
+    case "skipped":
+      return view("skipped", t.taskPhaseSkipped, t.taskSkippedDetail, false)
     case "done":
       return view("completed", t.taskPhaseCompleted, t.taskCompletedDetail, false)
   }

@@ -126,8 +126,11 @@ export interface QuestionClientEvent {
 
 export type ClientEvent = ServerEvent | QuestionClientEvent
 
-// حالة كل طلب داخل الجلسة: مستخبي في الطابور، شغّال دلوقتي، خلص، أو اتوقف.
-export type RequestState = "queued" | "running" | "done" | "stopped"
+// حالة كل طلب داخل الجلسة: مستخبي في الطابور، شغّال دلوقتي، خلص، اتوقف،
+// أو اتخطّاه المستخدم بإيده وهو شغّال. التخطّي حالة مستقلة عن "تمت" لأن
+// المحرك بيقفل رسالة الطلب كأنها خلصت، والمستخدم لازم يشوف إنه هو اللي
+// تخطّاه مش إن الشغل نجح.
+export type RequestState = "queued" | "running" | "done" | "stopped" | "skipped"
 
 // الطلبات بتتراص في كارت واحد على شكل قائمة — الأقدم فوق والأحدث تحت.
 // مرفق أرسله المستخدم مع الطلب — بيُعرض في صف الطلب (صور مصغّرة/أسماء).
@@ -177,7 +180,7 @@ export interface SessionRequests {
 // حالة المهمة كما تُعرض في لوحة الحالة أعلى الكارت. الترتيب مقصود: كل حالة
 // تُقاس قبل التي بعدها، فالجمود بيتقدّم على كل حاجة عشان المهمة الواقفة ما
 // تبانش شغّالة (زي ما الكارت القديم كان بيعمل).
-export type TaskPhase = "running" | "waiting" | "stuck" | "error" | "completed"
+export type TaskPhase = "running" | "waiting" | "stuck" | "error" | "completed" | "skipped"
 
 export interface ResultFile {
   id: string

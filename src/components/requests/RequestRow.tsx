@@ -17,6 +17,7 @@ const REQUEST_STATE_LABEL: Record<RequestState, keyof Strings> = {
   running: "running",
   done: "done",
   stopped: "stopped",
+  skipped: "skipped",
 }
 
 // كل طلب في المحادثة بيتعرض كسطر واحد جوه كارت واحد، زي قائمة المهام.
@@ -25,6 +26,7 @@ const REQUEST_STATE_ROW: Record<RequestState, string> = {
   running: "request-row-running",
   done: "request-row-done",
   stopped: "request-row-stopped",
+  skipped: "request-row-skipped",
 }
 
 const REQUEST_STATE_MARK: Record<RequestState, string> = {
@@ -32,6 +34,7 @@ const REQUEST_STATE_MARK: Record<RequestState, string> = {
   running: "◐",
   done: "✓",
   stopped: "×",
+  skipped: "⏭",
 }
 
 // سقف الأحرف اللي بعدها النص أكيد أطول من ٦ أسطر بصرية على الموبايل —

@@ -302,6 +302,25 @@ describe("parallel request queue", () => {
     expect(fake.abortCalls).toBe(0)
   })
 
+  // المحرك بيقفل رسالة الطلب المُتخطّى كأنها خلصت (time.completed بيتسجّل)،
+  // فمن غير العلامة اللي بنسجّلها لحظة التخطّي كان الطلب يبان "تمت".
+  it("reports a skipped request as skipped instead of done", async () => {
+    const { service, fake } = createService()
+    fake.messages = [userMessage("msg_u1", "الطلب", 1_000)]
+
+    await service.prompt(SESSION, "الطلب")
+    await service.skip(SESSION)
+
+    // بعد الإيقاف المحرك قفل الرسالة: الرد بقى مكتمل عند المحرك.
+    fake.messages = [
+      userMessage("msg_u1", "الطلب", 1_000),
+      assistantMessage("msg_a1", "نتيجة جزئية", 1_100, 1_200),
+    ]
+
+    const result = await service.requests(SESSION)
+    expect(result.requests[0]?.state).toBe("skipped")
+  })
+
   it("steers a queued request into the running task without stopping it", async () => {
     const { service, fake, emit } = createService()
 

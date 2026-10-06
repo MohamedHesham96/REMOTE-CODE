@@ -149,6 +149,10 @@ export class OpenCodeService {
   // الدورية (المسح مع أي تقدّم) ما تمسحش حكم الجمود في نفس الـ poll
   // فيتنطط الكارت "شغّال ⇄ خلص" — المسح هنا مع تغيّر البصمة فقط.
   private readonly stalledSessions = new Set<string>()
+  // الطوابق اللي المستخدم تخطّاها بإيده، لكل جلسة. المحرك بيقفل رسالة الطلب
+  // المُتخطّى كأنها خلصت (time.completed بيتسجّل)، فبدون التتبّع ده كان الطلب
+  // يبان "تمت" بينما هو ما خلصش. مفتاحها الجلسة والقيمة معرّفات طوابق المستخدم.
+  private readonly skippedTurns = new Map<string, Set<string>>()
   private promptSeq = 0
   private queueWatchdog: NodeJS.Timeout | null = null
   private readonly pendingPermissions = new Map<string, EnginePermission>()
@@ -944,6 +948,7 @@ export class OpenCodeService {
     this.finishedRuns.delete(id)
     this.stalledSessions.delete(id)
     this.stallWatches.delete(id)
+    this.skippedTurns.delete(id)
     this.idlePolls.delete(id)
     for (const [permissionId, permission] of this.pendingPermissions) {
       if (permission.sessionID === id) {
@@ -1098,6 +1103,8 @@ export class OpenCodeService {
       this.finishedRuns.delete(id)
     }
     const queue = this.promptQueues.get(id) ?? []
+    // طوابق اتخطّاها المستخدم في الجلسة دي — بتُعرض حالتها "متخطّى" بدل "تمت".
+    const skippedForSession = this.skippedTurns.get(id)
     // بصمة التقدّم: أي حراك مرئي (رسالة/إتمام/نص/طابور/سؤال) يغيّرها.
     // الطول التراكمي للنصوص يلتقط نمو الـ live text حتى لو الأوقات لم تتغير.
     // الطابور الفاضي شرط الأهلية: رسائل المستخدم ملكه فممنوع المساس بها هنا.
@@ -1111,6 +1118,9 @@ export class OpenCodeService {
       turnSig,
       queue.map((item) => item.id).join(","),
       questions.map((question) => question.id).join(","),
+      // التخطّي جزء من بصمة الحالة: علامة الطلب المتخطّى بتظهر لحظة الإيقاف،
+      // فبدونها الـ ETag ما كانش يتغيّر والكارت يفضل يخدم بيانات قديمة.
+      [...(skippedForSession ?? [])].join(","),
     ].join("|")
     const waitingOnUser = questions.length > 0
       || [...this.pendingPermissions.values()].some((permission) => permission.sessionID === id)
@@ -1144,12 +1154,16 @@ export class OpenCodeService {
         }
       }
 
-      // طلب اتوقف في نصه (إيدوي أو خطأ): مقدّم رسائل بس مفيش ولا رد مكتمل
+      // طلب اتوقف في نصه (إيدوي أو خطأ): مقدّم رسائل بس مفيش ولا رد مكتمل.
+      // والمتخطّى قرار المستخدم: بيتقدّم على "تمت" لأن المحرك بيقفل رسالته
+      // كأنها خلصت فعلًا، والتمييز هنا هو الفرق بين خلوص حقيقي وتخطٍّ مقصود.
       const state: RequestState = running
         ? "running"
-        : turn.completedAt === 0 && turn.entries.length > 0
-          ? "stopped"
-          : "done"
+        : skippedForSession?.has(turn.id)
+          ? "skipped"
+          : turn.completedAt === 0 && turn.entries.length > 0
+            ? "stopped"
+            : "done"
       // النص الحي: كل نصوص الـ assistant في الـ turn ده لحد دلوقتي، بما فيها
       // الرسالة المفتوحة اللي لسه بتتكتب. ده اللي بيخلي المستخدم يشوف رد
       // opencode وهو شغال بدل ما يستنى finalResult بعد الاكتمال.
@@ -1401,15 +1415,42 @@ export class OpenCodeService {
 
     this.runningSessions.delete(id)
     this.skippingSessions.add(id)
+    // الطلب اللي هيتخطّى هو آخر طابق في رسائل المحرك (المستنيين في طابورنا
+    // إحنا مش رسائل عنده)، فنسجّل معرّفه قبل الإيقاف عشان نفضل نعرضه "متخطّى"
+    // بدل "تمت" بعد ما المحرك يقفل رسالته.
+    const skippedTurnId = await this.openTurnId(id)
     let skipped = false
     try {
       skipped = (await this.requireClient().session.interrupt({ sessionID: id })).interrupted
     } finally {
+      if (skipped && skippedTurnId) {
+        this.rememberSkippedTurn(id, skippedTurnId)
+      }
       this.skippingSessions.delete(id)
       this.pumpQueue(id)
     }
     // بعد ما الطلب اللي بعده اتبعث، فـ remaining بتعد اللي فاضل في الطابور فعلًا
     return { skipped, remaining: this.promptQueues.get(id)?.length ?? 0 }
+  }
+
+  // معرّف آخر طابق (طلب مستخدم) في الجلسة، أو null لو تعذّر الجلب. بيتنادى
+  // لحظة التخطّي قبل ما الإيقاف يقفل الطابق المفتوح.
+  private async openTurnId(sessionId: string): Promise<string | null> {
+    try {
+      const turns = this.turns(await this.messages(sessionId))
+      return turns[turns.length - 1]?.id ?? null
+    } catch {
+      return null
+    }
+  }
+
+  private rememberSkippedTurn(sessionId: string, turnId: string): void {
+    const existing = this.skippedTurns.get(sessionId)
+    if (existing) {
+      existing.add(turnId)
+      return
+    }
+    this.skippedTurns.set(sessionId, new Set([turnId]))
   }
 
   // حذف طلب واحد من الطابور من غير ما نوقف اللي شغّال. الواجهة بتبعته

@@ -195,6 +195,49 @@ export function flattenRecognitionSegments(
   return { finalText: joinTranscriptSegments(finals), interimText: joinTranscriptSegments(interims) }
 }
 
+// أوامر المسح الصوتي: لما يتقال أي واحد فيهم بيمسح كل اللي في الحقل والمايك
+// يفضل سامع. العبارات طويلة عن قصد (مش كلمة واحدة) عشان ما تتقالش وسط الكلام
+// العادي بالغلط، وفيها عربي وإنجليزي عشان تشتغل مع أي لغة إملاء.
+export const VOICE_CLEAR_COMMANDS: readonly string[] = ["امسح الكلام كله", "clear all text", "start over"]
+
+// تطبيع خاص بالمطابقة (مش للعرض): بيشيل التشكيل والتطويل ويوحّد الألفات
+// والهمزات والتاء المربوطة والياء، وبيرجّع الحروف صغيرة، عشان المحرّك يكتب
+// «إمسح» بتشكيل أو بهمزة مختلفة أو "Clear" بحرف كبير والكلام يفضل يتطابق.
+function normalizeForCommandMatch(text: string): string {
+  return normalizeTranscript(text)
+    .replace(/[\u064B-\u0652\u0670\u0640]/g, "")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/[ىئ]/g, "ي")
+    .replace(/ؤ/g, "و")
+    .replace(/ة/g, "ه")
+    .toLowerCase()
+}
+
+export function hasVoiceClearCommand(text: string): boolean {
+  const haystack = normalizeForCommandMatch(text)
+  if (!haystack) {
+    return false
+  }
+  return VOICE_CLEAR_COMMANDS.some((command) => haystack.includes(normalizeForCommandMatch(command)))
+}
+
+// بادئة محجوبة بعد أمر مسح: المحرّك بيعيد إرسال الجلسة، فبنشيل النص اللي كان
+// موجود وقت الأمر من كل حدث بعده عشان ما يرجعش يظهر. لما النص الجديد ما يبقاش
+// مبنيًا على المحجوب (المحرّك بدأ جملة جديدة)، الحجب بيخلص غرضه وبنشيله.
+function stripSuppressed(text: string, suppress: string): { text: string; suppress: string } {
+  const value = normalizeTranscript(text)
+  if (!suppress) {
+    return { text: value, suppress }
+  }
+  if (!value || suppress.startsWith(value)) {
+    return { text: "", suppress }
+  }
+  if (value.startsWith(suppress)) {
+    return { text: normalizeTranscript(value.slice(suppress.length)), suppress }
+  }
+  return { text: value, suppress: "" }
+}
+
 // حالة التجميع عبر أحداث التعرف المتتالية في الجلسة الواحدة.
 export interface VoiceTranscriptState {
   // نص الحقل قبل بداية الجلسة (بما فيه جلسات اللوك اللي فاتت).
@@ -202,6 +245,15 @@ export interface VoiceTranscriptState {
   // النص النهائي المستقر المتراكم في الجلسة الجارية، بيتجمّع من كل حدث بضمّ
   // واعي بالتداخل عشان إعادة إرسال جزء منه ما تكرّرهوش.
   confirmed: string
+  // بادئة محجوبة بعد أمر مسح (شوف stripSuppressed).
+  suppress: string
+}
+
+export interface VoiceTranscriptResult {
+  state: VoiceTranscriptState
+  text: string
+  // true لما الحدث ده يكون أمر مسح فاتنضّف الحقل بالكامل.
+  cleared: boolean
 }
 
 // إعادة بناء النص الكامل من حالة سابقة + حدث التعرف الحالي. إعادة الحساب من
@@ -209,14 +261,27 @@ export interface VoiceTranscriptState {
 // مفيش أي «ضمّ للأساس» أثناء الجلسة — المحرّك وقت الوقوف بيعيد إرسال الجملة
 // كاملة، فلو كنا ضمّينا أجزاءها للأساس ونضمّها تاني هنا الجملة تتكرر. بدل كده
 // بنجمّع النهائي كله في confirmed بضمّ بيشيل التداخل، فإعادة الإرسال ما بتغيّرش
-// حاجة.
+// حاجة. وكمان بيتعامل مع أمر المسح الصوتي.
 export function reduceVoiceTranscript(
   state: VoiceTranscriptState,
   segments: readonly RecognizedSegment[],
   requireConfidence: boolean,
-): { state: VoiceTranscriptState; text: string } {
-  const { finalText, interimText } = flattenRecognitionSegments(segments, requireConfidence)
+): VoiceTranscriptResult {
+  const flat = flattenRecognitionSegments(segments, requireConfidence)
+  const strippedFinal = stripSuppressed(flat.finalText, state.suppress)
+  const strippedInterim = stripSuppressed(flat.interimText, strippedFinal.suppress)
+  const suppress = strippedInterim.suppress
+  const finalText = strippedFinal.text
+  const interimText = strippedInterim.text
+  const recognized = mergeTranscript(mergeTranscriptOverlap(state.confirmed, finalText), interimText)
+
+  // أمر المسح: نمسح كل حاجة في الحقل (بما فيه المكتوب بالإيد) ونحجب النص
+  // المُتعرَّف عليه الحالي عشان إعادة إرسال المحرّك ما ترجّعش الكلام الممسوح.
+  if (recognized && hasVoiceClearCommand(recognized)) {
+    return { state: { base: "", confirmed: "", suppress: recognized }, text: "", cleared: true }
+  }
+
   const confirmed = mergeTranscriptOverlap(state.confirmed, finalText)
   const text = mergeTranscript(state.base, mergeTranscriptOverlap(confirmed, interimText))
-  return { state: { base: state.base, confirmed }, text }
+  return { state: { base: state.base, confirmed, suppress }, text, cleared: false }
 }

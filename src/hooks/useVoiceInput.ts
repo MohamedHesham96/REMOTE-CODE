@@ -107,7 +107,7 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
   // حالة التجميع عبر أحداث الجلسة الواحدة: الأساس المتفَق عليه (نص الحقل
   // الأصلي + جلسات اللوك اللي فاتت) وآخر نص نهائي مستقر. منطق إعادة البناء
   // نفسه عايش في reduceVoiceTranscript (voice.ts) عشان يُختبر كدالة بحتة.
-  const voiceStateRef = useRef<VoiceTranscriptState>({ base: "", confirmed: "" })
+  const voiceStateRef = useRef<VoiceTranscriptState>({ base: "", confirmed: "", suppress: "" })
   // آخر نص كامل بعتناه للحقل — بنقارن بيه عشان ما نبعتش نفس النص مرتين.
   const lastSentRef = useRef("")
   // أحدث قيمة للـ callbacks واللغة والأساس.
@@ -152,7 +152,7 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
 
     // نص الجلسة (المحلي) يبدأ من الصفر؛ التراكم بيتخزّن في voiceStateRef.base
     // عند الإعادة بس (إعادة تشغيل في اللوك).
-    voiceStateRef.current = { ...voiceStateRef.current, confirmed: "" }
+    voiceStateRef.current = { ...voiceStateRef.current, confirmed: "", suppress: "" }
 
     // كل حدث بيتعالج من الأول: بنحوّل نتائجه لمقاطع بسيطة، وبعدين نعيد بناء
     // النص الكامل عبر reduceVoiceTranscript. إعادة الحساب من الصفر مقصودة عشان
@@ -173,10 +173,14 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
       }
       const reduced = reduceVoiceTranscript(voiceStateRef.current, segments, requiresFinalConfidence())
       voiceStateRef.current = reduced.state
-      const next = reduced.text
-      if (next && next !== lastSentRef.current) {
-        lastSentRef.current = next
-        optionsRef.current.onText(next)
+      if (reduced.cleared) {
+        // أمر المسح يفضّي الحقل بالكامل. lastSent يتصفّر عشان أي نص بعده يتمسح
+        // عادي، والاستماع يفضل شغال (مفيش لمس للمؤقتات غير المعتاد تحت).
+        lastSentRef.current = ""
+        optionsRef.current.onText("")
+      } else if (reduced.text && reduced.text !== lastSentRef.current) {
+        lastSentRef.current = reduced.text
+        optionsRef.current.onText(reduced.text)
       }
       // أي كلام جديد (نهائي أو مبدئي) بيصفّر مهلة الصمت: بنستنى سكون كامل
       // المهلة قبل الإغلاق. في وضع القفل مفيش إغلاق أصلاً.
@@ -215,7 +219,7 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
         // للأساس **مرة واحدة** عشان الجلسة الجديدة تكمّل من غير ما تكرّر
         // الكلام اللي اتقال (confirmed هيتصفّر في beginSession).
         const state = voiceStateRef.current
-        voiceStateRef.current = { base: mergeTranscript(state.base, state.confirmed), confirmed: "" }
+        voiceStateRef.current = { base: mergeTranscript(state.base, state.confirmed), confirmed: "", suppress: "" }
         clearRestartTimer()
         restartTimerRef.current = window.setTimeout(() => {
           restartTimerRef.current = null
@@ -264,7 +268,7 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     // بداية استماع جديدة من ضغطة المستخدم: الأساس يتثبّت على اللي في الحقل
     // دلوقتي، والتراكم يبدأ من الصفر.
     const base = optionsRef.current.baseText
-    voiceStateRef.current = { base, confirmed: "" }
+    voiceStateRef.current = { base, confirmed: "", suppress: "" }
     lastSentRef.current = base
     beginSession()
   }, [beginSession])

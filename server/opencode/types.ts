@@ -83,7 +83,7 @@ export interface HistoryTurn {
   files: ResultFile[]
 }
 
-export type RequestState = "queued" | "running" | "done" | "stopped"
+export type RequestState = "queued" | "running" | "done" | "stopped" | "skipped"
 
 // مرفق أرسله المستخدم مع الطلب (صورة/PDF/نص). بيُقرأ من `files` على رسالة
 // المستخدم عشان الواجهة تعرض اللي اتبعت بدل ما تختفي بعد لحظة الإرسال،

@@ -66,6 +66,7 @@ import { mergeActiveSessions } from "./utils/active-sessions"
 import { addAttachmentFiles, attachmentRejectionMessage, modelSupports } from "./utils/attachments"
 import { normalizeProjectPath } from "./utils/paths"
 import { forgetLastSession, isRequestsEmpty, loadDefaultModel, loadLastSessions, loadRecentProjects, saveDefaultModel, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
+import { isSettledRequest } from "./utils/task-status"
 
 // أدراج ثقيلة تُحمّل عند الطلب فقط (code-splitting): القائمة الرئيسية
 // والشات يظهران فورًا، وهذه اللوحات تنزل عند أول فتح لها
@@ -308,7 +309,7 @@ function App() {
   // عيّنة نص حيّ (كل ١.٥ ثانية) رغم إن حكم "شغالة" ما اتغيّرش. الفحص نفسه
   // بالظبط اللي كان جوه الدالة.
   const activeHasPendingWork = useMemo(
-    () => activeId ? requests.some((r) => r.state !== "done" && r.state !== "stopped") : false,
+    () => activeId ? requests.some((r) => !isSettledRequest(r.state)) : false,
     [activeId, requests],
   )
   const isSessionWorking = useCallback((id: string) => {
@@ -371,7 +372,7 @@ function App() {
     if (!activeId) {
       return EMPTY_PENDING_IDS
     }
-    const hasPending = requests.some((r) => r.state !== "done" && r.state !== "stopped")
+    const hasPending = requests.some((r) => !isSettledRequest(r.state))
     return hasPending ? singleActiveIdSet(activeId) : EMPTY_PENDING_IDS
   }, [activeId, requests])
   // ممرّرات PermissionCard/ StickyQuestions: نفس الفلتر كان بيتنفّذ مرتين
@@ -529,7 +530,7 @@ function App() {
     if (!activeId || !last || !last.completedAt) {
       return
     }
-    if (last.state !== "done" && last.state !== "stopped") {
+    if (!isSettledRequest(last.state)) {
       return
     }
     if (requests.some((request) => request.state === "running" || request.state === "queued")) {

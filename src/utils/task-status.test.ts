@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { strings } from "../i18n"
 import { TASK_QUIET_MS } from "../constants"
 import type { SessionRequest, SessionStatus } from "../types"
-import { describeTask, type TaskStatusInput } from "./task-status"
+import { describeTask, describeRequest, isSettledRequest, type TaskStatusInput } from "./task-status"
 
 // الترجمة العربية هي اللي بيتحقق منها السلوك: النصوص اللي بنقارن بيها
 // جاية من نفس الـ Strings بيرسلها السيرفر، فمفيش ترجمة ثانية تكسر الاختبار.
@@ -192,5 +192,40 @@ describe("describeTask", () => {
     const view = describeTask(input({ requests: [], status: busy() }), t)
     expect(view.phase).toBe("running")
     expect(view.activity).toBe(t.workingOnTask)
+  })
+
+  // التخطّي قرار المستخدم: المحرك بيقفل رسالة الطلب كأنها خلصت، فبدون فرع
+  // خاص كانت المهمة تبان "مكتملة" كذبًا. الحالة بتبان بس لما آخر طلب هو
+  // المتخطّى ومفيش شغل شغّال.
+  it("reports a skipped latest request as skipped, not completed", () => {
+    const view = describeTask(input({ requests: [request({ state: "skipped" })] }), t)
+    expect(view.phase).toBe("skipped")
+    expect(view.label).toBe(t.taskPhaseSkipped)
+    expect(view.activity).toBe(t.taskSkippedDetail)
+    expect(view.live).toBe(false)
+  })
+})
+
+describe("describeRequest", () => {
+  it("maps a skipped request to the skipped phase", () => {
+    const view = describeRequest(request({ state: "skipped" }), t)
+    expect(view.phase).toBe("skipped")
+    expect(view.label).toBe(t.taskPhaseSkipped)
+    expect(view.activity).toBe(t.taskSkippedDetail)
+  })
+})
+
+// التخطّي حالة نهائية: لازم يتحسب "استقرّ" زي المتوقف والمكتمل، وإلا المحادثة
+// تفضل "تحمل" والصف يفضل نشط بعد ما المستخدم تخطّى الشغل بنفسه.
+describe("isSettledRequest", () => {
+  it("treats done, stopped, and skipped as settled", () => {
+    expect(isSettledRequest("done")).toBe(true)
+    expect(isSettledRequest("stopped")).toBe(true)
+    expect(isSettledRequest("skipped")).toBe(true)
+  })
+
+  it("treats running and queued as still pending", () => {
+    expect(isSettledRequest("running")).toBe(false)
+    expect(isSettledRequest("queued")).toBe(false)
   })
 })
