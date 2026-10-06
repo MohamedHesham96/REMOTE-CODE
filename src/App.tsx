@@ -64,6 +64,7 @@ import { useScrollToBottom } from "./hooks/useScrollToBottom"
 import { useSettledStatuses } from "./hooks/useSettledStatuses"
 import { mergeActiveSessions } from "./utils/active-sessions"
 import { addAttachmentFiles, attachmentRejectionMessage, modelSupports } from "./utils/attachments"
+import { appendClipboardText } from "./utils/composer-text"
 import { normalizeProjectPath } from "./utils/paths"
 import { forgetLastSession, isRequestsEmpty, loadDefaultModel, loadLastSessions, loadRecentProjects, saveDefaultModel, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
 import { isSettledRequest } from "./utils/task-status"
@@ -1729,14 +1730,9 @@ function App() {
     })
   }
 
-  // إدراج نص ملصوق من الحافظة في آخر المسودة مع مسافة فاصلة عند الحاجة
+  // إدراج نص ملصوق من الحافظة في آخر المسودة
   const handleComposerText = (text: string) => {
-    setComposer((current) => {
-      if (!current) {
-        return text
-      }
-      return /\s$/.test(current) ? current + text : `${current} ${text}`
-    })
+    setComposer((current) => appendClipboardText(current, text))
   }
 
   const handleAbort = async () => {
