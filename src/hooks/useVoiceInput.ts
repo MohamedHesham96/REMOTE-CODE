@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { mergeTranscript, normalizeTranscript } from "../voice"
+import { mergeTranscript, reduceVoiceTranscript, requiresFinalConfidence, type RecognizedSegment, type VoiceTranscriptState } from "../voice"
 
 // أنواع Web Speech API مش موجودة كاملة في lib.dom القياسية بتاعة TypeScript
 // (الموجودة فيها كائنات النتائج بس: SpeechRecognitionResult وما شابه)،
@@ -104,16 +104,12 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
   // بناء جلسة جديدة من جوه onend من غير مرجعية ذاتية على start.
   const beginRef = useRef<() => void>(() => {})
 
-  // النص النهائي المتفَق عليه من الجلسات اللي فاتت + نص الحقل الأصلي. ده اللي
-  // بنبني عليه الجلسة الجارية، وبيتحدّث **مرة واحدة** عند إعادة التشغيل في
-  // اللوك أو تبديل القفل. المجموع المعروض = baseRef + نص الجلسة الحالي.
-  const baseRef = useRef("")
+  // حالة التجميع عبر أحداث الجلسة الواحدة: الأساس المتفَق عليه (نص الحقل
+  // الأصلي + جلسات اللوك اللي فاتت) وآخر نص نهائي مستقر. منطق إعادة البناء
+  // نفسه عايش في reduceVoiceTranscript (voice.ts) عشان يُختبر كدالة بحتة.
+  const voiceStateRef = useRef<VoiceTranscriptState>({ base: "", confirmed: "" })
   // آخر نص كامل بعتناه للحقل — بنقارن بيه عشان ما نبعتش نفس النص مرتين.
   const lastSentRef = useRef("")
-  // آخر نص نهائي اتعرّف عليه في الجلسة. بنستخدمه للحالتين: نرصد لو المتصفح بدأ
-  // مصفوفة نتائج جديدة (فبنضم القديم للأساس مرة واحدة)، وعند إعادة التشغيل في
-  // اللوك بنضمه للأساس. بيبدأ فاضي مع كل جلسة.
-  const lastFinalRef = useRef("")
   // أحدث قيمة للـ callbacks واللغة والأساس.
   const optionsRef = useRef({ language, baseText, onText, onError })
   useEffect(() => {
@@ -154,48 +150,30 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     recognition.interimResults = true
     recognition.maxAlternatives = 1
 
-    // نص الجلسة (المحلي) يبدأ من الصفر؛ التراكم بيتخزّن في baseRef عند الإعادة
-    // بس (إعادة تشغيل في اللوك أو تبديل القفل).
-    lastFinalRef.current = ""
+    // نص الجلسة (المحلي) يبدأ من الصفر؛ التراكم بيتخزّن في voiceStateRef.base
+    // عند الإعادة بس (إعادة تشغيل في اللوك).
+    voiceStateRef.current = { ...voiceStateRef.current, confirmed: "" }
 
-    // نص الجلسة بيتحسب من مصفوفة النتائج الكاملة **من الأول في كل حدث**. ده
-    // المصدر الوحيد للحقيقة: في continuous mode الـ results شايلة كل النتائج
-    // النهائية من أول الجلسة، فمفيش داعي نجمع بأنفسنا (اللي كان بيكرّر) ولا
-    // نرصد تقلّص المبدئي (اللي كان بيلخبط الأساس في اللوك). المجموع المعروض =
-    // الأساس المتفَق عليه + نص الجلسة الحالي.
+    // كل حدث بيتعالج من الأول: بنحوّل نتائجه لمقاطع بسيطة، وبعدين نعيد بناء
+    // النص الكامل عبر reduceVoiceTranscript. إعادة الحساب من الصفر مقصودة عشان
+    // التكرار اللي جوه الحدث نفسه (محرّك أندرويد) ما يتراكمش عبر الأحداث.
     recognition.onresult = (event) => {
-      let finalText = ""
-      let interimText = ""
+      const segments: RecognizedSegment[] = []
       for (let i = 0; i < event.results.length; i++) {
         const result = event.results[i]
-        // التصنيف على أساس isFinal لكل نتيجة لوحدها. من غير أي اعتماد على
-        // resultIndex: في continuous mode النتيجة اللي كانت نهائية ممكن
-        // المحرّك يرجّعها مبدئية تاني وهو بيصحّح، فتعاملها كنهائية كان بيخلط
-        // الكلام ("howhowhowhow are"). isFinal هو المصدر الوحيد للحقيقة.
-        //
-        // كل نتيجة بتتطبّع لسطر واحد قبل الضم: المحرّك بيرجّع مسافات وفواصل
-        // أسطر فاصلة بين النتائج (المواصفة نفسها بتقول إنها whitespace "لازمة
-        // لضم النتائج")، والضم المباشر كان بيسيبها جوه النص فيظهر سطر جديد
-        // قبل الجملة أو وسطها. التطبيع هنا هو المصدر الوحيد للفواصل.
-        const transcript = normalizeTranscript(result[0].transcript)
-        if (!transcript) {
+        const alternative = result[0]
+        if (!alternative) {
           continue
         }
-        if (result.isFinal) {
-          finalText = mergeTranscript(finalText, transcript)
-        } else {
-          interimText = mergeTranscript(interimText, transcript)
-        }
+        segments.push({
+          transcript: alternative.transcript,
+          isFinal: result.isFinal,
+          confidence: alternative.confidence,
+        })
       }
-      // لو نص الحدث الحالي مش بيكمل نص الحدث اللي قبله (المتصفح بدأ مصفوفة
-      // نتائج جديدة لجملة جديدة)، نضم النص القديم للأساس مرة واحدة عشان ما
-      // يضيعش. لو بيكمله (نفس الجلسة بتكبر) مش محتاجين أي حاجة.
-      const previousFinal = lastFinalRef.current
-      if (previousFinal && !finalText.startsWith(previousFinal)) {
-        baseRef.current = mergeTranscript(baseRef.current, previousFinal)
-      }
-      lastFinalRef.current = finalText
-      const next = mergeTranscript(mergeTranscript(baseRef.current, finalText), interimText)
+      const reduced = reduceVoiceTranscript(voiceStateRef.current, segments, requiresFinalConfidence())
+      voiceStateRef.current = reduced.state
+      const next = reduced.text
       if (next && next !== lastSentRef.current) {
         lastSentRef.current = next
         optionsRef.current.onText(next)
@@ -235,8 +213,9 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
         // وضع القفل: المتصفح قفل الجلسة عند الصمت رغم إننا لسه مقفولين،
         // فبنبدأ جلسة جديدة عشان المايك يفضل سامع. بنضم نهائي الجلسة الحالية
         // للأساس **مرة واحدة** عشان الجلسة الجديدة تكمّل من غير ما تكرّر
-        // الكلام اللي اتقال (lastFinalRef هيتصفّر في beginSession).
-        baseRef.current = mergeTranscript(baseRef.current, lastFinalRef.current)
+        // الكلام اللي اتقال (confirmed هيتصفّر في beginSession).
+        const state = voiceStateRef.current
+        voiceStateRef.current = { base: mergeTranscript(state.base, state.confirmed), confirmed: "" }
         clearRestartTimer()
         restartTimerRef.current = window.setTimeout(() => {
           restartTimerRef.current = null
@@ -284,8 +263,9 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     }
     // بداية استماع جديدة من ضغطة المستخدم: الأساس يتثبّت على اللي في الحقل
     // دلوقتي، والتراكم يبدأ من الصفر.
-    baseRef.current = optionsRef.current.baseText
-    lastSentRef.current = baseRef.current
+    const base = optionsRef.current.baseText
+    voiceStateRef.current = { base, confirmed: "" }
+    lastSentRef.current = base
     beginSession()
   }, [beginSession])
 
@@ -299,8 +279,8 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
   }, [clearRestartTimer, clearSilenceTimer])
 
   // قفل/إلغاء قفل الاستماع. القفل بيلغي مهلة الصمت (الجلسة تفضل سامعة لحد ما
-  // يقفلها المستخدم). بندفع النص النهائي الحالي للأساس مرة واحدة، ومش محتاجين
-  // نعيد بناء الجلسة لأن continuous=true في الحالتين.
+  // يقفلها المستخدم). مش محتاجين نلمس التراكم: continuous=true يعني نفس الجلسة
+  // مستمرة وآخر نص نهائي بيفضل يتحدّث فيها عبر reduceVoiceTranscript.
   const toggleLock = useCallback(() => {
     if (!recognitionRef.current) {
       return

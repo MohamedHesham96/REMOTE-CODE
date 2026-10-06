@@ -109,3 +109,114 @@ export function mergeTranscript(base: string, chunk: string): string {
   }
   return /\s$/.test(base) || /^\s/.test(chunk) ? `${base}${chunk}` : `${base} ${chunk}`
 }
+
+// أدنى وصف لمقطع تفريغ واحد، مستقل عن أنواع Web Speech DOM عشان قواعد التجميع
+// تحت تفضل دوال بحتة قابلة للاختبار من غير متصفح.
+export interface RecognizedSegment {
+  transcript: string
+  isFinal: boolean
+  confidence: number
+}
+
+// ضمّ نصّين مع إزالة التداخل عند الوصلة: لو آخر كلمة/كلمات في الأول هي نفسها
+// أول كلمة/كلمات في التاني ("زي كده" + "كده بعد") ما نكرّرهاش. كمان بيعالج
+// الحالات الحرفية اللي محرّك أندرويد بيبعتها: المقطع المكرّر نفسه، أو مقطع
+// تراكمي بيبدأ ببداية اللي قبله ("مو" ← "موبا" ← "موبايل"). من غير كده الضمّ
+// الساذج بيدّي "مو موبا موبايل" و"زي كده كده بعد".
+export function mergeTranscriptOverlap(base: string, chunk: string): string {
+  const left = normalizeTranscript(base)
+  const right = normalizeTranscript(chunk)
+  if (!left) {
+    return right
+  }
+  if (!right) {
+    return left
+  }
+  // واحد فيهم بيحتوي التاني: ناخد الأكمل. ده بيغطّي المقطع المكرّر، والمقطع
+  // التراكمي، وإعادة إرسال الجملة (أو جزء منها) عند وقف الاستماع.
+  if (right.includes(left)) {
+    return right
+  }
+  if (left.includes(right)) {
+    return left
+  }
+  const leftWords = left.split(" ")
+  const rightWords = right.split(" ")
+  const max = Math.min(leftWords.length, rightWords.length)
+  for (let n = max; n > 0; n--) {
+    if (leftWords.slice(leftWords.length - n).join(" ") === rightWords.slice(0, n).join(" ")) {
+      return [...leftWords, ...rightWords.slice(n)].join(" ")
+    }
+  }
+  return `${left} ${right}`
+}
+
+// ضم قائمة مقاطع التفريغ بنفس قواعد إزالة التداخل — تُستخدم لنتائج الحدث الواحد.
+export function joinTranscriptSegments(segments: readonly string[]): string {
+  let result = ""
+  for (const raw of segments) {
+    result = mergeTranscriptOverlap(result, normalizeTranscript(raw))
+  }
+  return result
+}
+
+// كشف المنصّة مرة واحدة عند الطلب: محرّك أندرويد بيعلّم النتائج المتغيّرة (اللي
+// لسه بتتصحّح) كأنها نهائية بثقة صفر لحد ما تستقر، بعكس سطح المكتب. لازم نعرف
+// المنصّة عشان نطبّق فحص الثقة ده على أندرويد بس، وإلا النهائي الحقيقي على
+// سطح المكتب — اللي ممكن ثقته صفر كمان — هيتعامل كمبدئي.
+export function requiresFinalConfidence(): boolean {
+  return /android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "")
+}
+
+export interface FlatVoiceTranscript {
+  finalText: string
+  interimText: string
+}
+
+// فصل نتائج حدث واحد إلى نص نهائي مستقر ونص مبدئي متغيّر. القرار على isFinal،
+// وعلى أندرويد كمان على confidence > 0 (المصحّحات الوسيطة ثقتها صفر).
+export function flattenRecognitionSegments(
+  segments: readonly RecognizedSegment[],
+  requireConfidence: boolean,
+): FlatVoiceTranscript {
+  const finals: string[] = []
+  const interims: string[] = []
+  for (const segment of segments) {
+    const transcript = normalizeTranscript(segment.transcript)
+    if (!transcript) {
+      continue
+    }
+    if (segment.isFinal && (!requireConfidence || segment.confidence > 0)) {
+      finals.push(transcript)
+    } else {
+      interims.push(transcript)
+    }
+  }
+  return { finalText: joinTranscriptSegments(finals), interimText: joinTranscriptSegments(interims) }
+}
+
+// حالة التجميع عبر أحداث التعرف المتتالية في الجلسة الواحدة.
+export interface VoiceTranscriptState {
+  // نص الحقل قبل بداية الجلسة (بما فيه جلسات اللوك اللي فاتت).
+  base: string
+  // النص النهائي المستقر المتراكم في الجلسة الجارية، بيتجمّع من كل حدث بضمّ
+  // واعي بالتداخل عشان إعادة إرسال جزء منه ما تكرّرهوش.
+  confirmed: string
+}
+
+// إعادة بناء النص الكامل من حالة سابقة + حدث التعرف الحالي. إعادة الحساب من
+// الصفر كل حدث مقصودة: أي تكرار جوه الحدث نفسه بيتصفّى قبل ما يتراكم. ومهم:
+// مفيش أي «ضمّ للأساس» أثناء الجلسة — المحرّك وقت الوقوف بيعيد إرسال الجملة
+// كاملة، فلو كنا ضمّينا أجزاءها للأساس ونضمّها تاني هنا الجملة تتكرر. بدل كده
+// بنجمّع النهائي كله في confirmed بضمّ بيشيل التداخل، فإعادة الإرسال ما بتغيّرش
+// حاجة.
+export function reduceVoiceTranscript(
+  state: VoiceTranscriptState,
+  segments: readonly RecognizedSegment[],
+  requireConfidence: boolean,
+): { state: VoiceTranscriptState; text: string } {
+  const { finalText, interimText } = flattenRecognitionSegments(segments, requireConfidence)
+  const confirmed = mergeTranscriptOverlap(state.confirmed, finalText)
+  const text = mergeTranscript(state.base, mergeTranscriptOverlap(confirmed, interimText))
+  return { state: { base: state.base, confirmed }, text }
+}

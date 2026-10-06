@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { effectiveVoiceLanguage, languageCodeOf, mergeTranscript, nextVoiceLanguage, normalizeTranscript, voiceLanguageCode } from "./voice"
+import { effectiveVoiceLanguage, flattenRecognitionSegments, joinTranscriptSegments, languageCodeOf, mergeTranscript, mergeTranscriptOverlap, nextVoiceLanguage, normalizeTranscript, reduceVoiceTranscript, type RecognizedSegment, type VoiceTranscriptState, voiceLanguageCode } from "./voice"
 
 // الشارة على زر المايك لازم تقول اللغة الفعلية للتعرّف مش الإعداد المخزّن،
 // فمن غير اختبار ده ممكن الشارة تكدب على المستخدم عن لغة جلسته — خصوصًا
@@ -92,5 +92,134 @@ describe("mergeTranscript", () => {
   it("ضم سلسلة نتائج متتالية ما يطلعش أي سطر جديد", () => {
     const merged = ["\nالسلام", "\nعليكم", " إزيك"].map(normalizeTranscript).reduce(mergeTranscript, "")
     expect(merged).toBe("السلام عليكم إزيك")
+  })
+})
+
+// محرّك أندرويد بيكرّر: بيعيد المقطع النهائي مرتين، وبيعلّم المصحّحات الوسيطة
+// كأنها نهائية بثقة صفر. الاختبارات دي بتثبّت قواعد التنظيف اللي بتمنع ظهور
+// "زي زي زي زي" في الحقل.
+
+describe("joinTranscriptSegments", () => {
+  it("ما يكرّرش المقطع نفسه لما المحرّك يبعته مرتين", () => {
+    expect(joinTranscriptSegments(["زي", "زي"])).toBe("زي")
+  })
+
+  it("يطوي المقاطع التراكمية لآخر أكمل نسخة", () => {
+    expect(joinTranscriptSegments(["مو", "موبا", "موبايل"])).toBe("موبايل")
+  })
+
+  it("يضم المقاطع الطبيعية بمسافة واحدة", () => {
+    expect(joinTranscriptSegments(["السلام", "عليكم"])).toBe("السلام عليكم")
+  })
+
+  it("يتجاهل المقاطع الفاضية ويطبّع المسافات", () => {
+    expect(joinTranscriptSegments(["  ", "\nالسلام", "", "عليكم  "])).toBe("السلام عليكم")
+  })
+})
+
+describe("flattenRecognitionSegments", () => {
+  it("على سطح المكتب يثق في isFinal حتى لو الثقة صفر", () => {
+    const flat = flattenRecognitionSegments(
+      [
+        { transcript: "السلام", isFinal: true, confidence: 0 },
+        { transcript: "عليكم", isFinal: false, confidence: 0 },
+      ],
+      false,
+    )
+    expect(flat).toEqual({ finalText: "السلام", interimText: "عليكم" })
+  })
+
+  it("على أندرويد يعامل النهائي بثقة صفر كمبدئي", () => {
+    const flat = flattenRecognitionSegments(
+      [
+        { transcript: "السلام", isFinal: true, confidence: 0.8 },
+        { transcript: "عليكم", isFinal: true, confidence: 0 },
+      ],
+      true,
+    )
+    expect(flat).toEqual({ finalText: "السلام", interimText: "عليكم" })
+  })
+
+  it("على أندرويد يقبل النهائي بثقة موجبة", () => {
+    const flat = flattenRecognitionSegments(
+      [
+        { transcript: "زي", isFinal: true, confidence: 0.9 },
+        { transcript: "زي", isFinal: true, confidence: 0.9 },
+      ],
+      true,
+    )
+    expect(flat).toEqual({ finalText: "زي", interimText: "" })
+  })
+})
+
+describe("mergeTranscriptOverlap", () => {
+  it("يشيل التداخل عند الوصلة على مستوى الكلمات", () => {
+    expect(mergeTranscriptOverlap("زي كده", "كده بعد")).toBe("زي كده بعد")
+  })
+
+  it("يطوي المقطع المكرّر والمقطع التراكمي", () => {
+    expect(mergeTranscriptOverlap("زي", "زي")).toBe("زي")
+    expect(mergeTranscriptOverlap("مو", "موبا")).toBe("موبا")
+  })
+
+  it("يضم النصّين الجديدين بمسافة واحدة", () => {
+    expect(mergeTranscriptOverlap("السلام", "عليكم")).toBe("السلام عليكم")
+  })
+
+  it("ما يدمجش تداخلًا حرفيًا جوه الكلمات", () => {
+    // «أنا» + «نام» … التداخل الحرفي "نا" مش على حدود كلمة، فما ينفعش يندمج
+    expect(mergeTranscriptOverlap("أنا", "نام")).toBe("أنا نام")
+  })
+
+  it("يسيب الأكمل لما المحرّك يعيد جزءًا من نص متجمّع بالفعل", () => {
+    expect(mergeTranscriptOverlap("زي كده بعد", "كده بعد")).toBe("زي كده بعد")
+    expect(mergeTranscriptOverlap("زي كده بعد", "زي كده")).toBe("زي كده بعد")
+  })
+})
+
+describe("reduceVoiceTranscript", () => {
+  const segment = (transcript: string, isFinal: boolean, confidence = 0.9): RecognizedSegment => ({ transcript, isFinal, confidence })
+
+  it("يجمّع الجملة عبر الأحداث من غير تكرار", () => {
+    const first = reduceVoiceTranscript({ base: "", confirmed: "" }, [segment("زي", true)], true)
+    expect(first.text).toBe("زي")
+    const second = reduceVoiceTranscript(first.state, [segment("زي", true), segment("كده", true)], true)
+    expect(second.text).toBe("زي كده")
+  })
+
+  it("ما يكرّرش الكلمة لما المحرّك يبعت النهائي مرتين", () => {
+    const first = reduceVoiceTranscript({ base: "", confirmed: "" }, [segment("زي", true)], true)
+    const second = reduceVoiceTranscript(first.state, [segment("زي", true), segment("زي", true)], true)
+    expect(second.text).toBe("زي")
+  })
+
+  it("ما يكرّرش الجملة لما المحرّك يعيد إرسالها كاملة عند وقف الاستماع", () => {
+    // ده السيناريو اللي كان بيطلّع الجملة مرتين: الجملة توصل على أجزاء والمحرّك
+    // بيصفّر مصفوفة النتائج مع كل جزء، وبعدين عند الوقوف يبعت الجملة كاملة تاني.
+    let state: VoiceTranscriptState = { base: "", confirmed: "" }
+    state = reduceVoiceTranscript(state, [segment("زي", true)], true).state
+    state = reduceVoiceTranscript(state, [segment("كده", true)], true).state
+    const spoken = reduceVoiceTranscript(state, [segment("بعد", true)], true)
+    expect(spoken.text).toBe("زي كده بعد")
+
+    const flush = reduceVoiceTranscript(spoken.state, [segment("زي", true), segment("كده", true), segment("بعد", true)], true)
+    expect(flush.text).toBe("زي كده بعد")
+  })
+
+  it("ما يكرّرش الكلام لما محرّك أندرويد يصحّح ويقصّر النص الوسيط", () => {
+    // الثقة صفر معناها المقطع لسه بيتغيّر، فبيتعامل كمبدئي ومسموح له يتراجع
+    // بدل ما يتضمّن للنهائي ويفضل ثابت بعدين يتكرّر.
+    const state: VoiceTranscriptState = { base: "", confirmed: "" }
+    const longer = reduceVoiceTranscript(state, [segment("زي كده", true, 0)], true)
+    expect(longer.text).toBe("زي كده")
+    const shortened = reduceVoiceTranscript(longer.state, [segment("زي", true, 0)], true)
+    expect(shortened.text).toBe("زي")
+  })
+
+  it("يجمّع النص الجديد فوق نص الحقل الأصلي", () => {
+    const state: VoiceTranscriptState = { base: "مرحبا", confirmed: "" }
+    const result = reduceVoiceTranscript(state, [segment("عليكم", true)], true)
+    expect(result.text).toBe("مرحبا عليكم")
+    expect(result.state).toEqual({ base: "مرحبا", confirmed: "عليكم" })
   })
 })
