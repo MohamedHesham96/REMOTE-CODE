@@ -1081,14 +1081,22 @@ h2.session-title-editable { cursor: pointer; }
 .stop-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 24px; flex: 0 0 auto; align-self: center; margin-inline-start: 0; padding: 0 9px; border: 1px solid rgba(255, 127, 157, 0.4); border-radius: 1px; color: var(--error-text); background: rgba(255, 127, 157, 0.12); font-size: 10px; font-weight: 800; box-shadow: 0 4px 12px rgba(255, 127, 157, 0.15); transition: 0.18s ease; }
 .stop-button:hover { background: rgba(255, 127, 157, 0.2); transform: translateY(-1px); }
 
+/* زر مسح النص المكتوب: بيظهر جنب زر الإرسال بس لما يكون فيه كلام في الحقل.
+   بنفس مقاس أزرار الإرفاق (34px) وظلّهم الفلاش (مفيش ظل) عشان يبان جزء
+   طبيعي من الصف، وبلون الخطر عند المرور لأنه فعل هدّام. */
+.clear-button { width: 34px; height: 34px; min-height: 0; flex: 0 0 auto; align-self: center; display: flex; align-items: center; justify-content: center; padding: 0; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 1px; color: var(--muted); background: var(--surface-card); cursor: pointer; transition: color 0.18s ease, border-color 0.18s ease, transform 0.15s ease; }
+.clear-button:hover { color: var(--error-text); border-color: rgba(255, 127, 157, 0.45); }
+.clear-button:active { transform: scale(0.94); }
+
 /* زر المايك: نفس مقاس وحجم أزرار الإرفاق (34px) عشان صف الأزرار يبان متراص،
-   ولما الاستماع شغال بيفرّق بنبض أحمر عشان العين تلحظ الحالة من بعيد. */
+   ونفس الحدود والظل بالظبط — بلا ظل — عشان يبان امتداد طبيعي ليهم مش زر
+   بارز لوحده. ولما الاستماع شغال بيفرّق بنبض أحمر عشان العين تلحظ الحالة. */
 /* غلاف المايك: أفقي — المايك، وجنبه (على حافته) زر القفل وزر تبديل اللغة.
    الصف كله متوسّط رأسيًا، واللغة بتقعد في نص ارتفاع المايك زي ما باين في
    التصميم، فمفيش ارتفاع زيادة تحت المايك. */
 .voice-control { position: relative; display: flex; align-items: center; align-self: center; flex: 0 0 auto; gap: 6px; }
-.voice-button { position: relative; width: 34px; height: 34px; min-height: 0; flex: 0 0 auto; align-self: center; display: flex; align-items: center; justify-content: center; gap: 4px; margin-inline-start: 0; padding: 0; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 1px; color: var(--muted); background: var(--surface-card); box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.18); transition: transform 0.18s ease, box-shadow 0.18s ease, color 0.18s ease, border-color 0.18s ease; cursor: pointer; }
-.voice-button:hover:not(:disabled) { transform: translateY(-2px); color: var(--accent-strong); border-color: var(--accent-border); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22); }
+.voice-button { position: relative; width: 34px; height: 34px; min-height: 0; flex: 0 0 auto; align-self: center; display: flex; align-items: center; justify-content: center; gap: 4px; margin-inline-start: 0; padding: 0; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 1px; color: var(--muted); background: var(--surface-card); box-shadow: none; transition: transform 0.18s ease, box-shadow 0.18s ease, color 0.18s ease, border-color 0.18s ease; cursor: pointer; }
+.voice-button:hover:not(:disabled) { transform: translateY(-2px); color: var(--accent-strong); border-color: var(--accent-border); box-shadow: none; }
 .voice-button:active:not(:disabled) { transform: scale(0.97); }
 .voice-button:disabled { cursor: not-allowed; filter: saturate(0.35) brightness(0.75); opacity: 0.6; }
 .voice-button.is-listening { color: #fff; border-color: rgba(255, 127, 157, 0.55); background: rgba(255, 127, 157, 0.14); box-shadow: 0 0 0 3px rgba(255, 127, 157, 0.12), 0 8px 22px rgba(0, 0, 0, 0.45); animation: voice-pulse 1.15s ease-in-out infinite; }

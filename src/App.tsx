@@ -2238,6 +2238,22 @@ function App() {
                 <div className="composer-actions">
                   <span className="composer-hint">{t.composerHint}</span>
                   {isBusy || hasQueuedRequests ? <button type="button" className="stop-button" onClick={() => void handleAbort()}>■ {t.stop}</button> : null}
+                  {/* زر مسح النص: بيظهر بس لما يكون فيه كلام مكتوب في الحقل،
+                      ودوره يفضّي الحقل اللي فيه من غير ما يلمس الإرفاق. */}
+                  {composer.trim() ? (
+                    <button
+                      type="button"
+                      className="clear-button"
+                      onClick={() => setComposer("")}
+                      aria-label={t.clearComposer}
+                      title={t.clearComposer}
+                    >
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                      </svg>
+                    </button>
+                  ) : null}
                   <button
                     className={`send-button${composer.trim() || attachments.length > 0 ? " is-ready" : ""}${sending ? " is-sending" : ""}`}
                     disabled={(!composer.trim() && attachments.length === 0) || sending}
