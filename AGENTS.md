@@ -47,7 +47,7 @@ npm run check   # lint + typecheck + test + build
 
 - **بدون semicolons** في آخر السطور. الاستثناء الوحيد `src/i18n.ts` و `server/i18n.ts` — سيبهم زي ما هم، **متعملش reformat**، ومتضيفش semicolons في ملف جديد.
 - double quotes، مسافة بادئة 2.
-- **named exports فقط.** `export default` موجود في `vite.config.ts` و `vitest.config.ts` و `src/App.tsx:2375` بس. ملف جديد = named exports.
+- **named exports فقط.** `export default` موجود في `vite.config.ts` و `vitest.config.ts` و `src/App.tsx:2407` بس. ملف جديد = named exports.
 - `import type` للـ types. على السيرفر **لازم** `.js` على الـ relative imports (`from "../i18n.js"`) — NodeNext ESM. على العميل **من غير** امتداد (`from "../api/pins"`).
 - return type صريح على أي function مُصدَّرة.
 - `interface` للـ object types، `type` للـ unions.
@@ -142,7 +142,7 @@ fix: <what broke>
 ## Gotchas
 
 - قاعدة المحرك v2 مشتركة مع تطبيق الديسكتوب (`~/.local/share/opencode/opencode.db`) — نفس الجلسات في المكانين دون عزل أو استيراد. `server/index.ts` لا يضبط `OPENCODE_DB` إطلاقًا. الخدمة المحلية تُدار عبر `Service.ensure()` من `@opencode/client/service` (تثبيت الإصدار `2.`) بدل توليد `opencode serve` يدويًا، فلا `OPENCODE_PORT` ولا مصادقة أساسية. الاستثناء الوحيد: على Windows التشغيل عبر `server/opencode/service-launch.ts` — اكتشاف صامت أولًا، ثم تشغيل مخفي (`windowsHide` على ملف `.exe` مباشرة) لأن `spawn("opencode")` الافتراضي يفشل (`ENOENT` مع شيم `.cmd`) ولو نجح لفتح نافذة PowerShell جديدة. v2 بلا `project.current` (الاختيار حالة محلية فقط في `OpenCodeService`)، وبلا `session.status` (الحالة من `session.active()` + الأحداث)، وبلا todos أو أسئلة v1 (استُبدلت باستمارات `session.form.*` وأذونات `permission.*`). أسماء أحداث SSE على السلك (`question.asked`، `permission.updated`، `message.part.updated`…) ثابتة منذ v1 — الترجمة في `server/sse/filter.ts` فقط، فالواجهة لا تتغير مع تبديل المحرك. نفس البوابة (`isListableProjectDirectory` في `server/opencode/utils.ts`) ترشّح قائمة `/api/project` كلها.
-- `src/App.tsx` = **2375 سطر**، `server/opencode.ts` = **2066**. معروفين. **ماتزوّدهمش** — استخرج الجزء الجديد لملف مستقل يسجّل في الـ barrel المناسب.
+- `src/App.tsx` = **2407 سطر**، `server/opencode.ts` = **2066**. معروفين. **ماتزوّدهمش** — استخرج الجزء الجديد لملف مستقل يسجّل في الـ barrel المناسب.
 - `server/i18n.ts` بيستخدم semicolons والملف التاني لأ — **استثناء تاريخي مقصود**، سيبه.
 - `@opencode/client` pinned بالظبط. أي bump = مراجعة breaking changes من الـ release notes، مش تخمين.
 - `express.json({ limit: "8mb" })` — طلبات أكبر بترمي 413. السقف مرفوع عشان مرفقات الرسائل (الصور مضمّنة كـ data URI، والترميز يكبّر الحجم ~33%).
