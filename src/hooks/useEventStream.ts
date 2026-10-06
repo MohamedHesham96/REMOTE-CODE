@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import type { ClientEvent, PinnedConversation } from "../types"
-import { PINS_SYNC_EVENT, SSE_STALE_MS, SSE_WATCHDOG_MS } from "../constants"
+import { MODEL_PINS_SYNC_EVENT, PINS_SYNC_EVENT, SSE_STALE_MS, SSE_WATCHDOG_MS } from "../constants"
 
 interface EventStreamOptions {
   enabled: boolean
@@ -98,6 +98,16 @@ export function useEventStream(options: EventStreamOptions): boolean {
           window.dispatchEvent(new CustomEvent(PINS_SYNC_EVENT, { detail: { pins: payload.pins } }))
         } catch {
           // رد مش مفهوم — الـ resync والـ poll بيجيبوا الصورة الصح
+        }
+      })
+      // مثبّتات النماذج: نفس الجسر، فالقائمة العالمية بتتحدّد لكل النوافذ
+      // المفتوحة لحظة ما يتثبت نموذج من أي جهاز.
+      next.addEventListener("modelPins", (rawEvent) => {
+        try {
+          const payload = JSON.parse((rawEvent as MessageEvent<string>).data) as { models?: string[] }
+          window.dispatchEvent(new CustomEvent(MODEL_PINS_SYNC_EVENT, { detail: { models: payload.models } }))
+        } catch {
+          // رد مش مفهوم — الـ refresh والـ poll بيجيبوا الصورة الصح
         }
       })
       next.onerror = () => {

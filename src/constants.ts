@@ -11,12 +11,18 @@ export const PINNED_SESSIONS_KEY = "opencode.pinnedSessions"
 // سقف للمحادثات المثبّتة المحفوظة — يمنع التخزين من النمو بلا حد
 export const PINNED_SESSIONS_LIMIT = 200
 // مفاتيح النماذج المثبّتة في منتقي النماذج ("providerID/modelID") — كاش عرض
-// محلي (مش على السيرفر)، وسقف 5 يخلّي القسم العلوي مفيدًا بدل قائمة ثانية
+// محلي بس: مصدر الحقيقة بقى ملف السيرفر (data/model-pins.json) عشان التثبيت
+// من الموبايل يوصل للويب والعكس. الكاش لسه مهم للعرض الأول من غير وميض
+// فاضي، ولترقية الأجهزة اللي لسه مخزّنة محليًا (دمج أول مرة).
 export const PINNED_MODELS_KEY = "opencode.pinnedModels"
+// سقف 5 يخلّي القسم العلوي مفيدًا بدل قائمة ثانية — لازم يطابق
+// MAX_PINNED_MODELS في server/model-pins.ts، وإلا القسم بيعدّ غلط
 export const PINNED_MODELS_LIMIT = 5
 // حدث داخلي: السيرفر بثّ قائمة المثبّتات الجديدة (تغيير من جهاز تاني أو من
 // نافذة تانية) والـ hook بيسمعه فالتطبيقات كلها بتتحدّد من غير poll
 export const PINS_SYNC_EVENT = "opencode:pins"
+// نفس الحاجة لمثبّتات النماذج على قناة SSE تانية
+export const MODEL_PINS_SYNC_EVENT = "opencode:modelPins"
 export const ACTIVE_GRACE_MS = 5 * 60 * 1000
 // بعد قد إيه من صمت (ولا أداة شغّالة) نعتبر الطلب "في انتظار" بدل "قيد التنفيذ".
 // قصير من مهلة الجمود اللي في السيرفر (BUSY_STALL_MS = ١٠ د) عن قصد: ده

@@ -6,11 +6,12 @@ import { readFileSync } from "node:fs"
 import { config } from "./config.js"
 import { requireAuthentication } from "./auth.js"
 import { OpenCodeService } from "./opencode.js"
+import { ModelPinService } from "./model-pins.js"
 import { PinService } from "./pins.js"
 import { PushService } from "./push.js"
 import { createRateLimiter } from "./utils/rate-limit.js"
 import { OpenCodeConnection } from "./connection.js"
-import { EventHub, pinsEvent } from "./sse/hub.js"
+import { EventHub, modelPinsEvent, pinsEvent } from "./sse/hub.js"
 import { consoleLang, serverMessage } from "./i18n.js"
 import { clientEvent, conversationEvent, eventSessionId, isIdleEvent } from "./sse/filter.js"
 import { securityHeaders } from "./middleware/security.js"
@@ -22,6 +23,7 @@ import { registerCertificateRoutes } from "./routes/certificate.js"
 import { registerProjectRoutes } from "./routes/projects.js"
 import { registerSessionRoutes } from "./routes/sessions.js"
 import { registerPinRoutes } from "./routes/pins.js"
+import { registerModelPinRoutes } from "./routes/model-pins.js"
 import { registerConversationRoutes } from "./routes/conversation.js"
 import { registerModelRoutes } from "./routes/models.js"
 import { registerInteractionRoutes } from "./routes/interaction.js"
@@ -41,6 +43,7 @@ import type { OpenCodeEvent } from "@opencode/client"
 const app = express()
 const openCode = new OpenCodeService(config.openCode)
 const pins = new PinService()
+const modelPins = new ModelPinService()
 const push = new PushService(config.push)
 const connection = new OpenCodeConnection(openCode)
 const hub = new EventHub()
@@ -49,13 +52,19 @@ const hub = new EventHub()
 // بعيد عن السقف، لكن حلقات الخلل والعواصف بتتوقف بـ 429 + Retry-After
 const pollLimiter = createRateLimiter({ windowMs: 60_000, max: 300 })
 
-const routeContext: RouteContext = { openCode, pins, push, connection, hub, pollLimiter }
+const routeContext: RouteContext = { openCode, pins, modelPins, push, connection, hub, pollLimiter }
 
 // مثبّتات: مصدر الحقيقة الوحيد، فلازم يتغيّر في كل الأجهزة والـ tabs المفتوحة.
 // البثّ من الـ service نفسه مش من الـ routes، فأي تعديل يوصل — حتى اللي
 // بيحصل مع حذف جلسة (forget) أو مع ترقية كاش جهاز تاني (merge).
 pins.subscribe((list) => {
   hub.broadcast(pinsEvent(list))
+})
+
+// مثبّتات النماذج نفس المنطق على قناة SSE تانية: تثبيت من الموبايل يظهر على
+// الويب فورًا والعكس، والقائمة العالمية بتتحدث لكل الأجهزة المفتوحة.
+modelPins.subscribe((models) => {
+  hub.broadcast(modelPinsEvent(models))
 })
 
 // ترقية المثبّتات القديمة اللي مالها مسار (كاش ids مجرّدة): OpenCode هو اللي
@@ -95,6 +104,7 @@ registerConfigRoutes(app, routeContext)
 registerProjectRoutes(app, routeContext)
 registerSessionRoutes(app, routeContext)
 registerPinRoutes(app, routeContext)
+registerModelPinRoutes(app, routeContext)
 registerConversationRoutes(app, routeContext)
 registerModelRoutes(app, routeContext)
 registerInteractionRoutes(app, routeContext)

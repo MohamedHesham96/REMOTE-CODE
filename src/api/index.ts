@@ -7,6 +7,7 @@ export { abortSession, getHistory, getRequests, removeQueuedRequest, runQueuedRe
 export { getModels, getSessionModel, setSessionModel } from "./models"
 export { listPermissions, rejectQuestion, replyPermission, replyQuestion } from "./interaction"
 export { addPin, forgetPins, getPins, mergePins, removePin } from "./pins"
+export { addModelPin, getModelPins, mergeModelPins, removeModelPin } from "./model-pins"
 export { getGitChanges } from "./git"
 export { downloadResultFile, fileDownloadUrl, shareResultFile, downloadCertificate } from "./files"
 export { subscribePush, unsubscribePush } from "./push"

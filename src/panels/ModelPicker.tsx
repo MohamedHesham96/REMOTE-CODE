@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react"
+import { memo, useCallback, useDeferredValue, useMemo, useState } from "react"
 import {
   getVarietyLevels,
   GitRefreshIcon,
@@ -9,11 +9,13 @@ import {
 } from "../display"
 import type { Strings } from "../i18n"
 import { PINNED_MODELS_LIMIT } from "../constants"
+import { usePinnedModels } from "../hooks/usePinnedModels"
 import type {
   ModelInfo,
   SessionModelRef,
 } from "../types"
-import { loadPinnedModels, modelPinKey, savePinnedModels, togglePinnedModel } from "../utils/storage"
+import { buildModelCatalog } from "../utils/model-search"
+import { modelPinKey } from "../utils/storage"
 
 // صف النموذج: كائن memo مستقل عشان الكتابة في البحث تعيد رسم الصفوف اللي
 // اتغيّرت بس. القائمة ممكن توصل لمئات النماذج، وكل ضغطة حرف في البحث كانت
@@ -103,18 +105,20 @@ export function ModelPicker({
   // يخلّي التنقل حسب الموفر بدل السكرول الطويل. البحث يفتح الكل تلقائيًا
   // عشان النتائج تبان من غير فتح يدوي.
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
-  // النماذج المثبتة (بحد أقصى 5) — كاش عرض محلي يظهر قسمًا علويًا ثابتًا
-  // للوصول السريع من غير سكرول في مئات النماذج. مطوي افتراضيًا زي باقي
-  // المجموعات: العنوان بيقول كام مثبت، والمستخدم يفتحه لما يعوزه
-  const [pinnedKeys, setPinnedKeys] = useState<string[]>(() => loadPinnedModels())
+  // النماذج المثبتة (بحد أقصى 5) — مصدرها السيرفر فتبقى زي ما هي على كل
+  // الأجهزة (تثبيت من الموبايل يظهر هنا والعكس). القسم العلوي مطوي افتراضيًا
+  // زي باقي المجموعات: العنوان بيقول كام مثبت، والمستخدم يفتحه لما يعوزه
+  const { keys: pinnedKeys, isPinned: isModelPinned, togglePin: toggleModelPin } = usePinnedModels()
   const [pinnedOpen, setPinnedOpen] = useState(false)
-  useEffect(() => {
-    savePinnedModels(pinnedKeys)
-  }, [pinnedKeys])
+  // مستوى التفكير بيتتبع الموديل اللي ضغطت عليه في القائمة، مش الموديل
+  // النشط في الجلسة. الربط بالموديل النشط مباشرة كان بيخلّي القائمة فوق
+  // تعرض مستويات الموديل القديم لثواني بعد الضغط على موديل تاني، لحد ما
+  // السيرفر يرد ويحدّث الاختيار. الاختيار هنا محلي وفوري، والسيرفر يبقى
+  // مصدر الحقيقة بعد التأكيد.
+  const [focus, setFocus] = useState<{ key: string; variant: string } | null>(null)
   const togglePin = useCallback((model: ModelInfo): void => {
-    setPinnedKeys((current) => togglePinnedModel(current, modelPinKey(model.providerID, model.id)))
-  }, [])
-  const searching = query.trim().length > 0
+    toggleModelPin(modelPinKey(model.providerID, model.id))
+  }, [toggleModelPin])
   const toggleGroup = (providerID: string): void => {
     setExpanded((previous) => {
       const next = new Set(previous)
@@ -128,89 +132,103 @@ export function ModelPicker({
   }
   // كل النماذج تتعرض كما وصلت من السيرفر — بلا إخفاء حسب التفعيل.
   // مرشح "المجاني فقط" اختياري (مغلق افتراضيًا) فالقائمة الكاملة هي الأصل.
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    const list = freeOnly ? models.filter((model) => model.free) : models
-    if (!q) {
-      return list
-    }
-    return list.filter((model) =>
-      `${model.providerID}/${model.id} ${model.name}`.toLowerCase().includes(q),
-    )
-  }, [models, freeOnly, query])
+  //
+  // الفهرس (النص المصغّر + الترتيب + خريطة المفاتيح) بيتحسب مرة واحدة لما
+  // الكتالوج يتغير، مش مع كل حرف — التفاصيل في src/utils/model-search.ts.
+  // الكتابة نفسها بتعمل includes على نصوص جاهزة بس.
+  const catalog = useMemo(() => buildModelCatalog(models), [models])
+
+  // البحث بيتنفّذ على القيمة المؤجّلة: الحرف بيتكتب فورًا في الحقل (حالة
+  // عاجلة)، وقائمة النتايج تتحدّث في رندر أقل أولوية — فمئات الصفوف ما
+  // يعلّقوش الإدخال على الموبايل. على جهاز سريع الفرق مش محسوس.
+  const deferredQuery = useDeferredValue(query)
+  const needle = useMemo(() => deferredQuery.trim().toLowerCase(), [deferredQuery])
+  const searching = needle.length > 0
 
   // التجميع حسب الموفر مرتبًا أبجديًا — والنماذج داخل كل مجموعة مرتبة بالاسم.
   // المثبتة مستثناة من المجموعات (تظهر في القسم العلوي فقط) عشان مفيش تكرار —
   // لكن أثناء البحث بترجع لمجموعتها الطبيعية: البحث فهرس للنتايج مش قائمة
   // اختصارات، والمستخدم بيدوّر على الموديل مش على مكانه في تثبيته
   const groups = useMemo(() => {
-    const pinned = searching ? new Set<string>() : new Set(pinnedKeys)
-    const map = new Map<string, ModelInfo[]>()
-    for (const model of filtered) {
-      if (pinned.has(modelPinKey(model.providerID, model.id))) {
-        continue
-      }
-      const list = map.get(model.providerID)
-      if (list) {
-        list.push(model)
-      } else {
-        map.set(model.providerID, [model])
-      }
-    }
-    return [...map.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([providerID, list]) => ({
-        providerID,
-        models: [...list].sort((a, b) => a.name.localeCompare(b.name)),
+    const pinned = searching ? null : new Set(pinnedKeys)
+    return catalog.providers
+      .map((group) => ({
+        providerID: group.providerID,
+        models: group.entries
+          .filter((entry) =>
+            (!pinned || !pinned.has(entry.key))
+            && (!freeOnly || entry.model.free)
+            && (!needle || entry.haystack.includes(needle)))
+          .map((entry) => entry.model),
       }))
-  }, [filtered, pinnedKeys, searching])
+      .filter((group) => group.models.length > 0)
+  }, [catalog, pinnedKeys, searching, freeOnly, needle])
 
   // القسم العلوي بنفس ترتيب التثبيت ("الأحدث أولًا")، ويخضع لنفس الترشيح
   // (مجاني/بحث) عشان البحث ما يسيبش نتائج قديمة ظاهرة فوق
   const pinnedModels = useMemo(() => {
-    const byKey = new Map(models.map((model) => [modelPinKey(model.providerID, model.id), model]))
-    const q = query.trim().toLowerCase()
     const result: ModelInfo[] = []
     for (const key of pinnedKeys) {
-      const model = byKey.get(key)
-      if (!model) {
+      const entry = catalog.byKey.get(key)
+      if (!entry) {
         continue
       }
-      if (freeOnly && !model.free) {
+      if (freeOnly && !entry.model.free) {
         continue
       }
-      if (q && !`${model.providerID}/${model.id} ${model.name}`.toLowerCase().includes(q)) {
+      if (needle && !entry.haystack.includes(needle)) {
         continue
       }
-      result.push(model)
+      result.push(entry.model)
     }
     return result
-  }, [models, pinnedKeys, freeOnly, query])
+  }, [catalog, pinnedKeys, freeOnly, needle])
   const pinnedFull = pinnedKeys.length >= PINNED_MODELS_LIMIT
 
   const totalCount = models.length
 
   // خيارات الـ variety بتتغير حسب الموديل المختار — بنجيبها من الموديل نفسه
   const currentModel = useMemo(
-    () => models.find((model) => model.providerID === current?.providerID && model.id === current?.modelID) ?? null,
-    [models, current],
+    () => (current ? catalog.byKey.get(modelPinKey(current.providerID, current.modelID))?.model ?? null : null),
+    [catalog, current],
   )
-  const variants = useMemo(() => (currentModel ? getVarietyLevels(currentModel) : []).sort((a, b) => {
+  // الموديل اللي مستوى التفكير متعلق بيه: آخر موديل ضغطه المستخدم في
+  // القائمة، وإن لسه مفيش ضغط نرجع للموديل النشط. الرجوع للموديل النشط
+  // كمان بيغطي الموديل المركّز عليه لو مش موجود في الكتالوج (سبحان بعد تحديث).
+  const focusedModel = useMemo(() => {
+    if (!focus) {
+      return currentModel
+    }
+    return catalog.byKey.get(focus.key)?.model ?? currentModel
+  }, [catalog, focus, currentModel])
+  const focusedIsCurrent = !!focusedModel
+    && focusedModel.providerID === current?.providerID
+    && focusedModel.id === current?.modelID
+  const variants = useMemo(() => (focusedModel ? getVarietyLevels(focusedModel) : []).sort((a, b) => {
     const left = VARIANT_ORDER.indexOf(a)
     const right = VARIANT_ORDER.indexOf(b)
     if (left !== -1 && right !== -1) return left - right
     if (left !== -1) return -1
     if (right !== -1) return 1
     return a.localeCompare(b)
-  }), [currentModel])
-  const activeVariant = current?.variant || ""
+  }), [focusedModel])
+  // الموديل لسه ما اتأكدش من السيرفر: اللي نعرضه هو الاختيار المحلي اللي
+  // المستخدم ضغطه دلوقتي. بعد التأكيد نرجع لقيمة السيرفر لأنها المرجع.
+  const activeVariant = focusedIsCurrent ? current?.variant || "" : focus?.variant || ""
+  // أي اختيار من الدروير — صف موديل أو مستوى تفكير — بيسجّل الموديل المعني
+  // محليًا الأول، فالقائمة فوق بتتحرك في نفس اللحظة بدل ما تستنى الشبكة.
+  const handleSelect = useCallback((model: ModelInfo, variant?: string) => {
+    setFocus({ key: modelPinKey(model.providerID, model.id), variant: (variant || "").trim() })
+    onSelect(model, variant)
+  }, [onSelect])
 
   // صف النموذج: زر الاختيار + زر التثبيت جنبه — زرّان متجاوران لا متداخلان
-  // (زر جوّه زرّ HTML غير صالح)، والتثبيت شغّال دائمًا لأنه كاش عرض محلي.
-  // الحساب هنا رخيص (مفتاح + bool) والتكلفة الفعلية في `ModelRow` الـ memo.
+  // (زر جوّه زرّ HTML غير صالح)، والتثبيت بينتظر رد السيرفر قبل ما يظهر على
+  // الأجهزة التانية. الحساب هنا رخيص (مفتاح + bool) والتكلفة الفعلية في
+  // `ModelRow` الـ memo.
   const renderModelRow = (model: ModelInfo) => {
-    const key = `${model.providerID}/${model.id}`
-    const pinned = pinnedKeys.includes(key)
+    const key = modelPinKey(model.providerID, model.id)
+    const pinned = isModelPinned(key)
     return (
       <ModelRow
         key={key}
@@ -221,7 +239,7 @@ export function ModelPicker({
         pinned={pinned}
         pinDisabled={!pinned && pinnedFull}
         activeVariant={activeVariant}
-        onSelect={onSelect}
+        onSelect={handleSelect}
         onTogglePin={togglePin}
         t={t}
       />
@@ -235,16 +253,16 @@ export function ModelPicker({
           <div><h2>{t.chooseModel}</h2></div>
           <button className="icon-button" onClick={onClose} aria-label={t.close}>×</button>
         </div>
-        {variants.length > 0 && currentModel ? (
+        {variants.length > 0 && focusedModel ? (
           <div className="variant-options">
             <div className="variant-label">
-              <small dir="ltr">{currentModel.providerID}/{currentModel.id}</small>
+              <small dir="ltr">{focusedModel.providerID}/{focusedModel.id}</small>
               <span>{t.modelVariety}</span>
             </div>
             <select
               className="variant-select"
               value={activeVariant}
-              onChange={(event) => onSelect(currentModel, event.target.value)}
+              onChange={(event) => handleSelect(focusedModel, event.target.value)}
               aria-label={t.modelVariety}
             >
               <option value="">{t.varietyDefault}</option>
@@ -279,7 +297,7 @@ export function ModelPicker({
         </label>
         {loading && totalCount === 0 ? (
           <div className="picker-loading"><span className="loader" /> {t.loadingModels}</div>
-        ) : filtered.length === 0 ? (
+        ) : groups.length === 0 && pinnedModels.length === 0 ? (
           <div className="empty-state">{t.noModels}</div>
         ) : (
           <div className="model-list">

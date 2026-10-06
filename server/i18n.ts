@@ -83,6 +83,14 @@ const messages = {
     ar: "بيانات التثبيت غير صالحة",
     en: "Invalid pin data",
   },
+  invalidModelPin: {
+    ar: "معرّف النموذج المثبّت غير صالح",
+    en: "Invalid pinned model id",
+  },
+  modelPinsFull: {
+    ar: "الحد الأقصى 5 نماذج مثبتة — ألغِ تثبيت واحد أولًا",
+    en: "Maximum 5 pinned models — unpin one first",
+  },
   newConversation: {
     ar: "محادثة جديدة",
     en: "New conversation",

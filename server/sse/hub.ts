@@ -10,6 +10,12 @@ export function pinsEvent(pins: unknown): string {
   return `event: pins\ndata: ${JSON.stringify({ pins })}\n\n`
 }
 
+// نفس قناة مثبّتات المحادثات بس لقائمة النماذج — قناة SSE واحدة في النافذة
+// تحمل الحدثين، فمفيش اتصال تاني للموديلات.
+export function modelPinsEvent(models: unknown): string {
+  return `event: modelPins\ndata: ${JSON.stringify({ models })}\n\n`
+}
+
 export class EventHub {
   private readonly clients = new Set<Response>()
 
