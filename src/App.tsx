@@ -739,6 +739,29 @@ function App() {
     })
   }, [markFetched])
 
+  // لما المحادثة المفتوحة تخلص، حدّث قائمة "شغال الآن" مرة واحدة لكل خلوص.
+  // المحرك بيبلّغ بنهاية الشغل عبر حدث بيتحوّل لتحديث نص/طلب مش حدث idle، فالـ
+  // Sidebar ولوحة المحادثات النشطة كانوا يفضلوا شايلين المحادثة "نشطة" لحد ما
+  // الستريم ينقطع والـ poll يرجع. النداء بعد ما ردود الطلبات توصل متوقفة كمان
+  // بيضمن إن السيرفر ثبّت حكم "الرد خلص" قبل ما نحسب النشاط، فتشيلها فورًا.
+  const settleSyncedRef = useRef(false)
+  useEffect(() => {
+    if (!activeId) {
+      settleSyncedRef.current = false
+      return
+    }
+    const settled = !requests.some((request) => !isSettledRequest(request.state))
+    if (!settled) {
+      settleSyncedRef.current = false
+      return
+    }
+    if (settleSyncedRef.current) {
+      return
+    }
+    settleSyncedRef.current = true
+    requestActivityRefresh()
+  }, [activeId, requests, requestActivityRefresh])
+
   const openProject = useCallback(async (project: Project, targetSessionId?: string) => {
     // لو دايس على الحالي خلاص — مفيش داعي للتحميل
     if (selectedProject && samePath(project.worktree, selectedProject.worktree) && !targetSessionId) {
@@ -1132,6 +1155,12 @@ function App() {
         }
         return { ...current, [event.properties.sessionID]: event.properties.status }
       })
+      // انتقال idle صريح من المحرك/السيرفر = المحادثة خلصت فعلًا (السيرفر
+      // بيفلتر الأحداث الانتقالية ويبعت المصنّع كمان). فبنطبّقه فورًا بدل مهلة
+      // الـ settle (8 ثواني) اللي بتأخّر ظهور "جاهز" بعد ما المهمة تخلص.
+      if (incomingType === "idle") {
+        setSettledStatus(event.properties.sessionID, { type: "idle" })
+      }
       // حالة شغل اتغيرت في أي مشروع — حدّث شريط "شغال الآن" فورًا
       void refreshActivity()
       // جلسة من اللاب أول مرة نشوفها busy وهي مش في قائمة المشروع المفتوح:
@@ -1152,6 +1181,8 @@ function App() {
         }
         return { ...current, [event.properties.sessionID]: { type: "idle" } }
       })
+      // نفس السبب: idle صريح يتطبّق فورًا مش بعد مهلة الـ settle
+      setSettledStatus(event.properties.sessionID, { type: "idle" })
       void refreshActivity()
       if (event.properties.sessionID === activeIdRef.current) {
         void refreshRequests(event.properties.sessionID)
@@ -1248,7 +1279,7 @@ function App() {
     if (event.type === "session.error" && event.properties.sessionID === activeIdRef.current) {
       notifyAttention(t.taskStoppedWithError)
     }
-  }, [notifyAttention, refreshSessions, refreshRequests, refreshActivity, requestActivityRefresh, t])
+  }, [notifyAttention, refreshSessions, refreshRequests, refreshActivity, requestActivityRefresh, setSettledStatus, t])
 
   const handleUnknownEvent = useCallback(() => {
     addToast(t.unknownEvent, "error")

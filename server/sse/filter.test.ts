@@ -1,13 +1,18 @@
 import type { OpenCodeEvent } from "@opencode/client"
 import { describe, expect, it } from "vitest"
-import { conversationEvent, type ConversationLookup } from "./filter.js"
+import { conversationEvent, finishedRunEvent, type ConversationLookup } from "./filter.js"
 
 // العطل الأصلي: مهمة Task بتفتح جلسات ابن، وحالة كل جلسة بتبعت على الـ id
 // بتاعها. فالسيرفر كان بيعدّيها زي ما هي، والعميل كان بيعامل المهمة
 // الفرعية كمحادثة مستقلة: `busy` ثم `idle` لكل مهمة، وصوت الإتمام بيرنّ
 // مع كل مهمة تخلص مش مع خلوص المحادثة الأم. الجذر هو وحدة العرض والحساب.
-function lookup(parents: Record<string, string>, busy: string[] = []): ConversationLookup {
+function lookup(
+  parents: Record<string, string>,
+  busy: string[] = [],
+  pending: string[] = [],
+): ConversationLookup & { hasPendingWork(sessionId: string): boolean } {
   const busySet = new Set(busy)
+  const pendingSet = new Set(pending)
   return {
     conversationOf: (sessionId) => {
       let root = sessionId
@@ -27,6 +32,7 @@ function lookup(parents: Record<string, string>, busy: string[] = []): Conversat
       }
       return [...busySet].some((id) => (parents[id] ?? id) === root)
     },
+    hasPendingWork: (sessionId) => pendingSet.has(sessionId),
   }
 }
 
@@ -102,5 +108,49 @@ describe("conversationEvent", () => {
     const event = { type: "session.idle", data: {} } as unknown as OpenCodeEvent
 
     expect(conversationEvent(event, lookup({}))).toBe(event)
+  })
+})
+
+// العطل: v2 بيبلّغ نهاية التنفيذ عبر session.execution.* من غير idle صريح بعده،
+// فالواجهة كانت تفضل شايفة المحادثة "شغّالة" لحد refresh يدوي. الحل: حدث idle
+// مصنّع للجذر، بس لما الشجرة كلها تبقى فاضية فعلًا.
+function execution(sessionID: string, type = "session.execution.succeeded"): OpenCodeEvent {
+  return { type, data: { sessionID } } as unknown as OpenCodeEvent
+}
+
+describe("finishedRunEvent", () => {
+  it("يبني idle مصنّع لجذر المحادثة لما التنفيذ ينجح", () => {
+    const result = finishedRunEvent(execution("ses_kid"), lookup({ ses_kid: "ses_root" }))
+
+    expect(result).toEqual({ type: "session.status", properties: { sessionID: "ses_root", status: { type: "idle" } } })
+  })
+
+  it("يبني idle مصنّع للجذر نفسه", () => {
+    const result = finishedRunEvent(execution("ses_root"), lookup({}))
+
+    expect(result?.properties.sessionID).toBe("ses_root")
+  })
+
+  it("يغطّي الفشل والإيقاف كمان", () => {
+    expect(finishedRunEvent(execution("ses_root", "session.execution.failed"), lookup({}))).not.toBeNull()
+    expect(finishedRunEvent(execution("ses_root", "session.execution.interrupted"), lookup({}))).not.toBeNull()
+  })
+
+  it("ميبعتش idle لو مهمة فرعية تانية لسه شغّالة في نفس الشجرة", () => {
+    const conversations = lookup({ ses_kid_a: "ses_root", ses_kid_b: "ses_root" }, ["ses_kid_b"])
+
+    expect(finishedRunEvent(execution("ses_kid_a"), conversations)).toBeNull()
+  })
+
+  it("ميبعتش idle لو فيه شغل معلّق في الطابور", () => {
+    expect(finishedRunEvent(execution("ses_root"), lookup({}, [], ["ses_root"]))).toBeNull()
+  })
+
+  it("يتجاهل الأحداث اللي مش نهاية تنفيذ", () => {
+    expect(finishedRunEvent({ type: "session.status", data: { sessionID: "ses_root" } } as unknown as OpenCodeEvent, lookup({}))).toBeNull()
+  })
+
+  it("يتجاهل حدث ناقص من غير session id", () => {
+    expect(finishedRunEvent({ type: "session.execution.succeeded", data: {} } as unknown as OpenCodeEvent, lookup({}))).toBeNull()
   })
 })

@@ -158,6 +158,14 @@ function errorEvent(): OpenCodeEvent {
   return { type: "session.execution.failed", data: { sessionID: SESSION } } as unknown as OpenCodeEvent
 }
 
+function successEvent(): OpenCodeEvent {
+  return { type: "session.execution.succeeded", data: { sessionID: SESSION } } as unknown as OpenCodeEvent
+}
+
+function interruptedEvent(): OpenCodeEvent {
+  return { type: "session.execution.interrupted", data: { sessionID: SESSION, reason: "user" } } as unknown as OpenCodeEvent
+}
+
 describe("parallel request queue", () => {
   it("dispatches the first request and keeps the rest queued", async () => {
     const { service, fake } = createService()
@@ -475,6 +483,31 @@ describe("stale busy status", () => {
     // الخطأ بيقفل الشغل من غير idle بعدها — الجلسة كانت هتفضل شغّال للأبد
     emit(errorEvent())
     expect(busySessions.has(SESSION)).toBe(false)
+  })
+
+  // النجاح كمان بيقفل الشغل من غير ما يضمن وصول idle، فنفس المعالجة مطلوبة
+  // وإلا المحادثة تفضل شايلة علامة "شغّال" في السايدبار وقائمة النشطة.
+  it("releases the busy flag when the run succeeds without a following idle", async () => {
+    const { emit, busySessions, runningSessions } = createService()
+
+    emit(busyEvent())
+    runningSessions.add(SESSION)
+    expect(busySessions.has(SESSION)).toBe(true)
+
+    emit(successEvent())
+    expect(busySessions.has(SESSION)).toBe(false)
+    expect(runningSessions.has(SESSION)).toBe(false)
+  })
+
+  it("releases the busy flag when the run is interrupted", async () => {
+    const { emit, busySessions, runningSessions } = createService()
+
+    emit(busyEvent())
+    runningSessions.add(SESSION)
+
+    emit(interruptedEvent())
+    expect(busySessions.has(SESSION)).toBe(false)
+    expect(runningSessions.has(SESSION)).toBe(false)
   })
 
   it("stops showing a finished request as running while OpenCode stays busy", async () => {

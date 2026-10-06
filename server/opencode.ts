@@ -377,6 +377,9 @@ export class OpenCodeService {
     if (
       eventType === "session.status"
       || eventType === "session.idle"
+      || eventType === "session.execution.started"
+      || eventType === "session.execution.succeeded"
+      || eventType === "session.execution.interrupted"
       || eventType === "session.execution.failed"
       || eventType === "session.created"
       || eventType === "session.renamed"
@@ -450,11 +453,17 @@ export class OpenCodeService {
       this.releaseSession(idle.sessionID)
     }
 
-    if (eventType === "session.execution.failed") {
-      // خطأ OpenCode بيقفل الشغل من غير ما يبعت idle بعدها، فبدون السطر ده
-      // الجلسة هتفضل متسجّلة "شغّال" للأبد في قائمة المحادثات النشطة.
-      const failed = event.data as unknown as { sessionID: string }
-      const sessionId = failed.sessionID
+    if (
+      eventType === "session.execution.failed"
+      || eventType === "session.execution.succeeded"
+      || eventType === "session.execution.interrupted"
+    ) {
+      // نهاية التنفيذ (فشل أو نجاح أو إيقاف) بتقفل الشغل من غير ما يضمن وصول
+      // حدث idle بعدها، فبنحرّر الجلسة هنا بالظبط زي حدث الـ idle: من غيرها
+      // كانت تفضل متسجّلة "شغّال" في قائمة المحادثات النشطة، والطابور يستنى
+      // الـ watchdog بدل ما يبعت الطلب اللي بعده فورًا.
+      const finished = event.data as unknown as { sessionID?: string }
+      const sessionId = finished.sessionID
       if (sessionId) {
         this.busySessions.delete(sessionId)
         this.releaseSession(sessionId)

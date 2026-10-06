@@ -129,6 +129,37 @@ export function conversationEvent(event: OpenCodeEvent, conversations: Conversat
   return { ...event, data: { ...properties, sessionID: root } } as OpenCodeEvent
 }
 
+// v2 غالبًا بيبلّغ نهاية التنفيذ عبر `session.execution.succeeded/failed/interrupted`
+// من غير حدث idle صريح بعده، والـ filter بيترجمهم لـ message.part.updated/session.error
+// فمفيش انتقال idle بيوصل الواجهة. والواجهة بتبني "شغّالة" من حالة السيرفر وقائمة
+// النشاط، والـ polls الدورية واقفة طول ما الـ SSE حي — فالمحادثة تفضل "شغّالة"
+// لحد ما المستخدم يعمل refresh. علشان كده بنبني هنا حدث `session.status:idle`
+// مصنّع للجذر وقت ما التنفيذ يخلص، بس لو الشجرة كلها فاضية فعلًا (مفيش مهمة
+// فرعية شغّالة ولا شغل معلّق في الطابور). الحدث الحقيقي (session.idle/status)
+// بيمرّ من مساره الطبيعي، فده مكمّل مش بديل.
+export function finishedRunEvent(
+  event: OpenCodeEvent,
+  conversations: ConversationLookup & { hasPendingWork(sessionId: string): boolean },
+): { type: string; properties: { sessionID: string; status: { type: string } } } | null {
+  const eventType: string = event.type
+  if (
+    eventType !== "session.execution.succeeded"
+    && eventType !== "session.execution.failed"
+    && eventType !== "session.execution.interrupted"
+  ) {
+    return null
+  }
+  const sessionId = (event.data as { sessionID?: unknown } | undefined)?.sessionID
+  if (typeof sessionId !== "string" || !sessionId) {
+    return null
+  }
+  const root = conversations.conversationOf(sessionId)
+  if (conversations.conversationBusy(root) || conversations.hasPendingWork(root)) {
+    return null
+  }
+  return { type: "session.status", properties: { sessionID: root, status: { type: "idle" } } }
+}
+
 export function isIdleEvent(event: Record<string, unknown>): boolean {
   if (event.type === "session.idle") {
     return true

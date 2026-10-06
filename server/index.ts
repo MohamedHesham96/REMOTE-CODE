@@ -13,7 +13,7 @@ import { createRateLimiter } from "./utils/rate-limit.js"
 import { OpenCodeConnection } from "./connection.js"
 import { EventHub, modelPinsEvent, pinsEvent } from "./sse/hub.js"
 import { consoleLang, serverMessage } from "./i18n.js"
-import { clientEvent, conversationEvent, eventSessionId, isIdleEvent } from "./sse/filter.js"
+import { clientEvent, conversationEvent, eventSessionId, finishedRunEvent, isIdleEvent } from "./sse/filter.js"
 import { securityHeaders } from "./middleware/security.js"
 import { registerStatic } from "./static.js"
 import { registerHealthRoutes } from "./routes/health.js"
@@ -137,6 +137,19 @@ openCode.onEvent((event: OpenCodeEvent) => {
   }
   const data = `event: opencode\ndata: ${JSON.stringify(visibleEvent)}\n\n`
   hub.broadcast(data)
+})
+
+// نهاية تنفيذ فعلية (session.execution.succeeded/failed/interrupted) غالبًا
+// مبيجيش بعدها idle صريح، والـ filter بيترجمها لحاجة تانية خالص. فنبعت هنا
+// انتقال idle مصنّع للجذر لو الشجرة كلها فاضية، فأي جهاز مفتوح يخلّي المحادثة
+// "جاهزة" في نفس اللحظة من غير ما يستنى refresh. (الحدث الحقيقي لسه بيمرّ من
+// فوق في مساره، والحدث المصنّع بيتولّد بس لما finishedRunEvent ترجّع حدث.)
+openCode.onEvent((event: OpenCodeEvent) => {
+  const idle = finishedRunEvent(event, openCode)
+  if (!idle) {
+    return
+  }
+  hub.broadcast(`event: opencode\ndata: ${JSON.stringify(idle)}\n\n`)
 })
 
 registerStatic(app)
