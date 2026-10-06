@@ -671,7 +671,7 @@ if "%CERT_STATE%"=="no-mkcert" echo   Certificate:        %ICON_WARN%%C_RESET%  
 if "%CERT_STATE%"=="generate-failed" echo   Certificate:        %ICON_ERR%%C_RESET%  generation failed
 REM Always printed: this is the file to install on the phone once per device.
 if defined CA_EXPORT echo   Phone CA:           %C_CYAN%%CA_EXPORT%%C_RESET%
-echo   Health endpoint:    %C_CYAN%http://127.0.0.1:%BACKEND_PORT%/api/health%C_RESET%
+if defined TLS_ON (echo   Health endpoint:    %C_CYAN%https://127.0.0.1:%BACKEND_PORT%/api/health%C_RESET%) else (echo   Health endpoint:    %C_CYAN%http://127.0.0.1:%BACKEND_PORT%/api/health%C_RESET%)
 echo.
 if not defined OC_URL call :ensure_opencode_cli
 if not defined OC_URL echo %ICON_OK%%C_RESET%  OpenCode CLI        %OPENCODE_CLI_V%
@@ -758,19 +758,24 @@ echo.
 echo   Status     %ICON_RUN%%C_RESET%  RUNNING
 echo   Mode       Production ^(single port - 5173 stays closed, this is normal^)
 if defined TLS_ON (echo   Security   HTTPS ^(trusted cert - phone mic + push work^)) else (echo   Security   %ICON_WARN%%C_RESET%  HTTP only - the phone microphone is blocked without HTTPS)
-echo   URL        %C_CYAN%http://localhost:%BACKEND_PORT%%C_RESET%
+REM TLS decides the URL scheme for every address in this panel and for the
+REM health probe :waitopen runs below: with a certificate the backend serves
+REM HTTPS only, so an http:// address would never connect.
+set "WO_SCHEME=http"
+if defined TLS_ON set "WO_SCHEME=https"
+echo   URL        %C_CYAN%%WO_SCHEME%://localhost:%BACKEND_PORT%%C_RESET%
 REM Reuses the LAN_IP :show_ip already detected under the banner; the probe
 REM is only repeated if that line somehow never ran.
 if not defined LAN_IP call :lan_ip
-if defined LAN_IP echo   Phone      %C_CYAN%http://%LAN_IP%:%BACKEND_PORT%%C_RESET%  %C_GRAY%^(same Wi-Fi, no VPN^)%C_RESET%
+if defined LAN_IP echo   Phone      %C_CYAN%%WO_SCHEME%://%LAN_IP%:%BACKEND_PORT%%C_RESET%  %C_GRAY%^(same Wi-Fi, no VPN^)%C_RESET%
 if defined LAN_IP if defined TLS_ON echo   %C_GRAY%             ^(accept the certificate warning once per device^)%C_RESET%
 REM Same CA row as dev: the phone has to trust this file for HTTPS + mic.
 if defined CA_EXPORT echo   Phone CA   %C_CYAN%%CA_EXPORT%%C_RESET%
 echo.
 call :footer
 echo   Starting production server ^(Ctrl+C to stop^)...
-echo   Opening %C_CYAN%http://localhost:%BACKEND_PORT%%C_RESET% in your browser once the server is up...
-start "OpenCode browser wait" /min cmd /c ""%~f0" waitopen %BACKEND_PORT% - http://localhost:%BACKEND_PORT%"
+echo   Opening %C_CYAN%%WO_SCHEME%://localhost:%BACKEND_PORT%%C_RESET% in your browser once the server is up...
+start "OpenCode browser wait" /min cmd /c ""%~f0" waitopen %BACKEND_PORT% - %WO_SCHEME%://localhost:%BACKEND_PORT% %WO_SCHEME%"
 call npm start --silent
 echo.
 echo   Server stopped.
@@ -851,11 +856,16 @@ call :port_check 5173
 call :port_check %BACKEND_PORT%
 call :step_now 5 "Ports  5173 + %BACKEND_PORT% checked"
 
+REM Same scheme decision as prod: :read_env knows whether TLS is on, and
+REM both the backend row and the :waitopen health probe have to match it.
+set "WO_SCHEME=http"
+if defined TLS_ON set "WO_SCHEME=https"
+
 echo %C_BOLD%%C_CYAN%  READY - DEVELOPMENT%C_RESET%
 echo.
 echo   Status     %ICON_RUN%%C_RESET%  STARTING ^(live log below^)
 echo   Frontend   %C_CYAN%http://localhost:5173%C_RESET%
-echo   Backend    %C_CYAN%http://localhost:%BACKEND_PORT%%C_RESET%
+echo   Backend    %C_CYAN%%WO_SCHEME%://localhost:%BACKEND_PORT%%C_RESET%
 REM The phone talks to Vite here, not to the backend: 5173 is what the dev
 REM server binds on 0.0.0.0, and it proxies the API to APP_PORT itself.
 REM Reuses the LAN_IP :show_ip already detected under the banner; the probe
@@ -876,7 +886,7 @@ if defined CA_EXPORT if defined TLS_ON echo   %C_GRAY%             install once 
 echo.
 call :footer
 echo   Opening %C_CYAN%http://localhost:5173%C_RESET% in your browser once backend + frontend are up...
-start "OpenCode browser wait" /min cmd /c ""%~f0" waitopen %BACKEND_PORT% 5173 http://localhost:5173"
+start "OpenCode browser wait" /min cmd /c ""%~f0" waitopen %BACKEND_PORT% 5173 http://localhost:5173 %WO_SCHEME%"
 echo   Starting backend + frontend ^(Ctrl+C to stop^)...
 call npm run dev --silent
 echo.
@@ -924,7 +934,10 @@ endlocal & set "OPENCODE_CLI_V=%OC_VERSION%" & goto :eof
 REM ---------------------------------------------------------------------------
 REM waitopen: background helper (runs in a minimized window) that polls until
 REM the servers answer, then opens the browser. Usage:
-REM   build.bat waitopen <backendPort> <frontendPort|-> <url>
+REM   build.bat waitopen <backendPort> <frontendPort|-> <url> [http|https]
+REM The optional scheme is the backend one: with TLS configured the server is
+REM HTTPS-only, so an http probe would never succeed, the helper would sit out
+REM its whole timeout and the browser would never open. Defaults to http.
 REM "-" skips the frontend check (prod = backend only). Gives up after ~2 min
 REM so a failed start never leaves an orphan polling loop behind.
 REM ---------------------------------------------------------------------------
@@ -932,11 +945,16 @@ REM ---------------------------------------------------------------------------
 set "WO_BACKEND=%~2"
 set "WO_FRONTEND=%~3"
 set "WO_URL=%~4"
+set "WO_SCHEME=%~5"
+if not defined WO_SCHEME set "WO_SCHEME=http"
 set /a "WO_TRIES=0"
 :waitopen_loop
 set /a "WO_TRIES+=1"
 if %WO_TRIES% GTR 120 exit /b 0
-curl --fail --silent --output nul --max-time 2 "http://127.0.0.1:%WO_BACKEND%/api/health" <nul >nul 2>&1
+REM --insecure: a liveness probe, not a trust decision. curl validates via the
+REM Windows store (Schannel) and mkcert installs its CA there, but even an
+REM untrusted certificate must not stop the helper from opening the browser.
+curl --insecure --fail --silent --output nul --max-time 2 "%WO_SCHEME%://127.0.0.1:%WO_BACKEND%/api/health" <nul >nul 2>&1
 if errorlevel 1 (
   REM ping كمهلة ثانية واحدة: يعمل حتى مع stdin مُعاد توجيهه (timeout يفشل هناك)
   ping -n 2 127.0.0.1 >nul
