@@ -87,3 +87,25 @@ export function languageCodeOf(tag: string): string {
 export function voiceLanguageCode(value: VoiceLanguage): string {
   return languageCodeOf(effectiveVoiceLanguage(value))
 }
+
+// تطبيع نص التفريغ لسطر واحد: محرّكات التعرّف بترجّع مسافات وفواصل أسطر
+// فاصلة بين النتائج (المواصفة بتقول إنها مسافات "لازمة لضم النتائج"، وكروم
+// على أندرويد بيستخدم "\n" فعلًا) — والحقل بيعرض pre-wrap، فالسطر الجديد
+// يبان في وسط الكلام أو قبله من غير ما المستخدم يطلبه. الإدخال الصوتي إملاء
+// متصل، فبنطوي كل المسافات المتكررة وفواصل الأسطر لمسافة واحدة ونشيل الأطراف.
+export function normalizeTranscript(text: string): string {
+  return text.replace(/\s+/g, " ").trim()
+}
+
+// ضمّ نصين إملائيين بمسافة واحدة من غير تكرار: لو الأول خلص بمسافة أو
+// التاني بدأ بمسافة ما نضيفش مسافة زيادة (النصين المفروض مطبّعين بالفعل،
+// والفحص التاني احتياطي لو جاي من مكان تاني).
+export function mergeTranscript(base: string, chunk: string): string {
+  if (!base) {
+    return chunk
+  }
+  if (!chunk) {
+    return base
+  }
+  return /\s$/.test(base) || /^\s/.test(chunk) ? `${base}${chunk}` : `${base} ${chunk}`
+}

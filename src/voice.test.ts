@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { effectiveVoiceLanguage, languageCodeOf, nextVoiceLanguage, voiceLanguageCode } from "./voice"
+import { effectiveVoiceLanguage, languageCodeOf, mergeTranscript, nextVoiceLanguage, normalizeTranscript, voiceLanguageCode } from "./voice"
 
 // الشارة على زر المايك لازم تقول اللغة الفعلية للتعرّف مش الإعداد المخزّن،
 // فمن غير اختبار ده ممكن الشارة تكدب على المستخدم عن لغة جلسته — خصوصًا
@@ -46,5 +46,51 @@ describe("nextVoiceLanguage", () => {
     expect(nextVoiceLanguage("auto")).toBe("ar")
     expect(nextVoiceLanguage("ar")).toBe("en")
     expect(nextVoiceLanguage("en")).toBe("auto")
+  })
+})
+
+describe("normalizeTranscript", () => {
+  it("يطوي فاصل السطر اللي المحرّك بيحطه في أول النتيجة", () => {
+    expect(normalizeTranscript("\nالسلام عليكم")).toBe("السلام عليكم")
+  })
+
+  it("يطوي فواصل الأسطر اللي بين الكلمات لمسافة واحدة", () => {
+    // كروم على أندرويد بيرجّع "\n" فاصل بين نتائج التعرّف في continuous mode،
+    // وضم النتائج مباشرة كان بيسيبها جوه النص فتظهر الجملة على سطور
+    expect(normalizeTranscript("السلام\nعليكم")).toBe("السلام عليكم")
+    expect(normalizeTranscript("السلام\r\nعليكم")).toBe("السلام عليكم")
+  })
+
+  it("يشيل المسافات المتكررة والأطراف", () => {
+    expect(normalizeTranscript("  السلام   عليكم  ")).toBe("السلام عليكم")
+  })
+
+  it("يرجّع نصًا فارغًا للفراغات وحدها", () => {
+    expect(normalizeTranscript(" \n\t ")).toBe("")
+  })
+})
+
+describe("mergeTranscript", () => {
+  it("يضم النصين بمسافة واحدة", () => {
+    expect(mergeTranscript("السلام عليكم", "إزيك")).toBe("السلام عليكم إزيك")
+  })
+
+  it("يرجّع التاني زي ما هو لو الأساس فاضي، والأساس لو التاني فاضي", () => {
+    expect(mergeTranscript("", "مرحبا")).toBe("مرحبا")
+    expect(mergeTranscript("مرحبا", "")).toBe("مرحبا")
+  })
+
+  it("ما يضيفش مسافة زيادة لو الأساس خلص بمسافة", () => {
+    expect(mergeTranscript("سطر ", "مرحبا")).toBe("سطر مرحبا")
+  })
+
+  it("يسيب سطر المستخدم اللي في الأساس زي ما هو", () => {
+    // الأساس نص المستخدم — لو هو اللي كتب سطر جديد، الإملاء يكمّل بعده
+    expect(mergeTranscript("سطر\n", "مرحبا")).toBe("سطر\nمرحبا")
+  })
+
+  it("ضم سلسلة نتائج متتالية ما يطلعش أي سطر جديد", () => {
+    const merged = ["\nالسلام", "\nعليكم", " إزيك"].map(normalizeTranscript).reduce(mergeTranscript, "")
+    expect(merged).toBe("السلام عليكم إزيك")
   })
 })

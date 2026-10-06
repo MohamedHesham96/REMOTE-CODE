@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { mergeTranscript, normalizeTranscript } from "../voice"
 
 // أنواع Web Speech API مش موجودة كاملة في lib.dom القياسية بتاعة TypeScript
 // (الموجودة فيها كائنات النتائج بس: SpeechRecognitionResult وما شابه)،
@@ -58,9 +59,6 @@ const LOCK_RESTART_DELAY_MS = 250
 // بيمنع المايك إنه يقفل بسرعة عند أول وقفة قصيرة في وسط الكلام.
 const SILENCE_TIMEOUT_MS = 2500
 
-// الفاصل اللي بيفصل الأساس (اللي كان في الحقل) عن الكلام المُفرّغ.
-const JOINT = " "
-
 export type VoiceInputErrorKind = "unsupported" | "denied" | "failed"
 
 export interface UseVoiceInputOptions {
@@ -85,26 +83,6 @@ export interface UseVoiceInputResult {
   start: () => void
   stop: () => void
   toggleLock: () => void
-}
-
-// تجميع الحقل: الأساس + (فاصل) + الكلام المُفرّغ.
-function compose(base: string, spoken: string): string {
-  if (!spoken) {
-    return base
-  }
-  return base ? `${base}${JOINT}${spoken}` : spoken
-}
-
-// ضمّ الجملة الجارية على اللي قبلها: بنضيف فاصل المسافة لو مش موجود، عشان
-// الجملتين ما يلزقوش في بعض ("السلام عليكم" + "إزيك" = "السلام عليكم إزيك").
-function joinChunks(base: string, chunk: string): string {
-  if (!base) {
-    return chunk
-  }
-  if (!chunk) {
-    return base
-  }
-  return /\s$/.test(base) || /^\s/.test(chunk) ? `${base}${chunk}` : `${base}${JOINT}${chunk}`
 }
 
 export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceInputOptions): UseVoiceInputResult {
@@ -194,22 +172,30 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
         // resultIndex: في continuous mode النتيجة اللي كانت نهائية ممكن
         // المحرّك يرجّعها مبدئية تاني وهو بيصحّح، فتعاملها كنهائية كان بيخلط
         // الكلام ("howhowhowhow are"). isFinal هو المصدر الوحيد للحقيقة.
+        //
+        // كل نتيجة بتتطبّع لسطر واحد قبل الضم: المحرّك بيرجّع مسافات وفواصل
+        // أسطر فاصلة بين النتائج (المواصفة نفسها بتقول إنها whitespace "لازمة
+        // لضم النتائج")، والضم المباشر كان بيسيبها جوه النص فيظهر سطر جديد
+        // قبل الجملة أو وسطها. التطبيع هنا هو المصدر الوحيد للفواصل.
+        const transcript = normalizeTranscript(result[0].transcript)
+        if (!transcript) {
+          continue
+        }
         if (result.isFinal) {
-          finalText += result[0].transcript
+          finalText = mergeTranscript(finalText, transcript)
         } else {
-          interimText += result[0].transcript
+          interimText = mergeTranscript(interimText, transcript)
         }
       }
-      finalText = finalText.trim()
       // لو نص الحدث الحالي مش بيكمل نص الحدث اللي قبله (المتصفح بدأ مصفوفة
       // نتائج جديدة لجملة جديدة)، نضم النص القديم للأساس مرة واحدة عشان ما
       // يضيعش. لو بيكمله (نفس الجلسة بتكبر) مش محتاجين أي حاجة.
       const previousFinal = lastFinalRef.current
       if (previousFinal && !finalText.startsWith(previousFinal)) {
-        baseRef.current = joinChunks(baseRef.current, previousFinal)
+        baseRef.current = mergeTranscript(baseRef.current, previousFinal)
       }
       lastFinalRef.current = finalText
-      const next = joinChunks(compose(baseRef.current, finalText), interimText.trim())
+      const next = mergeTranscript(mergeTranscript(baseRef.current, finalText), interimText)
       if (next && next !== lastSentRef.current) {
         lastSentRef.current = next
         optionsRef.current.onText(next)
@@ -250,7 +236,7 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
         // فبنبدأ جلسة جديدة عشان المايك يفضل سامع. بنضم نهائي الجلسة الحالية
         // للأساس **مرة واحدة** عشان الجلسة الجديدة تكمّل من غير ما تكرّر
         // الكلام اللي اتقال (lastFinalRef هيتصفّر في beginSession).
-        baseRef.current = joinChunks(baseRef.current, lastFinalRef.current)
+        baseRef.current = mergeTranscript(baseRef.current, lastFinalRef.current)
         clearRestartTimer()
         restartTimerRef.current = window.setTimeout(() => {
           restartTimerRef.current = null
