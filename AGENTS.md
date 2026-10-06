@@ -33,7 +33,7 @@ npm run check   # lint + typecheck + test + build
 
 | | `tsconfig.app.json` | `tsconfig.server.json` |
 |---|---|---|
-| الملفات | `src` + `vite/vitest.config.ts` | `server/**/*.ts` |
+| الملفات | `src` + `vite.config.ts` + `vitest.config.ts` | `server/**/*.ts` |
 | resolution | `Bundler` | `NodeNext` |
 | globals | `browser` | `node` |
 | `noUncheckedIndexedAccess` | لأ | أيوه |
@@ -69,11 +69,11 @@ npm run check   # lint + typecheck + test + build
 ### السيرفر
 1. **`server/index.ts` = composition root فقط.** إنشاء الخدمات وحقنها في `RouteContext` وربط المسارات. ممنوع منطق routes أو SSE أو اتصال هنا.
 2. **كل route file يصدّر `registerXRoutes(app, ctx: RouteContext)`** ويجيب كل اعتماده من `ctx` — ممنوع يستورد من route تاني (استثناء واحد: `registerCertificateRoutes(app)` مش محتاج `ctx`).
-3. **ترتيب التركيب مقصود** (`server/index.ts:101`): public (health/login/logout) → `requireAuthentication` على `/api` → `readinessGate()` → الباقي. أي route محتاج توثيق لازم يروح **قبل** `requireAuthentication`، واللي محتاج OpenCode شغال **بعد** `readinessGate()`.
+3. **ترتيب التركيب مقصود** (`server/index.ts:101`): public (health/login/logout) → `requireAuthentication` على `/api` → `readinessGate()` → الباقي. أي route عام لازم يروح **قبل** `requireAuthentication`. والـ route اللي مالوش علاقة بالمحرك لازم يروح **قبل** `readinessGate()` (زي الشهادة) أو يتضاف لاستثناءاته (زي المثبّتات وpush)، وإلا هيرجّع 503 وهو واقع. واللي محتاج OpenCode فعلًا **بعد** `readinessGate()`.
 4. **عقد الخطأ ثابت:** `{ error: "SCREAMING_SNAKE", message: <مترجم> }`. الكود الثابت مقروء بالبرمجة — **متترجمش**؛ الرسالة هي المترجمة. أمثلة: `UNAUTHORIZED`, `INVALID_PIN`, `INVALID_MODEL_PIN`, `MODEL_PINS_FULL`, `OPENCODE_UNAVAILABLE` (بوابة الجهوزية، 503). أي خطأ غير متوقع: `ctx.connection.handleError(error, response, request)`.
 
 ### العميل
-5. **`src/api/*.ts` = wrappers typed فوق `request()` في `src/api/http.ts`.** كل GET بيتلغى تكراره تلقائيًا. أي function جديدة في `src/api/` لازم تُعاد تصديرها من `src/api/index.ts`.
+5. **`src/api/*.ts` = wrappers typed فوق `request()` في `src/api/http.ts`.** كل GET بيتلغى تكراره تلقائيًا. أي function جديدة في `src/api/` لازم تُعاد تصديرها من `src/api/index.ts`، و`src/api.ts` shim إعادة تصدير — سيبه عشان الاستيرادات الحالية من `./api` ما تتكسرش.
 6. **السيرفر مصدر حقيقة، الـ localStorage كاش عرض بس.** النمط: تعديل optimistic محلي → نداء السيرفر → السيرفر يبثّ لـ SSE → باقي الأجهزة. النموذجان المرجعيان: `usePinnedConversations` (مثبّتات المحادثات، لكل مشروع، قناة `pins`) و`usePinnedModels` (مثبّتات النماذج، عالمية، قناة `modelPins`) — الاتنين على `createPinSyncGate()` (`src/utils/pin-sync.ts`). **مفيش poll كبديل بثّ**، و`refresh` على `visibilitychange`/`focus` هو backup لا أكثر.
 7. **اللوحة الجديدة:** الملف في `src/panels/` → named export في `src/panels/index.ts` → `lazy` في `App.tsx:72` بنفس النمط بالظبط:
    ```ts
@@ -111,7 +111,7 @@ npm run check   # lint + typecheck + test + build
 
 - جنب المصدر: `foo.ts` → `foo.test.ts`. **مفيش `__tests__/` ولا `tests/`.**
 - اختبار الـ routes = **HTTP حقيقي على بورت 0**، مش سوبرفيس. أنشئ express app، `server.listen(0, "127.0.0.1")`، وادعِ `registerXRoutes`، وامسح الـ temp dir في `afterEach`. شوف `server/routes/pins.test.ts` كنموذج — بيغطي البثّ الحي كمان.
-- الـ client tests بـ vitest على الدوال البحتة في `src/utils/`.
+- الـ client tests بـ vitest على الدوال البحتة (أغلبها في `src/utils/`، وفيه اختبارات في جذر `src/` زي `api.test.ts`).
 - `vitest.config.ts` بيستثني `dist-server/**` لأن `tsc` بيصرّف نسخة من ملفات اختبار السيرفر جواه. الاستثناء شامل، فأي test file جديد بيتغطّى تلقائيًا.
 - `ctx` المزيف في الاختبارات: `{ ... } as unknown as RouteContext` — ده النمط المقصود، مش كسل.
 
@@ -142,7 +142,7 @@ fix: <what broke>
 ## Gotchas
 
 - قاعدة المحرك v2 مشتركة مع تطبيق الديسكتوب (`~/.local/share/opencode/opencode.db`) — نفس الجلسات في المكانين دون عزل أو استيراد. `server/index.ts` لا يضبط `OPENCODE_DB` إطلاقًا. الخدمة المحلية تُدار عبر `Service.ensure()` من `@opencode/client/service` (تثبيت الإصدار `2.`) بدل توليد `opencode serve` يدويًا، فلا `OPENCODE_PORT` ولا مصادقة أساسية. الاستثناء الوحيد: على Windows التشغيل عبر `server/opencode/service-launch.ts` — اكتشاف صامت أولًا، ثم تشغيل مخفي (`windowsHide` على ملف `.exe` مباشرة) لأن `spawn("opencode")` الافتراضي يفشل (`ENOENT` مع شيم `.cmd`) ولو نجح لفتح نافذة PowerShell جديدة. v2 بلا `project.current` (الاختيار حالة محلية فقط في `OpenCodeService`)، وبلا `session.status` (الحالة من `session.active()` + الأحداث)، وبلا todos أو أسئلة v1 (استُبدلت باستمارات `session.form.*` وأذونات `permission.*`). أسماء أحداث SSE على السلك (`question.asked`، `permission.updated`، `message.part.updated`…) ثابتة منذ v1 — الترجمة في `server/sse/filter.ts` فقط، فالواجهة لا تتغير مع تبديل المحرك. نفس البوابة (`isListableProjectDirectory` في `server/opencode/utils.ts`) ترشّح قائمة `/api/project` كلها.
-- `src/App.tsx` = **2377 سطر**، `server/opencode.ts` = **2066**. معروفين. **ماتزوّدهمش** — استخرج الجزء الجديد لملف مستقل يسجّل في الـ barrel المناسب.
+- `src/App.tsx` = **2377 سطر**، `server/opencode.ts` = **2066**. معروفين. **ماتزوّدهمش** — استخرج الجزء الجديد لملف مستقل، ولو وُجد barrel للمكان ده (`src/panels/index.ts` أو `src/api/index.ts`) سجّله فيه.
 - `@opencode/client` pinned بالظبط. أي bump = مراجعة breaking changes من الـ release notes، مش تخمين.
 - `express.json({ limit: "8mb" })` — طلبات أكبر بترمي 413. السقف مرفوع عشان مرفقات الرسائل (الصور مضمّنة كـ data URI، والترميز يكبّر الحجم ~33%).
 - `compression` موجود لـ gzip على شبكات Wi-Fi الضعيفة. `/api/events` عليه `no-transform` — متشيلش ولا تغيّره.
