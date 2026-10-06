@@ -47,7 +47,7 @@ npm run check   # lint + typecheck + test + build
 
 - **بدون semicolons** في آخر السطور. الاستثناء الوحيد `src/i18n.ts` و `server/i18n.ts` — سيبهم زي ما هم، **متعملش reformat**، ومتضيفش semicolons في ملف جديد.
 - double quotes، مسافة بادئة 2.
-- **named exports فقط.** `export default` موجود في `vite.config.ts` و `vitest.config.ts` و `src/App.tsx:2034` بس. ملف جديد = named exports.
+- **named exports فقط.** `export default` موجود في `vite.config.ts` و `vitest.config.ts` و `src/App.tsx:2375` بس. ملف جديد = named exports.
 - `import type` للـ types. على السيرفر **لازم** `.js` على الـ relative imports (`from "../i18n.js"`) — NodeNext ESM. على العميل **من غير** امتداد (`from "../api/pins"`).
 - return type صريح على أي function مُصدَّرة.
 - `interface` للـ object types، `type` للـ unions.
@@ -69,20 +69,25 @@ npm run check   # lint + typecheck + test + build
 ### السيرفر
 1. **`server/index.ts` = composition root فقط.** إنشاء الخدمات وحقنها في `RouteContext` وربط المسارات. ممنوع منطق routes أو SSE أو اتصال هنا.
 2. **كل route file يصدّر `registerXRoutes(app, ctx: RouteContext)`** ويجيب كل اعتماده من `ctx` — ممنوع يستورد من route تاني.
-3. **ترتيب التركيب مقصود** (`server/index.ts:75`): public (health/login/logout) → `requireAuthentication` على `/api` → `readinessGate()` → الباقي. أي route محتاج توثيق لازم يروح **قبل** `requireAuthentication`، واللي محتاج OpenCode شغال **بعد** `readinessGate()`.
-4. **عقد الخطأ ثابت:** `{ error: "SCREAMING_SNAKE", message: <مترجم> }`. الأكواد الموجودة: `UNAUTHORIZED`, `INVALID_PIN`, `INVALID_PIN_IDS`, `SERVER_ERROR`, `BACKEND_STARTING`. الكود الثابت مقروء بالبرمجة — **متترجمش**. في الحالة الأخيرة: `ctx.connection.handleError(error, response, request)`.
+3. **ترتيب التركيب مقصود** (`server/index.ts:101`): public (health/login/logout) → `requireAuthentication` على `/api` → `readinessGate()` → الباقي. أي route محتاج توثيق لازم يروح **قبل** `requireAuthentication`، واللي محتاج OpenCode شغال **بعد** `readinessGate()`.
+4. **عقد الخطأ ثابت:** `{ error: "SCREAMING_SNAKE", message: <مترجم> }`. الكود الثابت مقروء بالبرمجة — **متترجمش**؛ الرسالة هي المترجمة. أمثلة: `UNAUTHORIZED`, `INVALID_PIN`, `INVALID_MODEL_PIN`, `MODEL_PINS_FULL`, `OPENCODE_UNAVAILABLE` (بوابة الجهوزية، 503). أي خطأ غير متوقع: `ctx.connection.handleError(error, response, request)`.
 
 ### العميل
 5. **`src/api/*.ts` = wrappers typed فوق `request()` في `src/api/http.ts`.** كل GET بيتلغى تكراره تلقائيًا. أي function جديدة في `src/api/` لازم تُعاد تصديرها من `src/api/index.ts`.
-6. **السيرفر مصدر حقيقة، الـ localStorage كاش عرض بس.** النمط: تعديل optimistic محلي → نداء السيرفر → السيرفر يبثّ لـ SSE → باقي الأجهزة. استخدم `createPinSyncGate()` (`src/utils/pin-sync.ts`) لو عدّلت التثبيتات. **مفيش poll كبديل بثّ**، و`refresh` على `visibilitychange`/`focus` هو backup لا أكثر.
-7. **اللوحة الجديدة:** الملف في `src/panels/` → named export في `src/panels/index.ts` → `lazy` في `App.tsx:66` بنفس النمط بالظبط:
+6. **السيرفر مصدر حقيقة، الـ localStorage كاش عرض بس.** النمط: تعديل optimistic محلي → نداء السيرفر → السيرفر يبثّ لـ SSE → باقي الأجهزة. النموذجان المرجعيان: `usePinnedConversations` (مثبّتات المحادثات، لكل مشروع، قناة `pins`) و`usePinnedModels` (مثبّتات النماذج، عالمية، قناة `modelPins`) — الاتنين على `createPinSyncGate()` (`src/utils/pin-sync.ts`). **مفيش poll كبديل بثّ**، و`refresh` على `visibilitychange`/`focus` هو backup لا أكثر.
+7. **اللوحة الجديدة:** الملف في `src/panels/` → named export في `src/panels/index.ts` → `lazy` في `App.tsx:72` بنفس النمط بالظبط:
    ```ts
    const XPanel = lazy(() => import("./panels").then((module) => ({ default: module.XPanel })))
    ```
    مستحيل default export هنا. و`src/panels.tsx` يفضل shim إعادة تصدير — سيبه كده عشان التحميل الكسول ما يتكسرش.
 
+### منتقي النماذج — أداء ومزامنة
+8. **البحث بفهرس جاهز، مش فلترة ثقيلة مع كل حرف.** `buildModelCatalog()` (`src/utils/model-search.ts`) بيبني النص المصغّر والترتيب وخريطة المفاتيح **مرة واحدة** لكل كتالوج، والفلترة بتبقى `includes` على نصوص جاهزة، والنتايج بتتحدّث بـ `useDeferredValue` (الكتابة عاجلة والرندر مؤجّل). ممنوع `toLowerCase`/`localeCompare` في مسار كل ضغطة (بره بناء الفهرس).
+9. **سقف المثبّتات 5 في مكانين:** `PINNED_MODELS_LIMIT` (`src/constants.ts`) و`MAX_PINNED_MODELS` (`server/model-pins.ts`) — غيّر الاتنين مع بعض. السيرفر بيرفض السادس بدل ما يقتطع تثبيت جهاز تاني.
+10. **مستوى التفكير (variant) بيتبع آخر موديل اتضغط عليه في القائمة** — حالة `focus` محلية بتتحرك فورًا من غير انتظار الشبكة، وبعد تأكيد السيرفر قيمته هي المرجع. الهدف: القائمة ما تفضلش معروضة على مستويات الموديل القديم بعد اختيار موديل جديد.
+
 ### i18n — مكرّرة في مكانين
-8. أي نص للمستخدم لازم يتبعت في **الاتنين**: `src/i18n.ts` (`ar` + `en`, و`Strings = typeof ar`) و `server/i18n.ts` (`messages`, مستخدَمة بـ `serverMessage(key, lang)`). **`npm run typecheck` هيفشل لو ضفت مفتاح في `ar` ناقص في `en`** — ده مقصود. اللغتين بس، فصحى + إنجليزي، **ولا لهجة عامية**. على السيرفر: `getServerLang(request)` بيقرأ `?lang=` ثم body ثم `Accept-Language` ثم العربية.
+11. أي نص للمستخدم لازم يتبعت في **الاتنين**: `src/i18n.ts` (`ar` + `en`, و`Strings = typeof ar`) و `server/i18n.ts` (`messages`, مستخدَمة بـ `serverMessage(key, lang)`). **`npm run typecheck` هيفشل لو ضفت مفتاح في `ar` ناقص في `en`** — ده مقصود. اللغتين بس، فصحى + إنجليزي، **ولا لهجة عامية**. على السيرفر: `getServerLang(request)` بيقرأ `?lang=` ثم body ثم `Accept-Language` ثم العربية.
 
 ## الأمان — خطوط حمراء
 
@@ -125,15 +130,24 @@ fix: <what broke>
 - **branch لكل feature**، والـ branch مش محتاجة تكون perfect.
 - **ماتفتحش PR ولا تـ commit من غير طلب صريح** — اسأل الأول.
 
+## الريليز نوت
+
+ملف `src/releases-data.ts` ثابت ومُراجَع بشريًا، وبيتعرض للمستخدم في لوحة الإصدارات.
+
+- **المهم بس**: إمكانيات جديدة للمستخدم، وإصلاحات محسوسة، وتغييرات سلوكية.
+- **متضيفش**: refactor داخلي، ولا تجميل شكلي بحت (أيقونة، توهّج، ترتيب شارات)، ولا كوميتات إضافة الريليز نوت نفسها، ولا merges. لو التغيير مش هيفرق لحاجة المستخدم لاحظها — مكانه الـ commit log مش هنا.
+- الإدخال الجديد يتجمّع بإدخال واحد (features/improvements/fixes/performance/uiux/technical)، وباللغتين معًا، والعنوان فريد داخل الإصدار، والترتيب من الأحدث للأقدم — `src/releases.test.ts` بيتحقق من ده كله.
+- المصدر الخام من `node scripts/generate-releases.mjs`، وتراجع وتُفلتر قبل الإضافة.
+
 ## Gotchas
 
 - قاعدة المحرك v2 مشتركة مع تطبيق الديسكتوب (`~/.local/share/opencode/opencode.db`) — نفس الجلسات في المكانين دون عزل أو استيراد. `server/index.ts` لا يضبط `OPENCODE_DB` إطلاقًا. الخدمة المحلية تُدار عبر `Service.ensure()` من `@opencode/client/service` (تثبيت الإصدار `2.`) بدل توليد `opencode serve` يدويًا، فلا `OPENCODE_PORT` ولا مصادقة أساسية. الاستثناء الوحيد: على Windows التشغيل عبر `server/opencode/service-launch.ts` — اكتشاف صامت أولًا، ثم تشغيل مخفي (`windowsHide` على ملف `.exe` مباشرة) لأن `spawn("opencode")` الافتراضي يفشل (`ENOENT` مع شيم `.cmd`) ولو نجح لفتح نافذة PowerShell جديدة. v2 بلا `project.current` (الاختيار حالة محلية فقط في `OpenCodeService`)، وبلا `session.status` (الحالة من `session.active()` + الأحداث)، وبلا todos أو أسئلة v1 (استُبدلت باستمارات `session.form.*` وأذونات `permission.*`). أسماء أحداث SSE على السلك (`question.asked`، `permission.updated`، `message.part.updated`…) ثابتة منذ v1 — الترجمة في `server/sse/filter.ts` فقط، فالواجهة لا تتغير مع تبديل المحرك. نفس البوابة (`isListableProjectDirectory` في `server/opencode/utils.ts`) ترشّح قائمة `/api/project` كلها.
-- `src/App.tsx` = **2063 سطر**، `server/opencode.ts` = **1776**. معروفين. **ماتزوّدهمش** — استخرج الجزء الجديد لملف مستقل يسجّل في الـ barrel المناسب.
+- `src/App.tsx` = **2375 سطر**، `server/opencode.ts` = **2066**. معروفين. **ماتزوّدهمش** — استخرج الجزء الجديد لملف مستقل يسجّل في الـ barrel المناسب.
 - `server/i18n.ts` بيستخدم semicolons والملف التاني لأ — **استثناء تاريخي مقصود**، سيبه.
 - `@opencode/client` pinned بالظبط. أي bump = مراجعة breaking changes من الـ release notes، مش تخمين.
-- `express.json({ limit: "2mb" })` — طلبات أكبر بترمي 413. لو feature محتاج رفع ملفات، ده السقف الحالي.
+- `express.json({ limit: "8mb" })` — طلبات أكبر بترمي 413. السقف مرفوع عشان مرفقات الرسائل (الصور مضمّنة كـ data URI، والترميز يكبّر الحجم ~33%).
 - `compression` موجود لـ gzip على شبكات Wi-Fi الضعيفة. `/api/events` عليه `no-transform` — متشيلش ولا تغيّره.
-- `data/` gitignored وبيخزّن `pins.json` — حالته محلية. متقتارشش.
+- `data/` gitignored وبيخزّن `pins.json` (مثبّتات المحادثات) و`model-pins.json` (مثبّتات النماذج) — حالة السيرفر المحلية. متقتارشش.
 - **الاختبارات في `server/` بتبقى compiled جوه `dist-server/`** — لو شفت test بيشتغل مرتين، دي السبب.
 
 ## عند الشك
