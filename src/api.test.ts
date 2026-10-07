@@ -274,6 +274,45 @@ describe("request efficiency", () => {
     expect(seen[1]?.["If-None-Match"]).toBe('W/"abc-9"')
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
+
+  it("reuses unchanged request objects when a refreshed response changes another turn", async () => {
+    const baseline: SessionRequest = {
+      id: "request-1",
+      index: 1,
+      prompt: "prompt",
+      state: "done",
+      activity: "ready",
+      finalResult: "finished",
+      liveText: "",
+      stepsCompleted: 1,
+      activeTool: null,
+      usedTools: [],
+      resultFiles: [],
+      attachments: [],
+      startedAt: 1,
+      completedAt: 2,
+      updatedAt: 2,
+    }
+    const unchanged = { ...baseline, id: "done-1" }
+    const running = { ...baseline, id: "running-1", state: "running" as const, completedAt: 0 }
+    const responses = [
+      { status: { type: "busy" as const }, requests: [unchanged, running], questions: [], queued: 1, stalled: false, version: "one" },
+      { status: { type: "busy" as const }, requests: [unchanged, { ...running, liveText: "new text" }], questions: [], queued: 1, stalled: false, version: "two" },
+    ]
+    let index = 0
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify(responses[index++]), {
+      status: 200,
+      headers: { "Content-Type": "application/json", ETag: `W/"version-${index}"` },
+    })))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const first = await getRequests("session/structural-sharing")
+    const second = await getRequests("session/structural-sharing")
+
+    expect(second.requests[0]).toBe(first.requests[0])
+    expect(second.requests[1]).not.toBe(first.requests[1])
+    expect(second.requests[1]?.liveText).toBe("new text")
+  })
 })
 
 describe("generic ETag handling in request()", () => {

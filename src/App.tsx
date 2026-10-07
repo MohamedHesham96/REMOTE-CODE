@@ -1054,17 +1054,20 @@ function App() {
     return () => window.clearInterval(timer)
   }, [authState, activeId, isBusy, hasQueuedRequests, hasRunningRequests, refreshRequests])
 
-  // فحص دوري احتياطي للأسئلة كل 5 ثوانٍ عندما تكون هناك جلسة نشطة.
-  // هذا يضمن ظهور الأسئلة حتى لو فشل جلب SSE أو حدثت مشكلة في تزامن الحالة.
+  // فحص احتياطي للأسئلة كل 5 ثوانٍ عند الخمول، حين لا يعمل poll الطلبات الأسرع.
+  // أثناء الشغل يغطيه poll الـ 2.5 ثانية، فلا نطلب نفس الحمولة مرتين.
   useEffect(() => {
     if (authState !== "signedIn" || !activeId) {
       return
     }
     const timer = window.setInterval(() => {
+      if (isBusy || hasQueuedRequests || hasRunningRequests) {
+        return
+      }
       void refreshRequests(activeId).catch(() => undefined)
     }, 5000)
     return () => window.clearInterval(timer)
-  }, [authState, activeId, refreshRequests])
+  }, [authState, activeId, isBusy, hasQueuedRequests, hasRunningRequests, refreshRequests])
 
   useEffect(() => {
     if (authState !== "signedIn" || !selectedProject) {

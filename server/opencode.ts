@@ -355,7 +355,7 @@ export class OpenCodeService {
       try {
         for await (const event of this.requireClient().event.subscribe({ signal: this.abortController.signal })) {
           this.trackEvent(event)
-          await Promise.all([...this.listeners].map((listener) => listener(event)))
+          await Promise.all(Array.from(this.listeners, (listener) => listener(event)))
         }
       } catch (error) {
         if (!this.abortController.signal.aborted) {
@@ -782,25 +782,24 @@ export class OpenCodeService {
     // المسجَّل بمجلد لا يحمل جلسات: نضيفه الآن بـ canonical الخاص به لا
     // بمجلد جلسة، وإلا اختفى المشروع حتى يُفتح فيه حوار.
     const registeredByDirectory = new Map<string, { id: string; worktree: string; name?: string; created: number; updated: number }>()
-    try {
-      const registered = await this.requireClient().project.list()
-      for (const project of registered) {
-        if (project.name) {
-          nameByProjectId.set(project.id, project.name)
-        }
-        if (!isListableProjectDirectory(project.canonical, home)) {
-          continue
-        }
-        registeredByDirectory.set(directoryKey(project.canonical), {
-          id: project.id,
-          worktree: project.canonical,
-          name: project.name,
-          created: project.time?.created || 0,
-          updated: project.time?.updated || 0,
-        })
+    const [registered, sessions] = await Promise.all([
+      this.requireClient().project.list().catch(() => []),
+      this.listAllSessions().catch(() => [] as SessionInfo[]),
+    ])
+    for (const project of registered) {
+      if (project.name) {
+        nameByProjectId.set(project.id, project.name)
       }
-    } catch {
-      // فشل السجل يُبقي المجلد المُعدّ والمشاريع ذات الجلسات
+      if (!isListableProjectDirectory(project.canonical, home)) {
+        continue
+      }
+      registeredByDirectory.set(directoryKey(project.canonical), {
+        id: project.id,
+        worktree: project.canonical,
+        name: project.name,
+        created: project.time?.created || 0,
+        updated: project.time?.updated || 0,
+      })
     }
 
     // المجلد المُعدّ يظهر دائمًا — حتى قبل أول جلسة — فشاشة الاختيار لا
@@ -838,12 +837,6 @@ export class OpenCodeService {
       })
     }
 
-    let sessions: SessionInfo[] = []
-    try {
-      sessions = await this.listAllSessions()
-    } catch {
-      // الفشل يُبقي المجلد المُعدّ فقط
-    }
     for (const session of sessions) {
       const directory = session.location.directory
       if (!isListableProjectDirectory(directory, home)) {
@@ -1120,7 +1113,13 @@ export class OpenCodeService {
     // والسؤال/الإذن المعلّق انتظار مشروع للمستخدم (كارت ظاهر) مش جمود.
     // (v2 بلا قائمة مهام، فلا todos في البصمة ولا في الكروت.)
     const turnSig = turns
-      .map((turn) => `${turn.updatedAt}:${turn.completedAt}:${turn.texts.join("").length}:${toolSignature(turn.entries)}`)
+      .map((turn) => {
+        let textLength = 0
+        for (const text of turn.texts) {
+          textLength += text.length
+        }
+        return `${turn.updatedAt}:${turn.completedAt}:${textLength}:${toolSignature(turn.entries)}`
+      })
       .join(";")
     const sharedTail = [
       turns.length,
@@ -1147,9 +1146,22 @@ export class OpenCodeService {
 
     const requests: SessionRequest[] = turns.map((turn, index) => {
       const running = index === runningIndex
-      const reversed = [...turn.entries].reverse()
-      const currentAssistant = reversed.find((entry) => entry.time.completed === undefined)
-      const completedAssistant = reversed.find((entry) => entry.time.completed !== undefined)
+      let currentAssistant: SessionMessageAssistant | undefined
+      let completedAssistant: SessionMessageAssistant | undefined
+      for (let entryIndex = turn.entries.length - 1; entryIndex >= 0; entryIndex -= 1) {
+        const entry = turn.entries[entryIndex]
+        if (!entry) {
+          continue
+        }
+        if (entry.time.completed === undefined && !currentAssistant) {
+          currentAssistant = entry
+        } else if (entry.time.completed !== undefined && !completedAssistant) {
+          completedAssistant = entry
+        }
+        if (currentAssistant && completedAssistant) {
+          break
+        }
+      }
       const activeTool = findActiveTool(currentAssistant)
 
       let activity = serverMessage("taskReady", lang)
@@ -1842,33 +1854,35 @@ export class OpenCodeService {
   }
 
   async sessionModel(id: string): Promise<{ model: SessionModelRef | null; defaultModel: SessionModelRef | null }> {
-    let model: SessionModelRef | null = null
-    try {
-      const session = await this.requireClient().session.get({ sessionID: id })
-      const ref = session.model
-      if (ref) {
-        model = { providerID: ref.providerID, modelID: ref.id, ...(ref.variant ? { variant: ref.variant } : {}) }
-      }
-    } catch (error) {
-      console.error("session get model failed", errorMessage(error))
-    }
-
-    let defaultModel: SessionModelRef | null = null
-    try {
-      const entries = await this.requireClient().config.get({ location: this.location() })
-      for (const entry of entries) {
-        if (entry.type !== "document") {
-          continue
+    const [model, defaultModel] = await Promise.all([
+      (async (): Promise<SessionModelRef | null> => {
+        try {
+          const session = await this.requireClient().session.get({ sessionID: id })
+          const ref = session.model
+          return ref ? { providerID: ref.providerID, modelID: ref.id, ...(ref.variant ? { variant: ref.variant } : {}) } : null
+        } catch (error) {
+          console.error("session get model failed", errorMessage(error))
+          return null
         }
-        const parsed = parseModelString(typeof entry.info.model === "string" ? entry.info.model : undefined)
-        if (parsed) {
-          defaultModel = parsed
-          break
+      })(),
+      (async (): Promise<SessionModelRef | null> => {
+        try {
+          const entries = await this.requireClient().config.get({ location: this.location() })
+          for (const entry of entries) {
+            if (entry.type !== "document") {
+              continue
+            }
+            const parsed = parseModelString(typeof entry.info.model === "string" ? entry.info.model : undefined)
+            if (parsed) {
+              return parsed
+            }
+          }
+        } catch {
+          // تجاهل — الـ default اختياري
         }
-      }
-    } catch {
-      // تجاهل — الـ default اختياري
-    }
+        return null
+      })(),
+    ])
     return { model, defaultModel }
   }
 

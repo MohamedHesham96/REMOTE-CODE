@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react"
+import { memo, useCallback, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react"
 import type { Strings } from "../../i18n"
 import type { SessionRequest, SessionStatus, ToastKind } from "../../types"
 import { describeTask } from "../../utils/task-status"
@@ -55,26 +55,8 @@ function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle,
   // يتحوّل لـ"في الانتظار" قبل ما السيرفر يثبت الجمود بساعته.
   const now = useNowTick(status?.type === "busy" || status?.type === "retry")
   const view = describeTask({ requests, status, stalled, waitingOnUser, now }, t)
-  // callbacks لكل صف لازم تكون مستقرة عشان `RequestRow` (memo) يعمل bail-out.
-  // بنبني جدولًا مرتبطًا بـ request.id عبر `useMemo` بدل خريطة قابلة للتعديل.
-  // الجدول بيتعاد بناؤه لما الـ callbacks الأب أو قائمة الطلبات تتغير، فكل صف
-  // بيشاور على callback ثابت طول ما الـ parent ما مرّرش هوية جديدة.
-  // `onToggle` جزء من نفس الجدول بدل arrow inline في الـ JSX: الـ arrow كان
-  // بياخد مرجعًا جديدًا كل رندر فيكسر memo الصفوف مع كل نبضة `useNowTick`.
+  // callbacks مستقرة، فتحديث الطلب الجاري لا يجبر صفوف السجل غير المتغيرة على الرسم.
   const onToggle = useCallback((id: string) => setOpenId((current) => (current === id ? null : id)), [])
-  const rowCallbacks = useMemo(() => {
-    const map = new Map<string, { onToggle: () => void; onSkip: () => void; onRunNow: () => void; onRemove: () => void }>()
-    for (const request of requests) {
-      const captured = request
-      map.set(request.id, {
-        onToggle: () => onToggle(captured.id),
-        onSkip: () => onSkip(captured),
-        onRunNow: () => onRunNow(captured),
-        onRemove: () => onRemove(captured),
-      })
-    }
-    return map
-  }, [requests, onToggle, onSkip, onRunNow, onRemove])
   return (
     <section className={`task-summary task-${latest ? latest.state : "done"}`} data-phase={view.phase}>
       <div className="task-summary-top">
@@ -82,30 +64,22 @@ function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle,
         <TaskStatusPanel view={view} />
       </div>
       <ul className="request-list" ref={listRef}>
-        {requests.map((request) => {
-          const callbacks = rowCallbacks.get(request.id) ?? {
-            onToggle: () => onToggle(request.id),
-            onSkip: () => onSkip(request),
-            onRunNow: () => onRunNow(request),
-            onRemove: () => onRemove(request),
-          }
-          return (
-            <RequestRow
-              key={request.id}
-              request={request}
-              expanded={request.id === expandedId}
-              onToggle={callbacks.onToggle}
-              sessionId={sessionId}
-              onCopy={onCopy}
-              onToast={onToast}
-              onSkip={callbacks.onSkip}
-              onRunNow={callbacks.onRunNow}
-              onRemove={callbacks.onRemove}
-              busyAction={busyAction}
-              t={t}
-            />
-          )
-        })}
+        {requests.map((request) => (
+          <RequestRow
+            key={request.id}
+            request={request}
+            expanded={request.id === expandedId}
+            onToggle={onToggle}
+            sessionId={sessionId}
+            onCopy={onCopy}
+            onToast={onToast}
+            onSkip={onSkip}
+            onRunNow={onRunNow}
+            onRemove={onRemove}
+            busyAction={busyAction}
+            t={t}
+          />
+        ))}
       </ul>
     </section>
   )

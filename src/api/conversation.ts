@@ -1,5 +1,6 @@
 import { ApiError, request } from "./http"
 import type { ComposerAttachment, HistoryTurn, SessionModelRef, SessionRequests } from "../types"
+import { sameSessionRequest } from "../utils/request-equality"
 
 // كاش ETag لطلبات المحادثة: السيرفر يرجّع 304 فاضي لما مفيش تغيير،
 // فنرجّع آخر payload من الذاكرة — نفس المرجع (reference) عشان React
@@ -65,6 +66,14 @@ export async function getRequests(id: string, lang: "ar" | "en" = "ar"): Promise
       requestsEtag.set(key, etag)
     }
     const result = payload as SessionRequests
+    const previous = requestsCache.get(key)
+    if (previous) {
+      const previousById = new Map(previous.requests.map((item) => [item.id, item]))
+      result.requests = result.requests.map((item) => {
+        const cached = previousById.get(item.id)
+        return cached && sameSessionRequest(cached, item) ? cached : item
+      })
+    }
     // سقف الكاش: جلسات قديمة كثيرة لا تتراكم في الذاكرة (LRU بسيط)
     if (requestsCache.size >= 30 && !requestsCache.has(key)) {
       const oldest = requestsCache.keys().next()

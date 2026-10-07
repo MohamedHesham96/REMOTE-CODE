@@ -117,13 +117,13 @@ const ExpandableText = memo(function ExpandableText({ text, maxLines = 6, classN
 interface RequestRowProps {
   request: SessionRequest
   expanded: boolean
-  onToggle: () => void
+  onToggle: (id: string) => void
   sessionId: string | null
   onCopy: (text: string) => void
   onToast: (message: string, kind?: ToastKind) => void
-  onSkip: () => void
-  onRunNow: () => void
-  onRemove: () => void
+  onSkip: (request: SessionRequest) => void
+  onRunNow: (request: SessionRequest) => void
+  onRemove: (request: SessionRequest) => void
   busyAction: string | null
   t: Strings
 }
@@ -140,7 +140,7 @@ function RequestRowInner({ request, expanded, onToggle, sessionId, onCopy, onToa
   const actions = running || queued ? (
     <span className="request-row-actions">
       {running ? (
-        <button type="button" className="request-action request-action-skip" onClick={onSkip} disabled={busyAction === request.id} title={t.skipCurrent}>
+        <button type="button" className="request-action request-action-skip" onClick={() => onSkip(request)} disabled={busyAction === request.id} title={t.skipCurrent}>
           <svg className="request-action-icon" viewBox="0 0 24 24" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M6 4.5v15l10.5-7.5L6 4.5z" fill="currentColor" stroke="none" />
             <path d="M19 5v14" />
@@ -150,13 +150,13 @@ function RequestRowInner({ request, expanded, onToggle, sessionId, onCopy, onToa
       ) : null}
       {queued ? (
         <>
-          <button type="button" className="request-action request-action-run" onClick={onRunNow} disabled={busyAction === request.id || notSentYet} title={t.runNow}>
+          <button type="button" className="request-action request-action-run" onClick={() => onRunNow(request)} disabled={busyAction === request.id || notSentYet} title={t.runNow}>
             <svg className="request-action-icon" viewBox="0 0 24 24" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M8 4.5v15l12-7.5-12-7.5z" fill="currentColor" stroke="none" />
             </svg>
             <span className="request-action-label">{t.runNow}</span>
           </button>
-          <button type="button" className="request-action request-action-remove" onClick={onRemove} disabled={busyAction === request.id} title={t.removeFromQueue}>
+          <button type="button" className="request-action request-action-remove" onClick={() => onRemove(request)} disabled={busyAction === request.id} title={t.removeFromQueue}>
             <svg className="request-action-icon" viewBox="0 0 24 24" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -169,7 +169,7 @@ function RequestRowInner({ request, expanded, onToggle, sessionId, onCopy, onToa
   return (
     <li className={`request-row ${REQUEST_STATE_ROW[request.state]}${expanded ? " is-open" : ""}`}>
       <div className="request-row-head">
-        <button type="button" className="request-row-toggle" onClick={onToggle} aria-expanded={expanded}>
+        <button type="button" className="request-row-toggle" onClick={() => onToggle(request.id)} aria-expanded={expanded}>
           <span className="request-row-mark" aria-hidden>{REQUEST_STATE_MARK[request.state]}</span>
           <span className="request-row-index">{t.requestNumber} {request.index}</span>
           <span className="request-row-prompt"><ExpandableText text={request.prompt || t.yourRequest} t={t} /></span>

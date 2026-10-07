@@ -39,7 +39,7 @@ export class EventHub {
   }
 
   broadcast(data: string): void {
-    for (const client of [...this.clients]) {
+    for (const client of this.clients) {
       try {
         if (client.writableEnded) {
           this.clients.delete(client)
