@@ -9,7 +9,8 @@ import type { Release } from "./releases"
 // كل نص هنا مزدوج اللغة (ar/en) بنفس أسلوب i18n.ts — العربية فصحى بلا لهجة،
 // والإنجليزية فصيحة. إضافة إصدار جديد = إضافة كائن بنصوص اللغتين معًا.
 //
-// التسلسل الزمني الحقيقي من الأقدم (5775b51) للأحدث (4f4e0c1):
+// التسلسل الزمني الحقيقي من الأقدم (5775b51) للأحدث (1b753c5):
+//   v1.8.1 (2026-10-07)  →  2 commits عنوان الشبكة في المشغّل + رقم النسخة
 //   v1.8.0 (2026-10-07)  → 11 commits الثيمات + حالة التخطي + أوامر الصوت + الأداء
 //   v1.7.0 (2026-10-06)  →  13 commit قفل المايك واللصق ومثبّتات النماذج والجداول
 //   v1.6.0 (2026-10-05)  →  2 commits الإدخال الصوتي + مرفقات الرسائل + PWA وHTTPS
@@ -24,6 +25,57 @@ import type { Release } from "./releases"
 // إعادة التوليد: شغّل `scripts/generate-releases.mjs` لأخذ صورة جديدة من
 // التاريخ، ثم راجع المجموعة الناتجة قبل إضافتها كإصدار جديد هنا.
 export const releases: Release[] = [
+  {
+    version: "v1.8.1",
+    date: "2026-10-07",
+    title: {
+      ar: "المشغّل يختار عنوان الشبكة الصحيح ويجدد الشهادة",
+      en: "The launcher picks the reachable network address and renews the certificate",
+    },
+    summary: {
+      ar: "المشغّل بقى يختار عنوان IP اللي الهاتف يقدر يوصله فعلًا بدل محولات Hyper-V وWSL وVPN، ويجدد شهادة HTTPS تلقائيًا لما العنوان يتغيّر، مع رقم النسخة تحت البانر.",
+      en: "The launcher now picks the LAN address the phone can actually reach instead of a Hyper-V, WSL, or VPN adapter, and renews the HTTPS certificate automatically when that address changes, with the version printed under the banner.",
+    },
+    commits: ["3c4499c", "1b753c5"],
+    changes: [
+      {
+        category: "fixes",
+        title: {
+          ar: "المشغّل يختار العنوان الذي يصله الهاتف فعلًا",
+          en: "The launcher picks the address the phone can actually reach",
+        },
+        description: {
+          ar: "كان أول محول شغّال ببوابة افتراضية هو المرشح، فكانت النتيجة أحيانًا عنوان Hyper-V أو WSL أو VPN لا يستطيع الهاتف فتحه. الآن تُرتَّب المحولات الفيزيائية قبل الافتراضية، ويُدرج الباقي في صفوف عناوين بديلة مع اسم كل محول، ويمكن تثبيت العنوان يدويًا من APP_LAN_IP.",
+          en: "The first adapter that was up with a gateway used to win, which sometimes meant a Hyper-V, WSL, or VPN address the phone cannot open. Physical adapters are now ranked ahead of virtual ones, the runners-up print as Alt IP rows with their adapter names, and APP_LAN_IP pins the address by hand.",
+        },
+        commits: ["1b753c5"],
+      },
+      {
+        category: "fixes",
+        title: {
+          ar: "تجديد شهادة HTTPS تلقائيًا عند تغيير العنوان",
+          en: "Automatic certificate renewal when the address changes",
+        },
+        description: {
+          ar: "تغيير شبكة الجهاز كان يترك الهاتف على خطأ شهادة لأن العنوان الجديد غير مشمول. الآن تُفحص تغطية الشهادة لكل عنوان معروض قبل التشغيل، وتُجدَّد عند الحاجة فقط — والملفات الجديدة تُكتب جانبًا فالفشل لا يدمّر شهادة سليمة.",
+          en: "Changing networks used to leave the phone on a certificate error because the new address was not covered. The certificate is now checked against every printed address before launch and renewed only when needed, with new files written aside so a failed run cannot destroy a working pair.",
+        },
+        commits: ["1b753c5"],
+      },
+      {
+        category: "improvements",
+        title: {
+          ar: "رقم النسخة تحت بانر المشغّل",
+          en: "The project version under the launcher banner",
+        },
+        description: {
+          ar: "يطبع المشغّل اسم المشروع ورقم نسخته مباشرة تحت الشعار، مقروءًا من package.json في كل تشغيل فيتطابق مع الرقم اللي التطبيق يعرضه.",
+          en: "The launcher prints the project name and version right under the logo, read from package.json on every launch so it always matches the number the app shows.",
+        },
+        commits: ["3c4499c"],
+      },
+    ],
+  },
   {
     version: "v1.8.0",
     date: "2026-10-07",
