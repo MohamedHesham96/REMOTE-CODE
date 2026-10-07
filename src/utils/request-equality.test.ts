@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import type { SessionRequest } from "../types"
-import { sameSessionRequest } from "./request-equality"
+import type { ConversationQuestionRequest, SessionRequest } from "../types"
+import { sameConversationQuestionRequest, sameSessionRequest } from "./request-equality"
 
 function request(overrides: Partial<SessionRequest> = {}): SessionRequest {
   return {
@@ -33,5 +33,23 @@ describe("sameSessionRequest", () => {
     expect(sameSessionRequest(request(), request({ usedTools: ["write"] }))).toBe(false)
     expect(sameSessionRequest(request(), request({ resultFiles: [] }))).toBe(false)
     expect(sameSessionRequest(request(), request({ attachments: [] }))).toBe(false)
+  })
+})
+
+describe("sameConversationQuestionRequest", () => {
+  const question: ConversationQuestionRequest = {
+    id: "form-1",
+    sessionID: "session-1",
+    questions: [{ question: "Choose", header: "choice", options: [{ label: "yes", description: "" }], multiple: false, custom: false }],
+  }
+
+  it("treats equivalent parsed forms as equal", () => {
+    expect(sameConversationQuestionRequest(question, structuredClone(question))).toBe(true)
+  })
+
+  it("detects changed options", () => {
+    const changed = structuredClone(question)
+    changed.questions[0]!.options[0]!.label = "no"
+    expect(sameConversationQuestionRequest(question, changed)).toBe(false)
   })
 })

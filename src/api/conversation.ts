@@ -1,6 +1,6 @@
 import { ApiError, request } from "./http"
 import type { ComposerAttachment, HistoryTurn, SessionModelRef, SessionRequests } from "../types"
-import { sameSessionRequest } from "../utils/request-equality"
+import { sameConversationQuestionRequest, sameSessionRequest } from "../utils/request-equality"
 
 // كاش ETag لطلبات المحادثة: السيرفر يرجّع 304 فاضي لما مفيش تغيير،
 // فنرجّع آخر payload من الذاكرة — نفس المرجع (reference) عشان React
@@ -18,6 +18,25 @@ const inflightRequests = new Map<string, Promise<SessionRequests>>()
 // بعض عشان مايفضلش ETag من غير جسم — الطلب اللي بعده بيعمل fetch عادي (نفس
 // البيانات من السيرفر). مش بيغيّر أي نتيجة ظاهرة.
 const REQUESTS_ETAG_CACHE_LIMIT = 30
+
+function reuseItems<T extends { id: string }>(
+  previous: T[],
+  next: T[],
+  equal: (left: T, right: T) => boolean,
+): T[] {
+  const previousById = new Map(previous.map((item) => [item.id, item]))
+  const reused: T[] = []
+  let unchanged = previous.length === next.length
+  for (const item of next) {
+    const cached = previousById.get(item.id)
+    const value = cached && equal(cached, item) ? cached : item
+    if (value !== cached) {
+      unchanged = false
+    }
+    reused.push(value)
+  }
+  return unchanged ? previous : reused
+}
 
 export async function getRequests(id: string, lang: "ar" | "en" = "ar"): Promise<SessionRequests> {
   const key = `${id}:${lang}`
@@ -68,11 +87,8 @@ export async function getRequests(id: string, lang: "ar" | "en" = "ar"): Promise
     const result = payload as SessionRequests
     const previous = requestsCache.get(key)
     if (previous) {
-      const previousById = new Map(previous.requests.map((item) => [item.id, item]))
-      result.requests = result.requests.map((item) => {
-        const cached = previousById.get(item.id)
-        return cached && sameSessionRequest(cached, item) ? cached : item
-      })
+      result.requests = reuseItems(previous.requests, result.requests, sameSessionRequest)
+      result.questions = reuseItems(previous.questions, result.questions, sameConversationQuestionRequest)
     }
     // سقف الكاش: جلسات قديمة كثيرة لا تتراكم في الذاكرة (LRU بسيط)
     if (requestsCache.size >= 30 && !requestsCache.has(key)) {

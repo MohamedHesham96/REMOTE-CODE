@@ -889,14 +889,44 @@ describe("response caching and dedup", () => {
     const first = service.sessionQuestions(SESSION)
     // الاستمارة اتنشأت — لازم الإبطال يشيل الكاش والنداء الجاري معًا
     internals.trackEvent({ type: "form.created", data: { form: { id: "form_1", sessionID: SESSION } } } as unknown as OpenCodeEvent)
+    // طلب جديد يبدأ قبل رجوع القديم، والقديم ممنوع يستبدل وعده أو كاشه.
+    const afterPromise = service.sessionQuestions(SESSION)
     // النداء القديم خلص فاضي
     resolveFirst([])
     await first
 
     // النداء اللي العميل بيعمله بعد الحدث لازم يشوف الاستمارة لا النتيجة القديمة
-    const after = await service.sessionQuestions(SESSION)
+    const after = await afterPromise
     expect(after.map((question) => question.id)).toEqual(["form_1"])
     expect(listCalls).toBe(2)
+  })
+
+  it("bounds cached question lists across previously opened sessions", async () => {
+    let listCalls = 0
+    const service = new OpenCodeService({ projectDirectory: DIRECTORY })
+    const internals = service as unknown as Internals & {
+      client: { session: { form: { list: () => Promise<unknown> } } }
+      questionsCache: Map<string, unknown>
+    }
+    internals.client = {
+      session: {
+        form: {
+          list: () => {
+            listCalls += 1
+            return Promise.resolve([])
+          },
+        },
+      },
+    }
+
+    for (let index = 0; index < 65; index += 1) {
+      await service.sessionQuestions(`session-${index}`)
+    }
+
+    expect(internals.questionsCache.size).toBe(64)
+    expect(internals.questionsCache.has("session-0")).toBe(false)
+    await service.sessionQuestions("session-0")
+    expect(listCalls).toBe(66)
   })
 })
 
@@ -1075,6 +1105,37 @@ describe("project list filtering", () => {
 
     const projects = await service.projects()
     expect(projects.map((project) => project.worktree)).toEqual(["E:/work/fresh", "E:/mSales/app"])
+  })
+
+  it("keeps configured and session projects when project.list throws synchronously", async () => {
+    const service = new OpenCodeService({ projectDirectory: "E:/mSales/app" })
+    const internals = service as unknown as {
+      client: {
+        project: { list: () => Promise<unknown[]> }
+        session: { list: () => Promise<{ data: unknown[]; cursor: object }> }
+      }
+    }
+    internals.client = {
+      project: {
+        list: () => { throw new Error("project registry unavailable") },
+      },
+      session: {
+        list: () => Promise.resolve({
+          data: [{
+            id: "ses_1",
+            title: "app",
+            projectID: "p1",
+            location: { directory: "E:/work/existing" },
+            time: { created: 1, updated: 2 },
+          }],
+          cursor: {},
+        }),
+      },
+    }
+
+    const projects = await service.projects()
+
+    expect(projects.map((project) => project.worktree).sort()).toEqual(["E:/mSales/app", "E:/work/existing"])
   })
 
   it("يستخدم اسم المشروع المسجَّل ودمج زمنه مع الجلسات", async () => {

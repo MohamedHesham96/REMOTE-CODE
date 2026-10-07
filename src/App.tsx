@@ -97,6 +97,7 @@ const EMPTY_PENDING_IDS: ReadonlySet<string> = new Set()
 // بيلحق مرجع جديد في كل render حتى لو مفيش إذن/سؤال.
 const EMPTY_PERMISSIONS: Permission[] = []
 const EMPTY_QUESTIONS: ConversationQuestionRequest[] = []
+const EMPTY_ACTIVITY_IDS: ReadonlySet<string> = new Set()
 // بديل فارغ لمفتاح إذن مش موجود في خريطة الردود (مستحيل يحدث: الخريطة بتتبني
 // من نفس مصفوفة الأذونات المعروضة) — عشان نوع الـ prop يفضل دالة.
 const NOOP_PERMISSION_REPLY = (): void => {}
@@ -233,6 +234,7 @@ function App() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState("")
   const [activity, setActivity] = useState<ActiveSession[]>([])
+  const [activityIds, setActivityIds] = useState<ReadonlySet<string>>(EMPTY_ACTIVITY_IDS)
   const [jumpingId, setJumpingId] = useState<string | null>(null)
   // حالة git: الأيقونة بتجيب العدد من غير ما تفتح القائمة، والقائمة بتجيبها لما تفتحها
   const [gitChanges, setGitChanges] = useState<GitChanges | null>(null)
@@ -301,9 +303,8 @@ function App() {
   const activeTitle = displayTitle(activeSession?.title, t)
   const activeStatus = activeId ? statuses[activeId] : undefined
   const isBusy = activeStatus?.type === "busy" || activeStatus?.type === "retry"
-  // ids الشغالة في كل المشاريع (من /api/activity) — عشان جلسة اللاب تبان
-  // نشطة فورًا حتى لو statuses الم scoped للمشروع المفتوح لسه ملحقتهاش
-  const activityIds = useMemo(() => new Set(activity.map((item) => item.id)), [activity])
+  // عضوية النشاط مستقلة عن تحديث العنوان والوقت؛ ثبات المجموعة يمنع إعادة
+  // تصنيف صفوف الشريط الجانبي عند كل تحديث metadata قادم من /api/activity.
   // هل المحادثة المفتوحة فيها طلب لسه ما خلصش؟ بنحسبها boolean مرة واحدة لكل
   // تغيّر في الطلبات، ونشيل مصفوفة `requests` من اعتماديات `isSessionWorking`.
   // من غير كده كانت قوايم السايدبار (active/inactive) بتتبني من جديد مع كل
@@ -676,6 +677,14 @@ function App() {
         seen.add(item.id)
         return true
       })
+      // تحديث عنوان/وقت جلسة نشطة لا يغيّر عضوية القائمة الجانبية؛ ثبّت الـ Set
+      // كي لا نعيد تصنيف ورسم كل صفوف الجلسات مع كل تحديث نشاط عالي التكرار.
+      setActivityIds((current) => {
+        if (current.size === unique.length && unique.every((item) => current.has(item.id))) {
+          return current
+        }
+        return new Set(unique.map((item) => item.id))
+      })
       setActivity(unique)
       trackActivity(unique, Date.now())
       markFetched("activity")
@@ -837,9 +846,16 @@ function App() {
   }, [openProject])
 
   useEffect(() => {
+    if (authState === "signedIn") {
+      return
+    }
     let mounted = true
     void getConfig()
-      .then((config) => enterApp(config))
+      .then((config) => {
+        if (mounted) {
+          return enterApp(config)
+        }
+      })
       .catch((error: unknown) => {
         if (!mounted) {
           return
@@ -854,7 +870,7 @@ function App() {
     return () => {
       mounted = false
     }
-  }, [enterApp, t])
+  }, [authState, enterApp, t])
 
   useEffect(() => {
     activeIdRef.current = activeId
@@ -863,9 +879,10 @@ function App() {
     setRequests([])
     setRequestQuestions([])
     if (authState === "signedIn" && activeId) {
-      void refreshRequests(activeId).catch((error: unknown) => addToast(error instanceof Error ? error.message : t.summaryLoadFailed, "error"))
+      const failureMessage = getStrings(langRef.current).summaryLoadFailed
+      void refreshRequests(activeId).catch((error: unknown) => addToast(error instanceof Error ? error.message : failureMessage, "error"))
     }
-  }, [activeId, authState, addToast, refreshRequests, t])
+  }, [activeId, authState, addToast, refreshRequests])
 
   // احفظ آخر محادثة فتحناها لكل مشروع — بعد الـ refresh نرجعلها بدل ما نرجع لأول واحدة
   useEffect(() => {
@@ -898,20 +915,21 @@ function App() {
     if (!silent) {
       setModelsLoading(true)
     }
+    const failureMessage = getStrings(langRef.current).modelsLoadFailed
     try {
       const list = await getModels()
       setModels(list)
       markFetched("models")
     } catch (error: unknown) {
       if (!silent) {
-        addToast(error instanceof Error ? error.message : t.modelsLoadFailed, "error")
+        addToast(error instanceof Error ? error.message : failureMessage, "error")
       }
     } finally {
       if (!silent) {
         setModelsLoading(false)
       }
     }
-  }, [addToast, t, isFresh, markFetched])
+  }, [addToast, isFresh, markFetched])
 
   // تحميل قائمة الموديلات الكاملة بعد الدخول واختيار المشروع
   useEffect(() => {
@@ -941,10 +959,12 @@ function App() {
       setHistoryError("")
       return
     }
+    const lang = langRef.current
+    const failureMessage = getStrings(lang).historyLoadFailed
     setHistoryLoading(true)
     setHistoryError("")
     try {
-      const turns = await getHistory(id, langRef.current)
+      const turns = await getHistory(id, lang)
       if (activeIdRef.current !== id) {
         return
       }
@@ -953,13 +973,13 @@ function App() {
       if (activeIdRef.current !== id) {
         return
       }
-      setHistoryError(error instanceof Error ? error.message : t.historyLoadFailed)
+      setHistoryError(error instanceof Error ? error.message : failureMessage)
     } finally {
       if (activeIdRef.current === id) {
         setHistoryLoading(false)
       }
     }
-  }, [t])
+  }, [])
 
   // تحميل سجل المحادثة المنظم كل ما تفتح الدرج أو تتبدل الجلسة
   useEffect(() => {
@@ -1603,6 +1623,7 @@ function App() {
   const handleCloseSessions = useCallback(() => setShowSessions(false), [])
   const handleShowActivity = useCallback(() => setShowActivity(true), [])
   const handleShowHistory = useCallback(() => setShowHistory(true), [])
+  const handleCloseHistory = useCallback(() => setShowHistory(false), [])
   const handleShowPinned = useCallback(() => setShowPinned(true), [])
   const handleShowReleases = useCallback(() => setShowReleases(true), [])
   const handleShowSettings = useCallback(() => setShowSettings(true), [])
@@ -2305,16 +2326,16 @@ function App() {
               busy={sending}
               confirming={gitRequests.confirming}
               confirmingPush={gitRequests.confirmingPush}
-              onRefresh={() => void refreshGitChanges()}
-              onCommitPush={() => void gitRequests.commitPush()}
+              onRefresh={refreshGitChanges}
+              onCommitPush={gitRequests.commitPush}
               onAskCommitPush={gitRequests.askCommitPush}
               onCancelCommitPush={gitRequests.cancelCommitPush}
-              onCommit={() => void gitRequests.commit()}
-              onPull={() => void gitRequests.pull()}
+              onCommit={gitRequests.commit}
+              onPull={gitRequests.pull}
               onAskRevertAll={gitRequests.askRevertAll}
-              onRevertAll={() => void gitRequests.revertAll()}
+              onRevertAll={gitRequests.revertAll}
               onCancelRevertAll={gitRequests.cancelRevertAll}
-              onRevertFile={(file) => void gitRequests.revertFile(file)}
+              onRevertFile={gitRequests.revertFile}
               onClose={gitRequests.close}
               t={t}
             />
@@ -2323,15 +2344,15 @@ function App() {
       ) : null}
       {showHistory ? (
         <Suspense fallback={<PanelFallback />}>
-          <PanelErrorBoundary t={t} panelName="HistoryPanel" onClose={() => setShowHistory(false)}>
+          <PanelErrorBoundary t={t} panelName="HistoryPanel" onClose={handleCloseHistory}>
             <HistoryPanel
               turns={historyTurns}
               loading={historyLoading}
               error={historyError}
               sessionId={activeId}
-              onClose={() => setShowHistory(false)}
+              onClose={handleCloseHistory}
               onCopy={copyText}
-              onRetry={() => void loadHistory()}
+              onRetry={loadHistory}
               t={t}
               lang={lang}
             />

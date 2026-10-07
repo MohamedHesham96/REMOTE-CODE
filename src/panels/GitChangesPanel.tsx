@@ -1,9 +1,9 @@
-import { useMemo } from "react"
+import { memo, useMemo } from "react"
 import { EMPTY_GIT_FILES, GitBranchIcon, GitCommitIcon, GitCommitOnlyIcon, GitPullIcon, GitRefreshIcon, GitRevertIcon, SpinnerIcon, gitStatusMeta, splitChangePath } from "../display"
 import type { Strings } from "../i18n"
 import type { GitChangeFile, GitChanges } from "../types"
 
-export function GitChangesPanel({ changes, loading, busy, confirming, confirmingPush, onRefresh, onCommitPush, onAskCommitPush, onCancelCommitPush, onCommit, onPull, onAskRevertAll, onRevertAll, onCancelRevertAll, onRevertFile, onClose, t }: {
+function GitChangesPanelInner({ changes, loading, busy, confirming, confirmingPush, onRefresh, onCommitPush, onAskCommitPush, onCancelCommitPush, onCommit, onPull, onAskRevertAll, onRevertAll, onCancelRevertAll, onRevertFile, onClose, t }: {
   changes: GitChanges | null
   loading: boolean
   busy: boolean
@@ -204,3 +204,5 @@ export function GitChangesPanel({ changes, loading, busy, confirming, confirming
     </div>
   )
 }
+
+export const GitChangesPanel = memo(GitChangesPanelInner)

@@ -1,10 +1,10 @@
-import type { RequestAttachment, ResultFile, SessionRequest } from "../types"
+import type { ConversationQuestion, ConversationQuestionRequest, SessionRequest } from "../types"
 
 function sameStrings(left: string[], right: string[]): boolean {
   return left === right || (left.length === right.length && left.every((value, index) => value === right[index]))
 }
 
-function sameRecords<T extends ResultFile | RequestAttachment>(left: T[], right: T[]): boolean {
+function sameRecords<T extends object>(left: T[], right: T[]): boolean {
   if (left === right) {
     return true
   }
@@ -45,5 +45,25 @@ export function sameSessionRequest(left: SessionRequest, right: SessionRequest):
     && left.startedAt === right.startedAt
     && left.completedAt === right.completedAt
     && left.updatedAt === right.updatedAt
+  )
+}
+
+function sameQuestion(left: ConversationQuestion, right: ConversationQuestion): boolean {
+  return left.question === right.question
+    && left.header === right.header
+    && left.multiple === right.multiple
+    && left.custom === right.custom
+    && sameRecords(left.options, right.options)
+}
+
+export function sameConversationQuestionRequest(left: ConversationQuestionRequest, right: ConversationQuestionRequest): boolean {
+  return left === right || (
+    left.id === right.id
+    && left.sessionID === right.sessionID
+    && left.questions.length === right.questions.length
+    && left.questions.every((question, index) => {
+      const other = right.questions[index]
+      return other !== undefined && sameQuestion(question, other)
+    })
   )
 }

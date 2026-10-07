@@ -78,6 +78,7 @@ import {
 // ليترجم حسب لغة الطلب، فـ opencode.ts ما فيهوش نصوص مترجمة.
 // الترجمة مكانها server/i18n.ts مع باقي رسائل العقد.
 const MODEL_PROVIDER_NOT_CONNECTED = "MODEL_PROVIDER_NOT_CONNECTED"
+const MAX_CACHED_QUESTION_SESSIONS = 64
 
 interface MobileSessionFile {
   sessions: string[]
@@ -189,10 +190,8 @@ export class OpenCodeService {
   private modelsCache: { expiresAt: number; directory: string; value: ModelInfo[] } | null = null
   // كتالوج models.dev العام — بلا directory لأنه مستقل عن المشروع
   private staticCatalogCache: { expiresAt: number; value: ModelInfo[] } | null = null
+  // حدّ أقصى لقوائم الاستمارات المحتفظ بها حتى لا تتراكم مع فتح محادثات كثيرة.
   private readonly questionsCache = new Map<string, { expiresAt: number; value: FormInfo[]}>()
-  // عدّاد إبطال لكل جلسة: نداء `form.list` بدأ قبل ما استمارة تتغير لازم
-  // يعرف إن نتيجته بقت قديمة فما يخزّنهاش (وإلا سؤال ظهر يفضل مخفي لحد refresh).
-  private readonly questionsEpoch = new Map<string, number>()
   // سلسلة كتابة ملف الجلسات: ترتيب مضمون من غير حظر الـ event loop
   private persistChain: Promise<void> = Promise.resolve()
 
@@ -783,7 +782,13 @@ export class OpenCodeService {
     // بمجلد جلسة، وإلا اختفى المشروع حتى يُفتح فيه حوار.
     const registeredByDirectory = new Map<string, { id: string; worktree: string; name?: string; created: number; updated: number }>()
     const [registered, sessions] = await Promise.all([
-      this.requireClient().project.list().catch(() => []),
+      (async () => {
+        try {
+          return await this.requireClient().project.list()
+        } catch {
+          return []
+        }
+      })(),
       this.listAllSessions().catch(() => [] as SessionInfo[]),
     ])
     for (const project of registered) {
@@ -1130,8 +1135,15 @@ export class OpenCodeService {
       // فبدونها الـ ETag ما كانش يتغيّر والكارت يفضل يخدم بيانات قديمة.
       [...(skippedForSession ?? [])].join(","),
     ].join("|")
-    const waitingOnUser = questions.length > 0
-      || [...this.pendingPermissions.values()].some((permission) => permission.sessionID === id)
+    let waitingOnUser = questions.length > 0
+    if (!waitingOnUser) {
+      for (const permission of this.pendingPermissions.values()) {
+        if (permission.sessionID === id) {
+          waitingOnUser = true
+          break
+        }
+      }
+    }
     // كاشف الجمود يشتغل على الحالة الخام وقبل الحكم الفعّال، عشان تحرير
     // الجلسة في الـ poll ده نفسه ينعكس على الكارت فورًا بلا تأخير poll.
     this.trackStall(
@@ -1773,8 +1785,8 @@ export class OpenCodeService {
       return cached.value
     }
     return this.dedup(`models:${directory}`, async () => {
-      const live = await this.computeModels()
-      const value = this.mergeStaticCatalog(live, await this.staticCatalog())
+      const [live, catalog] = await Promise.all([this.computeModels(), this.staticCatalog()])
+      const value = this.mergeStaticCatalog(live, catalog)
       this.modelsCache = { expiresAt: Date.now() + MODELS_CACHE_MS, directory, value }
       return value
     })
@@ -1975,7 +1987,6 @@ export class OpenCodeService {
     if (sessionId) {
       this.questionsCache.delete(sessionId)
       this.inflight.delete(`questions:${sessionId}`)
-      this.questionsEpoch.set(sessionId, (this.questionsEpoch.get(sessionId) ?? 0) + 1)
       return
     }
     this.questionsCache.clear()
@@ -1984,25 +1995,44 @@ export class OpenCodeService {
         this.inflight.delete(key)
       }
     }
-    for (const key of [...this.questionsEpoch.keys()]) {
-      this.questionsEpoch.set(key, (this.questionsEpoch.get(key) ?? 0) + 1)
-    }
   }
 
   private async listForms(sessionId: string): Promise<FormInfo[]> {
     const cached = this.questionsCache.get(sessionId)
     if (cached && cached.expiresAt > Date.now()) {
+      this.questionsCache.delete(sessionId)
+      this.questionsCache.set(sessionId, cached)
       return cached.value
     }
-    const epoch = this.questionsEpoch.get(sessionId) ?? 0
-    return this.dedup(`questions:${sessionId}`, async () => {
-      const value = await this.requireClient().session.form.list({ sessionID: sessionId })
-      // الاستمارات اتغيرت بعد ما بدأنا: النتيجة دي قديمة — متخزّنهاش.
-      if ((this.questionsEpoch.get(sessionId) ?? 0) === epoch) {
-        this.questionsCache.set(sessionId, { expiresAt: Date.now() + QUESTIONS_CACHE_MS, value })
-      }
-      return value
-    })
+    if (cached) {
+      this.questionsCache.delete(sessionId)
+    }
+    const key = `questions:${sessionId}`
+    const existing = this.inflight.get(key)
+    if (existing) {
+      return existing as Promise<FormInfo[]>
+    }
+    const task = this.requireClient().session.form.list({ sessionID: sessionId })
+      .then((value) => {
+        // الإبطال يزيل هذا الوعد من الخريطة؛ لا تُخزَّن نتيجة طلب بدأ قبله.
+        if (this.inflight.get(key) === task) {
+          if (!this.questionsCache.has(sessionId) && this.questionsCache.size >= MAX_CACHED_QUESTION_SESSIONS) {
+            const oldest = this.questionsCache.keys().next()
+            if (!oldest.done) {
+              this.questionsCache.delete(oldest.value)
+            }
+          }
+          this.questionsCache.set(sessionId, { expiresAt: Date.now() + QUESTIONS_CACHE_MS, value })
+        }
+        return value
+      })
+      .finally(() => {
+        if (this.inflight.get(key) === task) {
+          this.inflight.delete(key)
+        }
+      })
+    this.inflight.set(key, task)
+    return task
   }
 
   async sessionQuestions(id: string): Promise<ConversationQuestionRequest[]> {
@@ -2051,16 +2081,15 @@ export class OpenCodeService {
       return { branch: "", available: false, files: [], unpushed: 0 }
     }
 
-    let branch = ""
-    try {
-      const info = await this.requireClient().vcs.get({ location })
-      const current = info.data.branch.current
-      if (typeof current === "string") {
-        branch = current
+    const branchPromise = (async (): Promise<string> => {
+      try {
+        const info = await this.requireClient().vcs.get({ location })
+        return typeof info.data.branch.current === "string" ? info.data.branch.current : ""
+      } catch {
+        return ""
       }
-    } catch {
-      branch = ""
-    }
+    })()
+    const unpushedPromise = unpushedCommitCount(location.directory)
 
     const files = (Array.isArray(statusFiles) ? statusFiles : [])
       .filter((file) => typeof file?.file === "string" && file.file.trim().length > 0)
@@ -2073,9 +2102,9 @@ export class OpenCodeService {
       .sort((left, right) => left.path.localeCompare(right.path))
 
     // عدد الـ commits اللي لسه على الفرع المحلي ومش مدفوعة. بيظهر كشارة على
-    // زرار commit & push. بيتحسب بالتوازي مع قراءة الحالة فوق عشان ما
-    // يضيفش تأخير على فتح الدرج، وبيرجع صفر لو مفيش upstream متظبط.
-    const unpushed = await unpushedCommitCount(location.directory)
+    // زرار commit & push. القراءة المحلية واسم الفرع مستقلان، فبنستنى نتيجتهما
+    // معًا بدل جمع زمن النداءين، والفشل يظل صفرًا أو اسم فرع فارغًا.
+    const [branch, unpushed] = await Promise.all([branchPromise, unpushedPromise])
 
     // مشروع مش مستودع git بيرجّع v2 قائمة فاضية و branch فاضي — نميّزه عن
     // مستودع نضيف عشان الواجهة متقولش "الشجرة نضيفة" لمفيش git أصلًا
@@ -2116,7 +2145,6 @@ export class OpenCodeService {
     this.idlePolls.clear()
     this.inflight.clear()
     this.questionsCache.clear()
-    this.questionsEpoch.clear()
     this.activityCache = null
     this.modelsCache = null
     this.staticCatalogCache = null

@@ -295,9 +295,14 @@ describe("request efficiency", () => {
     }
     const unchanged = { ...baseline, id: "done-1" }
     const running = { ...baseline, id: "running-1", state: "running" as const, completedAt: 0 }
+    const question = {
+      id: "form-1",
+      sessionID: "session/structural-sharing",
+      questions: [{ question: "Choose", header: "choice", options: [{ label: "yes", description: "" }], multiple: false, custom: false }],
+    }
     const responses = [
-      { status: { type: "busy" as const }, requests: [unchanged, running], questions: [], queued: 1, stalled: false, version: "one" },
-      { status: { type: "busy" as const }, requests: [unchanged, { ...running, liveText: "new text" }], questions: [], queued: 1, stalled: false, version: "two" },
+      { status: { type: "busy" as const }, requests: [unchanged, running], questions: [question], queued: 1, stalled: false, version: "one" },
+      { status: { type: "busy" as const }, requests: [unchanged, { ...running, liveText: "new text" }], questions: [question], queued: 1, stalled: false, version: "two" },
     ]
     let index = 0
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify(responses[index++]), {
@@ -310,8 +315,10 @@ describe("request efficiency", () => {
     const second = await getRequests("session/structural-sharing")
 
     expect(second.requests[0]).toBe(first.requests[0])
+    expect(second.requests).not.toBe(first.requests)
     expect(second.requests[1]).not.toBe(first.requests[1])
     expect(second.requests[1]?.liveText).toBe("new text")
+    expect(second.questions).toBe(first.questions)
   })
 })
 
