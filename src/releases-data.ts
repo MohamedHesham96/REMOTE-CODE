@@ -9,7 +9,8 @@ import type { Release } from "./releases"
 // كل نص هنا مزدوج اللغة (ar/en) بنفس أسلوب i18n.ts — العربية فصحى بلا لهجة،
 // والإنجليزية فصيحة. إضافة إصدار جديد = إضافة كائن بنصوص اللغتين معًا.
 //
-// التسلسل الزمني الحقيقي من الأقدم (5775b51) للأحدث (4757294):
+// التسلسل الزمني الحقيقي من الأقدم (5775b51) للأحدث (4f4e0c1):
+//   v1.8.0 (2026-10-07)  → 11 commits الثيمات + حالة التخطي + أوامر الصوت + الأداء
 //   v1.7.0 (2026-10-06)  →  13 commit قفل المايك واللصق ومثبّتات النماذج والجداول
 //   v1.6.0 (2026-10-05)  →  2 commits الإدخال الصوتي + مرفقات الرسائل + PWA وHTTPS
 //   v1.5.0 (2026-10-03)  →  8 commits تبديل الفروع + ملاحظات الإصدار + بطاقات المهام
@@ -23,6 +24,105 @@ import type { Release } from "./releases"
 // إعادة التوليد: شغّل `scripts/generate-releases.mjs` لأخذ صورة جديدة من
 // التاريخ، ثم راجع المجموعة الناتجة قبل إضافتها كإصدار جديد هنا.
 export const releases: Release[] = [
+  {
+    version: "v1.8.0",
+    date: "2026-10-07",
+    title: {
+      ar: "ثيمات جديدة وتحكم أوضح في المهام والإملاء الصوتي",
+      en: "Fresh themes and clearer task and voice controls",
+    },
+    summary: {
+      ar: "لوحات ألوان جديدة للثيمين الفاتح والداكن، وحالة مستقلة للطلبات المتخطّاة، وأمر صوتي لمسح النص مع استمرار الاستماع، إلى جانب تحسينات استجابة المحادثات.",
+      en: "New light and dark color palettes, a distinct state for skipped requests, a voice command to clear text while listening continues, and more responsive conversations.",
+    },
+    commits: ["7381b5f", "20c2467", "dccec1e", "7f2a39c", "08a34fa", "2f36ac8", "4abb132", "932b8a2", "be6e711", "839058e", "4f4e0c1"],
+    changes: [
+      {
+        category: "features",
+        title: {
+          ar: "تمييز الطلبات المتخطّاة عن المكتملة",
+          en: "Distinguish skipped requests from completed ones",
+        },
+        description: {
+          ar: "تظهر الطلبات التي تخطّاها المستخدم بحالة مستقلة بدل احتسابها مكتملة، مع توضيح الحالة في بطاقة المهمة وسجل الطلبات.",
+          en: "Requests skipped by the user now have their own state instead of appearing completed, shown consistently in task cards and request history.",
+        },
+        commits: ["dccec1e"],
+      },
+      {
+        category: "features",
+        title: {
+          ar: "مسح النص بأمر صوتي من دون إيقاف الاستماع",
+          en: "Clear text by voice without stopping dictation",
+        },
+        description: {
+          ar: "قل «امسح الكلام كله» أو «Clear all text» لمسح محتوى حقل الكتابة، ثم واصل الإملاء في الجلسة نفسها.",
+          en: "Say “Clear all text” or “start over” to clear the composer, then continue dictating in the same listening session.",
+        },
+        commits: ["dccec1e"],
+      },
+      {
+        category: "improvements",
+        title: {
+          ar: "زر لمسح النص المكتوب من حقل الرسالة",
+          en: "Clear typed text from the message composer",
+        },
+        description: {
+          ar: "يظهر زر مسح بجوار أدوات الإرسال عند وجود نص، ويفرّغ الحقل من دون إزالة المرفقات.",
+          en: "A clear button appears beside the composer actions when text is present and empties the field without removing attachments.",
+        },
+        commits: ["2f36ac8"],
+      },
+      {
+        category: "uiux",
+        title: {
+          ar: "لوحات ألوان جديدة للثيمين الفاتح والداكن",
+          en: "Refreshed color palettes for light and dark themes",
+        },
+        description: {
+          ar: "تحديث ألوان الواجهة في الثيمين مع إبراز أوضح للحدود وتحسين تباين الوضع الفاتح.",
+          en: "Refresh both theme palettes with clearer borders and improved contrast in light mode.",
+        },
+        commits: ["4abb132", "932b8a2"],
+      },
+      {
+        category: "fixes",
+        title: {
+          ar: "إيقاف تكرار الكلام في الإملاء الصوتي على Android",
+          en: "Prevent repeated words in Android voice dictation",
+        },
+        description: {
+          ar: "معالجة إعادة إرسال المتصفح لمقاطع التعرّف حتى لا يتكرر الكلام في حقل الرسالة، مع تحسين التبديل بين حالات المايك ومعاينة الرد الحي.",
+          en: "Handle recognition segments resent by the browser so dictated text is not duplicated, and improve microphone toggling and live reply previews.",
+        },
+        commits: ["20c2467", "be6e711"],
+      },
+      {
+        category: "performance",
+        title: {
+          ar: "تحديثات محادثة أخف وأكثر استقرارًا",
+          en: "Lighter, more stable conversation updates",
+        },
+        description: {
+          ar: "تقليل إعادة معالجة الطلبات وإعادة رسم أجزاء المحادثة التي لم تتغير لتصبح التحديثات المتكررة أكثر سلاسة.",
+          en: "Reduce repeated request processing and avoid re-rendering unchanged conversation sections for smoother updates.",
+        },
+        commits: ["839058e", "4f4e0c1"],
+      },
+      {
+        category: "fixes",
+        title: {
+          ar: "إنهاء حالة الانشغال عند انتهاء التشغيل",
+          en: "Clear the busy state when a run finishes",
+        },
+        description: {
+          ar: "تعود المحادثة إلى حالتها الطبيعية عند انتهاء التشغيل حتى إن لم يرسل المحرك حدث الخمول المتوقع.",
+          en: "The conversation returns to its idle state when a run finishes, even if the engine omits the expected idle event.",
+        },
+        commits: ["08a34fa"],
+      },
+    ],
+  },
   {
     version: "v1.7.0",
     date: "2026-10-06",
