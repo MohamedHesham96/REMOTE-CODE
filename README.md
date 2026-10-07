@@ -44,7 +44,7 @@ There are two ways in. Use whichever fits — or both.
 | Dev | `http://<PC-IP>:5173` |
 | Prod | `http://<PC-IP>:7171` |
 
-On Windows, `build.bat` prints your PC's IP right under the banner and the exact phone URL in its READY panel, so you can skip this. Otherwise find your PC's IP with `ipconfig` or `ip addr` (macOS/Linux). Both devices need to be on the same network, and the network must not isolate clients — guest and hotel Wi-Fi usually blocks this.
+On Windows, `build.bat` prints your PC's IP right under the banner and the exact phone URL in its READY panel (with Alt URLs when the PC has several network adapters), so you can skip this. Otherwise find your PC's IP with `ipconfig` or `ip addr` (macOS/Linux). Both devices need to be on the same network, and the network must not isolate clients — guest and hotel Wi-Fi usually blocks this.
 
 ### From anywhere with Tailscale
 
@@ -92,6 +92,7 @@ Everything lives in `.env`, created by `npm run setup` and never committed. The 
 | `APP_ACCESS_TOKEN` | random | Login token, minimum 24 characters. Changing it signs out every device. |
 | `APP_HOST` | `0.0.0.0` | Interface to listen on. Keep it so your phone can reach the app. |
 | `APP_PORT` | `7171` | Port the app listens on. |
+| `APP_LAN_IP` | auto-detected | The IP `build.bat` prints and builds the phone URL from. Launcher-only; set it when the PC has several networks (VPN, Hyper-V, WSL) and detection picks the wrong adapter. |
 | `OPENCODE_PROJECT_DIR` | `.` | Directory OpenCode works in. |
 | `OPENCODE_SERVER_URL` | empty | Use an existing OpenCode server instead of starting one. |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | generated | Web Push keys. Set both or neither. |
@@ -125,6 +126,7 @@ Then turn on notifications from the app's Settings.
 | `VAPID_…` or `APP_TLS_…` `must be configured together` | Key pairs are all-or-nothing. Set both or leave both empty. |
 | `EADDRINUSE` | Another instance holds the port. Stop it or change `APP_PORT` in `.env`. |
 | Phone can't reach the PC on Wi-Fi | Same network required, no client isolation, and the firewall rule must exist — run `build.bat` as Administrator if it could not be added. |
+| Launcher prints the wrong PC IP | Usually a VPN, Hyper-V or WSL adapter. Use one of the Alt IP rows, then set `APP_LAN_IP` to that address in `.env` and relaunch to pin it. |
 | Phone can't reach it over Tailscale | Check `tailscale status` on both devices and confirm they are on the same tailnet. Then `tailscale serve status` on the computer. |
 | `BACKEND_STARTING` on the phone | The engine is still booting — wait a few seconds and refresh. The app opens its port before OpenCode is ready, so login always works. |
 | Prod shows nothing on `:5173` | Expected. `5173` is dev-only; in production use `:<APP_PORT>` (default `7171`). |

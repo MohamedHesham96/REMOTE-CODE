@@ -416,7 +416,8 @@ REM them after :env_check returns) would always see them empty.
 endlocal & set "CA_EXPORT=%CA_EXPORT%" & set "CERT_STATE=%CERT_STATE%" & set "TLS_STATE=%TLS_STATE%" & goto :eof
 
 REM ---------------------------------------------------------------------------
-REM ensure_cert: generate a locally-trusted TLS certificate when cert\ is empty.
+REM ensure_cert: generate a locally-trusted TLS certificate when cert\ is empty,
+REM and renew it when the LAN IP it covers changed.
 REM
 REM Why this exists: the phone microphone (Web Speech API) and Web Push only
 REM work on a secure origin, and Chrome does NOT treat an untrusted cert as
@@ -424,26 +425,46 @@ REM secure - the CA has to be in the machine's Root store. So the routine
 REM covers the whole chain, not just the files:
 REM   1. install mkcert via winget when it is missing
 REM   2. mkcert -install   -> trust the CA in the Windows Root store
-REM   3. mkcert ... localhost 127.0.0.1 <LAN_IP>  -> files with a matching SAN
+REM   3. mkcert ... localhost 127.0.0.1 <LAN_IP> <Alt IPs>  -> matching SAN
 REM   4. copy the CA out to cert\rootCA.crt so the phone can install it too
 REM
 REM The SAN must carry the LAN IP. The phone opens https://<LAN_IP>:<port>,
 REM and a cert without that exact IP is rejected, whatever the Root store says.
-REM So LAN_IP is re-probed here if :show_ip has not run yet.
+REM So LAN_IP is re-probed here if :show_ip has not run yet, and a pair whose
+REM SAN no longer covers the printed IP is rebuilt - without that, fixing the
+REM IP in the launcher would still leave the phone on a certificate error.
+REM The Alt IPs go into the SAN as well, so moving between the listed networks
+REM does not trigger a renewal. The check itself is scripts\cert-san.mjs: it
+REM reports 0 covered / 1 missing / 2 unreadable, and only 1 renews.
 REM
 REM Everything is best-effort: a failure leaves TLS off (the plain-http path
-REM keeps working) instead of aborting the launch.
+REM keeps working) instead of aborting the launch. Renewal writes .new files
+REM first and only replaces the pair after mkcert succeeded, so a failed run
+REM never destroys a certificate that is still on disk.
 REM Exports CERT_STATE for the caller to display.
 REM ---------------------------------------------------------------------------
 :ensure_cert
 set "CERT_STATE="
 set "CA_HINT="
+set "CERT_RENEW="
 REM Always resolve the CA location, even when the pair is already present, so
 REM the launcher can show the phone where to get the certificate every run.
 call :resolve_mkcert
 call :export_ca
-REM Nothing to do when the pair is already there - never touch a working cert.
-if exist "cert\server.pem" if exist "cert\server-key.pem" set "CERT_STATE=present" & goto :eof
+if not exist "cert\server.pem" goto :cert_build
+if not exist "cert\server-key.pem" goto :cert_build
+REM The pair exists: keep it while its SAN still covers the LAN IP, and also
+REM when the check itself fails (result 2) - a pair we cannot read is still
+REM better than no pair at all. A renewal additionally needs mkcert, because
+REM without it there is nothing to rebuild the files with.
+if not defined LAN_IP call :lan_ip
+if not defined LAN_IP set "CERT_STATE=present" & goto :eof
+node "scripts\cert-san.mjs" "cert\server.pem" "%LAN_IP%" >nul 2>&1
+if not "%ERRORLEVEL%"=="1" set "CERT_STATE=present" & goto :eof
+if not defined MKCERT_BIN set "CERT_STATE=present" & goto :eof
+set "CERT_RENEW=1"
+
+:cert_build
 REM The CA row needs the LAN IP for the SAN; :lan_ip exports LAN_IP.
 if not defined LAN_IP call :lan_ip
 
@@ -464,22 +485,39 @@ call "%MKCERT_BIN%" -install >nul 2>&1
 
 set "CERT_SANS=localhost 127.0.0.1"
 if defined LAN_IP set "CERT_SANS=localhost 127.0.0.1 %LAN_IP%"
+if defined LAN_IP_ALT1 set "CERT_SANS=%CERT_SANS% %LAN_IP_ALT1%"
+if defined LAN_IP_ALT2 set "CERT_SANS=%CERT_SANS% %LAN_IP_ALT2%"
 REM Push the switch-command directory too: mkcert resolves -cert-file /
 REM -key-file relative to the shell's current directory, and cmd keeps its
 REM own per-drive cwd, so a clean "%CD%" makes the output land in cert\.
+REM Output goes to .new files first: the live pair is replaced only after both
+REM files exist, so a failed mkcert run leaves the previous pair untouched.
 pushd "%~dp0"
-call "%MKCERT_BIN%" -key-file "cert\server-key.pem" -cert-file "cert\server.pem" %CERT_SANS% >nul 2>&1
+call "%MKCERT_BIN%" -key-file "cert\server-key.new.pem" -cert-file "cert\server.new.pem" %CERT_SANS% >nul 2>&1
 set "CERT_RC=%ERRORLEVEL%"
 popd
-if not "%CERT_RC%"=="0" set "CERT_STATE=generate-failed" & goto :eof
-if not exist "cert\server.pem" set "CERT_STATE=generate-failed" & goto :eof
-if not exist "cert\server-key.pem" set "CERT_STATE=generate-failed" & goto :eof
+if not "%CERT_RC%"=="0" goto :cert_build_failed
+if not exist "cert\server.new.pem" goto :cert_build_failed
+if not exist "cert\server-key.new.pem" goto :cert_build_failed
+move /y "cert\server.new.pem" "cert\server.pem" >nul 2>&1
+if errorlevel 1 goto :cert_build_failed
+move /y "cert\server-key.new.pem" "cert\server-key.pem" >nul 2>&1
+if errorlevel 1 goto :cert_build_failed
 
 REM Hand the phone something to trust: mkcert keeps its root at CAROOT, and
 REM the copied .crt is what gets installed on the device once per phone.
 call :export_ca
 
+if defined CERT_RENEW set "CERT_STATE=renewed" & goto :eof
 set "CERT_STATE=created"
+goto :eof
+
+:cert_build_failed
+del "cert\server.new.pem" "cert\server-key.new.pem" >nul 2>&1
+REM A failed renewal keeps the previous pair on disk, so report it as present:
+REM the phone can still be pointed at the address that pair covers.
+if defined CERT_RENEW set "CERT_STATE=present" & goto :eof
+set "CERT_STATE=generate-failed"
 goto :eof
 
 REM ---------------------------------------------------------------------------
@@ -621,20 +659,49 @@ if not errorlevel 1 (
 goto :eof
 
 REM Exports LAN_IP = this machine's LAN IPv4, used for the phone URL in the
-REM READY panels. The interface that is Up AND owns the default gateway is the
-REM real Wi-Fi / Ethernet adapter - filtering on it keeps the loopback address
-REM and the WSL / VirtualBox / Hyper-V adapters out of the panel, which plain
-REM "ipconfig | findstr IPv4" lists side by side with the real one.
+REM READY panels, plus LAN_IP_ALT1 / LAN_IP_ALT2 when more than one usable
+REM adapter is up.
+REM
+REM "The first Up adapter that owns a gateway" is not good enough: Hyper-V,
+REM WSL, Docker and VPN adapters are Up, carry an address and often a gateway
+REM too, so the panel used to print an address the phone can never reach. The
+REM probe ranks every candidate instead: physical adapters before virtual
+REM ones, then a default gateway, then a link Windows marks as Internet, then
+REM the lowest InterfaceMetric (the route Windows itself prefers). Adapter
+REM descriptions naming a VPN / tunnel product are dropped from the physical
+REM set but still come back when nothing else is left, so the panel never goes
+REM blind. The runner-ups print as Alt IP rows, which keeps the reachable
+REM address on screen even when the ranking picks the wrong network first.
+REM
+REM APP_LAN_IP overrides all of it (explicit env var first, then .env): no
+REM automatic rule is right on every machine, and the manual value is the
+REM guarantee.
+REM
 REM The pipes are NOT escaped: the whole expression is a single double-quoted
 REM argument, so cmd passes them to PowerShell as operators. A "^|" would be
 REM read as a literal caret-pipe and the command would fail.
 REM The ipconfig fallback only covers hosts where PowerShell is blocked, so a
-REM missing LAN_IP leaves the panel showing localhost alone.
+REM missing LAN_IP leaves the panel showing localhost alone. It cannot tell
+REM adapters apart, so 169.254 APIPA addresses are its only extra filter.
 :lan_ip
 set "LAN_IP="
-for /f "delims=" %%i in ('powershell -NoProfile -Command "(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq 'Up' } | Select-Object -First 1).IPv4Address.IPAddress" 2^>nul') do if not defined LAN_IP set "LAN_IP=%%i"
+set "LAN_IP_ALT1="
+set "LAN_IP_ALT2="
+set "LAN_IF="
+set "LAN_IF_ALT1="
+set "LAN_IF_ALT2="
+set "LAN_MANUAL="
+if not defined APP_LAN_IP if exist ".env" for /f "usebackq tokens=1,2 delims==" %%a in (".env") do if "%%a"=="APP_LAN_IP" if not "%%b"=="" set "APP_LAN_IP=%%b"
+if defined APP_LAN_IP set "LAN_IP=%APP_LAN_IP:http://=%"
+if defined APP_LAN_IP set "LAN_IP=%LAN_IP:https://=%"
+if defined APP_LAN_IP set "LAN_IP=%LAN_IP:/=%"
+if defined APP_LAN_IP set "LAN_IP=%LAN_IP: =%"
+if defined LAN_IP set "LAN_MANUAL=1" & goto :eof
+for /f "tokens=1,2 delims=|" %%i in ('powershell -NoProfile -Command "$c=@(Get-NetIPConfiguration | Where-Object { $_.NetAdapter.Status -eq 'Up' -and $_.IPv4Address -and $_.IPv4Address[0].IPAddress -notmatch '^(127\.|169\.254\.)' }); $c=$c | Sort-Object @{Expression={[int]($_.NetAdapter.Virtual -eq $true)}},@{Expression={if($_.IPv4DefaultGateway){0}else{1}}},@{Expression={if($_.NetProfile.IPv4Connectivity -eq 'Internet'){0}else{1}}},@{Expression={[int]$_.NetIPInterface.InterfaceMetric}},InterfaceIndex; $p=@($c | Where-Object { $_.NetAdapter.Virtual -ne $true -and $_.NetAdapter.InterfaceDescription -notmatch 'VPN|TAP|Tunnel|Virtual|Hyper-V|VMware|VirtualBox|Docker|WSL|Bluetooth|Zscaler|AnyConnect|GlobalProtect|Sangfor|Netskope|OpenVPN|WireGuard|Tailscale|ZeroTier|Hamachi|Radmin' }); if($p.Count -eq 0){$p=@($c)}; $p | Select-Object -First 3 | ForEach-Object { $_.IPv4Address[0].IPAddress + '|' + $_.InterfaceAlias }" 2^>nul') do (
+  if not defined LAN_IP (set "LAN_IP=%%i" & set "LAN_IF=%%j") else if not defined LAN_IP_ALT1 (set "LAN_IP_ALT1=%%i" & set "LAN_IF_ALT1=%%j") else if not defined LAN_IP_ALT2 (set "LAN_IP_ALT2=%%i" & set "LAN_IF_ALT2=%%j")
+)
 if defined LAN_IP goto :eof
-for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4" ^| findstr /v /c:"127.0.0.1" ^| findstr /v /c:"(none)"') do (
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4" ^| findstr /v /c:"127.0.0.1" ^| findstr /v /c:"169.254" ^| findstr /v /c:"(none)"') do (
   for /f "tokens=* delims= " %%b in ("%%a") do (
     set "LAN_IP=%%b"
     goto :eof
@@ -646,6 +713,10 @@ REM The banner header line carrying that address. It sits right under the
 REM banner in every mode, so the IP is the first thing on screen instead of
 REM arriving only after the build finishes - which is exactly when you are
 REM standing there with your phone wanting to connect.
+REM Alt IP rows list the runner-up adapters :lan_ip ranked second and third,
+REM so a PC on several networks still shows every address the phone could try.
+REM The adapter name follows in gray - it is what tells Wi-Fi from Ethernet
+REM when both are listed.
 REM Label is padded to 11 chars so the value lines up with the Status /
 REM Frontend / Backend rows in the READY panels below.
 REM LAN_IP is deliberately NOT setlocal-scoped: the READY panels reuse it to
@@ -654,7 +725,10 @@ REM of twice. They still re-detect if it is empty, which keeps them correct
 REM even if the order is ever changed.
 :show_ip
 call :lan_ip
-if defined LAN_IP echo   Device IP  %C_CYAN%%LAN_IP%%C_RESET%
+if defined LAN_IP if defined LAN_IF echo   Device IP  %C_CYAN%%LAN_IP%%C_RESET%  %C_GRAY%^(%LAN_IF%^)%C_RESET%
+if defined LAN_IP if not defined LAN_IF echo   Device IP  %C_CYAN%%LAN_IP%%C_RESET%  %C_GRAY%^(APP_LAN_IP^)%C_RESET%
+if defined LAN_IP_ALT1 echo   Alt IP     %C_CYAN%%LAN_IP_ALT1%%C_RESET%  %C_GRAY%^(%LAN_IF_ALT1%^)%C_RESET%
+if defined LAN_IP_ALT2 echo   Alt IP     %C_CYAN%%LAN_IP_ALT2%%C_RESET%  %C_GRAY%^(%LAN_IF_ALT2%^)%C_RESET%
 goto :eof
 
 REM ==========================================================================
@@ -693,6 +767,7 @@ echo   Frontend port:      5173
 echo   Backend language:   %APP_LANG% ^(console output^)
 if defined TLS_ON (echo   TLS:                enabled ^(phone mic + push work^)) else (echo   TLS:                off ^(http only - phone mic blocked^))
 if "%CERT_STATE%"=="created" echo   Certificate:        %ICON_OK%%C_RESET%  generated + CA trusted
+if "%CERT_STATE%"=="renewed" echo   Certificate:        %ICON_OK%%C_RESET%  renewed for the current IP
 if "%CERT_STATE%"=="present" echo   Certificate:        found ^(cert\server.pem^)
 if "%CERT_STATE%"=="no-mkcert" echo   Certificate:        %ICON_WARN%%C_RESET%  mkcert missing - install it, then rerun
 if "%CERT_STATE%"=="generate-failed" echo   Certificate:        %ICON_ERR%%C_RESET%  generation failed
@@ -792,9 +867,13 @@ set "WO_SCHEME=http"
 if defined TLS_ON set "WO_SCHEME=https"
 echo   URL        %C_CYAN%%WO_SCHEME%://localhost:%BACKEND_PORT%%C_RESET%
 REM Reuses the LAN_IP :show_ip already detected under the banner; the probe
-REM is only repeated if that line somehow never ran.
+REM is only repeated if that line somehow never ran. Alt URL rows carry the
+REM other LAN candidates :lan_ip found, so the right network is still one
+REM copy-paste away when the top pick is not the phone's network.
 if not defined LAN_IP call :lan_ip
 if defined LAN_IP echo   Phone      %C_CYAN%%WO_SCHEME%://%LAN_IP%:%BACKEND_PORT%%C_RESET%  %C_GRAY%^(same Wi-Fi, no VPN^)%C_RESET%
+if defined LAN_IP_ALT1 echo   Alt URL    %C_CYAN%%WO_SCHEME%://%LAN_IP_ALT1%:%BACKEND_PORT%%C_RESET%  %C_GRAY%^(%LAN_IF_ALT1%^)%C_RESET%
+if defined LAN_IP_ALT2 echo   Alt URL    %C_CYAN%%WO_SCHEME%://%LAN_IP_ALT2%:%BACKEND_PORT%%C_RESET%  %C_GRAY%^(%LAN_IF_ALT2%^)%C_RESET%
 if defined LAN_IP if defined TLS_ON echo   %C_GRAY%             ^(accept the certificate warning once per device^)%C_RESET%
 REM Same CA row as dev: the phone has to trust this file for HTTPS + mic.
 if defined CA_EXPORT echo   Phone CA   %C_CYAN%%CA_EXPORT%%C_RESET%
@@ -896,9 +975,13 @@ echo   Backend    %C_CYAN%%WO_SCHEME%://localhost:%BACKEND_PORT%%C_RESET%
 REM The phone talks to Vite here, not to the backend: 5173 is what the dev
 REM server binds on 0.0.0.0, and it proxies the API to APP_PORT itself.
 REM Reuses the LAN_IP :show_ip already detected under the banner; the probe
-REM is only repeated if that line somehow never ran.
+REM is only repeated if that line somehow never ran. Alt URL rows carry the
+REM other LAN candidates :lan_ip found, so the right network is still one
+REM copy-paste away when the top pick is not the phone's network.
 if not defined LAN_IP call :lan_ip
 if defined LAN_IP echo   Phone      %C_CYAN%http://%LAN_IP%:5173%C_RESET%  %C_GRAY%^(same Wi-Fi, no VPN^)%C_RESET%
+if defined LAN_IP_ALT1 echo   Alt URL    %C_CYAN%http://%LAN_IP_ALT1%:5173%C_RESET%  %C_GRAY%^(%LAN_IF_ALT1%^)%C_RESET%
+if defined LAN_IP_ALT2 echo   Alt URL    %C_CYAN%http://%LAN_IP_ALT2%:5173%C_RESET%  %C_GRAY%^(%LAN_IF_ALT2%^)%C_RESET%
 if not defined TLS_ON echo   Security   %ICON_WARN%%C_RESET%  HTTP only - the phone microphone is blocked without HTTPS
 REM In dev the certificate is served by the backend on APP_PORT, so the
 REM phone can reach it directly for a trusted HTTPS origin (the mic needs
