@@ -35,7 +35,12 @@ set "C_BLUE=%ESC%[94m"
 set "C_CYAN=%ESC%[96m"
 set "C_GRAY=%ESC%[90m"
 
-set "ICON_OK=%C_GREEN%√"
+REM Brand cyan (36) frames the wordmark and the panels; the brighter 96 cyan is
+REM reserved for values and URLs, so the eye lands on the information first.
+set "C_BRAND=%ESC%[36m"
+set "C_WHITE=%ESC%[97m"
+
+set "ICON_OK=%C_GREEN%✓"
 set "ICON_RUN=%C_CYAN%●"
 set "ICON_GO=%C_CYAN%→"
 set "ICON_WARN=%C_YELLOW%!"
@@ -46,7 +51,7 @@ REM own √-prefixed look): TP = tree spine prefix, TI = leading item icon,
 REM TM = trailing item marker. :steps_begin re-points all three, so every
 REM :env_check echo can stay one line for both layouts.
 REM MARK_COL is the single column where EVERY status marker starts, so the
-REM [√] rows, the one-line steps and the closing Done/Failed all line up.
+REM ✓ rows, the one-line steps and the closing Done/Failed all line up.
 REM ROW_TEXT is the visible width of a padded detail row (TP 5 + label 19 +
 REM value 19), which is what the marker padding is measured against.
 set "TP="
@@ -73,16 +78,18 @@ REM ==========================================================================
 REM  PRESENTATION HELPERS
 REM ==========================================================================
 :banner
-echo %C_CYAN%████   █████  █   █   ███   █████  █████          ████   ███   ████   █████
-echo █   █  █      ██ ██  █   █    █    █             █      █   █  █   █  █
-echo ████   ████   █ █ █  █   █    █    ████   █████  █      █   █  █   █  ████
-echo █  █   █      █   █  █   █    █    █             █      █   █  █   █  █
-echo █   █  █████  █   █   ███     █    █████          ████   ███   ████   █████%C_RESET%
-REM Project name and version sit right under the art. The version is read
-REM from package.json on every launch - the same number the app shows - so the
-REM banner can never keep advertising a number that a release bump moved past.
+REM Wordmark in a fixed block font so it renders the same in Windows Terminal,
+REM VS Code and a plain console. The version below is read from package.json
+REM (:read_version) and drawn by :header, never hardcoded.
+echo %C_BRAND%%C_BOLD%   ████   █████  █   █   ███   █████  █████          ████   ███   ████   █████
+echo    █   █  █      ██ ██  █   █    █    █             █      █   █  █   █  █
+echo    ████   ████   █ █ █  █   █    █    ████   █████  █      █   █  █   █  ████
+echo    █  █   █      █   █  █   █    █    █             █      █   █  █   █  █
+echo    █   █  █████  █   █   ███     █    █████          ████   ███   ████   █████%C_RESET%
+echo.
 call :read_version
-echo %C_CYAN%RemoteCode  %APP_VERSION%%C_RESET%
+call :header
+echo   %C_GRAY%REMOTE DEVELOPMENT PLATFORM%C_RESET%  %C_DIM%·%C_RESET%  %C_GRAY%Windows Launcher%C_RESET%
 echo.
 goto :eof
 
@@ -108,44 +115,138 @@ set "CV=!CV:"=!"
 set "CV=!CV:,=!"
 endlocal & set "APP_VERSION=v%CV%" & goto :eof
 
+REM ---------------------------------------------------------------------------
+REM Shared presentation pieces. They read only APP_VERSION and the color vars -
+REM no functional routine depends on them and none of them touch state.
+REM ---------------------------------------------------------------------------
+REM :dash <count> <out> - build a run of <count> box-drawing dashes. Built by a
+REM loop rather than a literal so the width can never drift from the caller.
+:dash
+setlocal EnableDelayedExpansion
+set "DH="
+for /L %%k in (1,1,%~1) do set "DH=!DH!─"
+endlocal & set "%~2=%DH%" & goto :eof
+
+REM :header - the RemoteCode identity panel. APP_VERSION is right-aligned, so
+REM the right edge stays fixed whatever the number's length.
+:header
+setlocal EnableDelayedExpansion
+call :strlen "%APP_VERSION%" HD_VL
+set /a "HD_VG=46 - HD_VL"
+if !HD_VG! lss 1 set "HD_VG=1"
+call :pad " " !HD_VG! HD_VS
+call :strlen "Remote development, reimagined." HD_TL
+set /a "HD_TG=60 - 2 - HD_TL"
+if !HD_TG! lss 1 set "HD_TG=1"
+call :pad " " !HD_TG! HD_TS
+call :dash 60 HD_RULE
+echo %C_BRAND%  ╭%HD_RULE%╮%C_RESET%
+echo %C_BRAND%  │%C_RESET%  %C_BOLD%%C_WHITE%REMOTECODE%C_RESET%!HD_VS!%C_CYAN%%APP_VERSION%%C_RESET%  %C_BRAND%│%C_RESET%
+echo %C_BRAND%  │%C_RESET%  %C_GRAY%Remote development, reimagined.%C_RESET%!HD_TS!%C_BRAND%│%C_RESET%
+echo %C_BRAND%  ╰%HD_RULE%╯%C_RESET%
+endlocal & goto :eof
+
+REM :center <text> - one centred, bordered line inside the 60-wide identity box.
+:center
+setlocal EnableDelayedExpansion
+call :strlen "%~1" CT_L
+set /a "CT_LG=(60 - CT_L)/2"
+if !CT_LG! lss 0 set "CT_LG=0"
+set /a "CT_RG=60 - CT_L - CT_LG"
+if !CT_RG! lss 0 set "CT_RG=0"
+call :pad " " !CT_LG! CT_LP
+call :pad " " !CT_RG! CT_RP
+echo %C_BRAND%  │%C_RESET%!CT_LP!%C_BOLD%%C_WHITE%%~1%C_RESET%!CT_RP!%C_BRAND%│%C_RESET%
+endlocal & goto :eof
+
+REM :ready_box <title> <mode> - the payoff panel shown once a mode is up.
+:ready_box
+setlocal EnableDelayedExpansion
+call :dash 60 RB_RULE
+echo %C_BRAND%  ╭%RB_RULE%╮%C_RESET%
+call :center "%~1"
+call :center "%~2"
+echo %C_BRAND%  ╰%RB_RULE%╯%C_RESET%
+endlocal & goto :eof
+
 REM Thin section header: call :section "TITLE"
-REM Inside a step tree the header hangs off the spine ("|--- TITLE ---")
-REM so it reads as part of that step; check mode keeps the plain header.
+REM Inside a step tree the header hangs off the spine so it reads as part of
+REM that step; check mode draws the standalone top-corner variant.
 :section
 setlocal EnableDelayedExpansion
+call :strlen "%~1" SEC_L
+set /a "SEC_D=53 - SEC_L"
+if !SEC_D! lss 1 set "SEC_D=1"
+call :dash !SEC_D! SEC_RULE
 if not defined TP (
-  echo %C_BLUE%  --- %~1 ---%C_RESET%
+  echo %C_BRAND%  ┌─%C_RESET% %C_BOLD%%C_BLUE%%~1%C_RESET% %C_DIM%!SEC_RULE!%C_RESET%
   echo.
   endlocal & goto :eof
 )
-echo %C_DIM%  ^|---%C_RESET%%C_BLUE% %~1 ---%C_RESET%
-echo %C_DIM%  ^|%C_RESET%
+echo %C_DIM%  │%C_RESET%  %C_BRAND%├─%C_RESET% %C_BOLD%%C_BLUE%%~1%C_RESET% %C_DIM%!SEC_RULE!%C_RESET%
 endlocal & goto :eof
 
-REM Footer shown under every major screen.
+REM Footer shown under every major screen. Version is the live one from
+REM package.json, so it can never advertise a number a release bump moved past.
 :footer
-echo %C_GRAY%  ------------------------------------------------------------
-echo   RemoteCode  -  Launcher%C_RESET%
+setlocal EnableDelayedExpansion
+call :dash 60 FT_RULE
+echo %C_DIM%  %FT_RULE%%C_RESET%
+echo %C_GRAY%   RemoteCode  %C_DIM%·%C_GRAY%  Remote development, reimagined.%C_RESET%
+echo %C_GRAY%   %APP_VERSION%  %C_DIM%·%C_GRAY%  Windows Launcher%C_RESET%
 echo.
-goto :eof
+endlocal & goto :eof
 
 REM Warning panel (non-fatal): call :warn_box "message"
 :warn_box
-echo %ICON_WARN%%C_RESET%  WARNING
-echo   %~1
+setlocal EnableDelayedExpansion
+REM Size the panel to its message (clamped) so the top and bottom rules always
+REM meet the text, whatever length the caller passes. Capped at 76 so the rule
+REM itself never wraps in an 80-column console.
+call :strlen "%~1" WB_ML
+set /a "WB_W=WB_ML + 5"
+if !WB_W! lss 50 set "WB_W=50"
+if !WB_W! gtr 76 set "WB_W=76"
+call :strlen "WARNING" WB_L
+set /a "WB_D=WB_W - 6 - WB_L"
+call :dash !WB_D! WB_RULE
+set /a "WB_F=WB_W - 4"
+call :dash !WB_F! WB_FLOOR
+echo %C_YELLOW%  ┌─%C_RESET% %C_BOLD%%C_YELLOW%WARNING%C_RESET% %C_YELLOW%!WB_RULE!%C_RESET%
+echo %C_YELLOW%  │%C_RESET%  %~1
+echo %C_YELLOW%  └%C_RESET% %C_YELLOW%!WB_FLOOR!%C_RESET%
 echo.
-goto :eof
+endlocal & goto :eof
 
 REM Fatal error: prints a panel and pauses. It returns to the caller with
 REM errorlevel 1, so every caller must follow it with "exit /b 1".
 :fatal
-echo %ICON_ERR%%C_RESET%  ERROR
-echo   %~1
-if not "%~2"=="" echo   %~2
+setlocal EnableDelayedExpansion
+REM Panel width follows the longest line (message or hint), clamped like
+REM :warn_box so the rules always meet the text and never wrap.
+call :strlen "%~1" FT_ML
+set /a "FT_W=FT_ML + 5"
+if not "%~2"=="" (
+  call :strlen "%~2" FT_HL
+  set /a "FT_HW=FT_HL + 5"
+  if !FT_HW! gtr !FT_W! set "FT_W=!FT_HW!"
+)
+if !FT_W! lss 50 set "FT_W=50"
+if !FT_W! gtr 76 set "FT_W=76"
+call :strlen "REMOTECODE ERROR" FT_L
+set /a "FT_D=FT_W - 6 - FT_L"
+call :dash !FT_D! FT_RULE
+set /a "FT_F=FT_W - 4"
+call :dash !FT_F! FT_FLOOR
+echo %C_RED%  ┌─%C_RESET% %C_BOLD%%C_RED%REMOTECODE ERROR%C_RESET% %C_RED%!FT_RULE!%C_RESET%
+echo %C_RED%  │%C_RESET%  %C_WHITE%%~1%C_RESET%
+if not "%~2"=="" echo %C_RED%  │%C_RESET%  %C_GRAY%%~2%C_RESET%
+echo %C_RED%  └%C_RESET% %C_RED%!FT_FLOOR!%C_RESET%
 echo.
-echo   The technical output above is preserved for troubleshooting.
+echo   %C_GRAY%The technical output above is preserved for troubleshooting.%C_RESET%
 echo.
 pause
+endlocal
 exit /b 1
 
 REM Vertical step tree (append-only history: no cls, no cursor moves,
@@ -153,30 +254,30 @@ REM no percentages, no fake delays). Steps print progressively - each one
 REM keeps its final status in the scrollback, so nothing is ever redrawn.
 REM Caller sets STEP_NAME_1..N, then:
 REM   call :steps_begin "Title"  - title line; steps print below it as they start
-REM   call :step_start <i>       - branch + ● Step <i> - <name>
+REM   call :step_start <i>       - branch + ● Step <i> · <name>
 REM   call :step_info "text"     - detail line under the running step
-REM   call :step_done <i>        - standalone [√] Done line (multi-line steps)
-REM   call :step_end            - "  [√] Done" suffix closing a set /p detail
+REM   call :step_done <i>        - standalone ✓ Done line (multi-line steps)
+REM   call :step_end            - "  ✓ Done" suffix closing a set /p detail
 REM                              line, so single-detail steps read
-REM                              "|  <info>  [√] Done" on one line
-REM   call :step_fail <i>        - [x] result line (caller adds :fatal + exit /b 1)
+REM                              "│  <info>  ✓ Done" on one line
+REM   call :step_fail <i>        - ✕ result line (caller adds :fatal + exit /b 1)
 REM Step names and info text must avoid % and ! chars.
-REM Step icons are ● running, [√] done, [x] failed, and the tree uses
-REM ASCII branches (|-- |). ● is reused from ICON_RUN - the same glyph the
+REM Step icons are ● running, ✓ done, ✕ failed, and the tree uses
+REM box-drawing branches (├── │). ● is reused from ICON_RUN - the same glyph the
 REM READY panels already print - so it renders wherever the rest of this
 REM launcher does.
 REM Title + spine opener so the first branch connects to the tree.
 REM It also switches the detail decoration: TI empties the leading item icon
-REM and TM adds a trailing [√], so status reads at the end of the line.
+REM and TM adds a trailing ✓, so status reads at the end of the line.
 :steps_begin
-echo %C_BOLD%  %~1%C_RESET%
-echo %C_DIM%  ^|%C_RESET%
-set "TP=%C_DIM%  |%C_RESET%  "
+echo %C_BOLD%%C_BLUE%  %~1%C_RESET%
+echo %C_DIM%  │%C_RESET%
+set "TP=%C_DIM%  │%C_RESET%  "
 set "TI="
 call :tree_marker
 goto :eof
 
-REM Builds TM = padding + the green [√], padded so the marker lands at
+REM Builds TM = padding + the green ✓, padded so the marker lands at
 REM MARK_COL. :row prints ROW_TEXT visible chars, then TM contributes its
 REM own 2-space gap, so the pad needed is MARK_COL - ROW_TEXT - 2.
 REM Deriving it keeps :row, :step_now and :mark_pad in one column.
@@ -187,7 +288,7 @@ REM as the literal "!<name>!".
 setlocal EnableDelayedExpansion
 set /a "TM_GAP=MARK_COL - ROW_TEXT - 2"
 call :pad " " !TM_GAP! TM_S
-set "TMV=!TM_S!  %C_GREEN%[√]%C_RESET%"
+set "TMV=!TM_S!  %C_GREEN%✓%C_RESET%"
 endlocal & set "TM=%TMV%" & goto :eof
 
 REM Bare spine connector between step blocks. It replaces the blank echo.
@@ -198,17 +299,17 @@ REM surrounding errorlevel checks unaffected.
 :spine
 setlocal EnableDelayedExpansion
 if not defined TP goto :sp_blank
-echo %C_DIM%  ^|%C_RESET%
+echo %C_DIM%  │%C_RESET%
 endlocal & goto :eof
 :sp_blank
 echo.
 endlocal & goto :eof
 
-REM Announce step <i> as running. Every step uses the same |-- branch,
+REM Announce step <i> as running. Every step uses the same ├── branch,
 REM so the spine stays connected from the title to the last Done.
 :step_start
 setlocal EnableDelayedExpansion
-echo %C_DIM%  ^|--%C_RESET% %C_CYAN%%ICON_RUN%%C_RESET% Step %~1 - !STEP_NAME_%~1!
+echo %C_DIM%  ├──%C_RESET% %ICON_RUN%%C_RESET% %C_BOLD%Step %~1%C_RESET% %C_DIM%·%C_RESET% !STEP_NAME_%~1!
 endlocal
 goto :eof
 
@@ -217,33 +318,35 @@ REM   call :step_now <i> "<detail>"
 REM Steps whose only outcome is a single fact (ports, CLI version) use this
 REM instead of :step_start + a detail row, so no empty tree branch is left
 REM hanging under the step. The line is padded to the marker column and the
-REM closing [√] Done is appended, matching :rowj + :step_end.
+REM closing ✓ Done is appended, matching :rowj + :step_end.
 :step_now
 REM Two columns, both measured with :strlen rather than hand-counted:
 REM   ST_NAMECOL - width of the step-name field, so every "->" lines up
-REM   MARK_COL   - where [√] Done starts, so every marker lines up
+REM   MARK_COL   - where ✓ Done starts, so every marker lines up
 REM The width reference uses a plain "x" for the ● glyph: :strlen counts
 REM characters, and ● is multi-byte, so its width has to be faked as one.
 setlocal EnableDelayedExpansion
 call :strlen "!STEP_NAME_%~1!" ST_NL
 set /a "ST_NGAP=!ST_NAMECOL! - !ST_NL!"
-if !ST_NGAP! lss 1 set "ST_NGAP=0"
-call :pad " " !ST_NGAP! ST_NP
+REM :pad seeds on a real space, so a 0 target still yields one space. The guard
+REM keeps a zero-width field truly empty so the marker column stays exact.
+set "ST_NP="
+if !ST_NGAP! gtr 0 call :pad " " !ST_NGAP! ST_NP
 REM The reference must mirror the visible line EXACTLY, padded name
 REM included - measuring the bare name under-counts and pushes the marker
 REM right by the padding width.
-call :strlen "  |-- x Step %~1 - !STEP_NAME_%~1!!ST_NP!-> [%~2]" ST_W
-REM The 2 subtracted is the gap the echo adds before [√] Done, same
+call :strlen "  ├── x Step %~1 · !STEP_NAME_%~1!!ST_NP!-> [%~2]" ST_W
+REM The 2 subtracted is the gap the echo adds before ✓ Done, same
 REM correction :tree_marker makes for :row.
 set /a "ST_GAP=!MARK_COL! - !ST_W! - 2"
-if !ST_GAP! lss 1 set "ST_GAP=0"
-call :pad " " !ST_GAP! ST_GP
-echo %C_DIM%  ^|--%C_RESET% %C_CYAN%%ICON_RUN%%C_RESET% Step %~1 - !STEP_NAME_%~1!!ST_NP!-^> %C_BLUE%[%~2]%C_RESET%!ST_GP!  %C_GREEN%[√]%C_RESET% Done
+set "ST_GP="
+if !ST_GAP! gtr 0 call :pad " " !ST_GAP! ST_GP
+echo %C_DIM%  ├──%C_RESET% %ICON_RUN%%C_RESET% %C_BOLD%Step %~1%C_RESET% %C_DIM%·%C_RESET% !STEP_NAME_%~1!!ST_NP!-^> %C_BLUE%[%~2]%C_RESET%!ST_GP!  %C_GREEN%✓%C_RESET% Done
 endlocal & goto :eof
 
 REM Detail line under the running step: call :step_info "text"
 :step_info
-echo %C_DIM%  ^|%C_RESET%    %~1
+echo %C_DIM%  │%C_RESET%    %~1
 goto :eof
 
 REM Close step <i> as done with a standalone line (multi-line steps only;
@@ -252,7 +355,7 @@ REM The marker is indented with :pad so it lands in the same column as the
 REM one :step_end prints - see :mark_pad for the column arithmetic.
 :step_done
 call :mark_pad
-echo %C_DIM%  ^|%C_RESET%  %MARK%  %C_GREEN%[√]%C_RESET% Done
+echo %C_DIM%  │%C_RESET%  %MARK%  %C_GREEN%✓%C_RESET% Done
 goto :eof
 
 REM Suffix closing a detail line printed without newline via set /p:
@@ -262,14 +365,14 @@ REM needs no extra indent - just the closing words.
 REM Note: the pipe needs NO caret escape inside set /p - that text is taken
 REM literally, so "^|" would print the caret itself.
 :step_end
-echo   %C_GREEN%[√]%C_RESET% Done
+echo   %C_GREEN%✓%C_RESET% Done
 goto :eof
 
 REM Close step <i> as failed. Caller must follow with :fatal + exit /b 1.
 REM Shares the marker column with :step_done so the two never interleave.
 :step_fail
 call :mark_pad
-echo %C_DIM%  ^|%C_RESET%  %MARK%  %C_RED%[x]%C_RESET% Failed
+echo %C_DIM%  │%C_RESET%  %MARK%  %C_RED%✕%C_RESET% Failed
 goto :eof
 
 REM Exports MARK = the run of spaces that puts a status marker at MARK_COL,
@@ -299,7 +402,7 @@ goto :strlen_loop
 
 REM Right-pad %~1 with spaces up to %~2 chars and export as %~3.
 REM Detail values differ in length (Node v24.21.0 vs npm 11.12.1), so
-REM padding is what keeps every [√] marker in one vertical column.
+REM padding is what keeps every ✓ marker in one vertical column.
 REM Longer input is left untouched - padding never truncates data.
 :pad
 setlocal EnableDelayedExpansion
@@ -327,7 +430,7 @@ echo !TP!!TI!%~1!PDV!!TM!
 endlocal & goto :eof
 
 REM Same as :row but leaves the line open (no newline) so :step_end can
-REM append the "  [√] Done" suffix on that same line.
+REM append the "  ✓ Done" suffix on that same line.
 :rowj
 setlocal EnableDelayedExpansion
 call :pad "%~2" 19 PDV
@@ -572,7 +675,7 @@ REM common shim locations are probed before giving up. Failures are silent -
 REM :ensure_cert reports the outcome.
 REM ---------------------------------------------------------------------------
 :install_mkcert
-echo %C_DIM%  ^|%C_RESET%  mkcert not found - installing via winget...
+echo %C_DIM%  │%C_RESET%  mkcert not found - installing via winget...
 where winget >nul 2>&1
 if errorlevel 1 goto :eof
 call winget install --id FiloSottile.mkcert --exact --accept-source-agreements --accept-package-agreements --silent >nul 2>&1
@@ -725,10 +828,10 @@ REM of twice. They still re-detect if it is empty, which keeps them correct
 REM even if the order is ever changed.
 :show_ip
 call :lan_ip
-if defined LAN_IP if defined LAN_IF echo   Device IP  %C_CYAN%%LAN_IP%%C_RESET%  %C_GRAY%^(%LAN_IF%^)%C_RESET%
-if defined LAN_IP if not defined LAN_IF echo   Device IP  %C_CYAN%%LAN_IP%%C_RESET%  %C_GRAY%^(APP_LAN_IP^)%C_RESET%
-if defined LAN_IP_ALT1 echo   Alt IP     %C_CYAN%%LAN_IP_ALT1%%C_RESET%  %C_GRAY%^(%LAN_IF_ALT1%^)%C_RESET%
-if defined LAN_IP_ALT2 echo   Alt IP     %C_CYAN%%LAN_IP_ALT2%%C_RESET%  %C_GRAY%^(%LAN_IF_ALT2%^)%C_RESET%
+if defined LAN_IP if defined LAN_IF echo   %C_GRAY%Device IP%C_RESET%  %C_CYAN%%LAN_IP%%C_RESET%  %C_GRAY%^(%LAN_IF%^)%C_RESET%
+if defined LAN_IP if not defined LAN_IF echo   %C_GRAY%Device IP%C_RESET%  %C_CYAN%%LAN_IP%%C_RESET%  %C_GRAY%^(APP_LAN_IP^)%C_RESET%
+if defined LAN_IP_ALT1 echo   %C_GRAY%Alt IP   %C_RESET%  %C_CYAN%%LAN_IP_ALT1%%C_RESET%  %C_GRAY%^(%LAN_IF_ALT1%^)%C_RESET%
+if defined LAN_IP_ALT2 echo   %C_GRAY%Alt IP   %C_RESET%  %C_CYAN%%LAN_IP_ALT2%%C_RESET%  %C_GRAY%^(%LAN_IF_ALT2%^)%C_RESET%
 goto :eof
 
 REM ==========================================================================
@@ -736,20 +839,19 @@ REM  INTERACTIVE MENU (additive - plain "build.bat" still starts Dev directly)
 REM ==========================================================================
 :menu
 call :banner
-echo %C_BOLD%  SELECT MODE%C_RESET%
+call :section "SELECT MODE"
+echo   %C_CYAN%[1]%C_RESET%  %C_BOLD%DEVELOPMENT%C_RESET%
+echo        %C_GRAY%Hot reload  ·  Live development  ·  Port 5173%C_RESET%
 echo.
-echo   %C_CYAN%[1]%C_RESET%  Development
-echo        Hot reload - debugging - port 5173
+echo   %C_CYAN%[2]%C_RESET%  %C_BOLD%PRODUCTION%C_RESET%
+echo        %C_GRAY%Optimized build  ·  Single port server%C_RESET%
 echo.
-echo   %C_CYAN%[2]%C_RESET%  Production
-echo        Optimized build - single port server
+echo   %C_CYAN%[3]%C_RESET%  %C_BOLD%SYSTEM CHECK%C_RESET%
+echo        %C_GRAY%Validate environment and configuration%C_RESET%
 echo.
-echo   %C_CYAN%[3]%C_RESET%  Environment check
-echo        Verify tools and configuration only
+echo   %C_CYAN%[Q]%C_RESET%  %C_BOLD%EXIT%C_RESET%
 echo.
-echo   %C_CYAN%[Q]%C_RESET%  Quit
-echo.
-choice /C 123Q /N /M "  Select [1/2/3/Q]: "
+choice /C 123Q /N /M "  Select an option [1/2/3/Q]: "
 if errorlevel 4 exit /b 0
 if errorlevel 3 goto :check
 if errorlevel 2 goto :prod
@@ -762,21 +864,22 @@ call :show_ip
 echo.
 call :env_check
 call :read_env
-echo   Backend port:       %BACKEND_PORT%
-echo   Frontend port:      5173
-echo   Backend language:   %APP_LANG% ^(console output^)
-if defined TLS_ON (echo   TLS:                enabled ^(phone mic + push work^)) else (echo   TLS:                off ^(http only - phone mic blocked^))
-if "%CERT_STATE%"=="created" echo   Certificate:        %ICON_OK%%C_RESET%  generated + CA trusted
-if "%CERT_STATE%"=="renewed" echo   Certificate:        %ICON_OK%%C_RESET%  renewed for the current IP
-if "%CERT_STATE%"=="present" echo   Certificate:        found ^(cert\server.pem^)
-if "%CERT_STATE%"=="no-mkcert" echo   Certificate:        %ICON_WARN%%C_RESET%  mkcert missing - install it, then rerun
-if "%CERT_STATE%"=="generate-failed" echo   Certificate:        %ICON_ERR%%C_RESET%  generation failed
+call :section "CONFIGURATION"
+echo   %C_GRAY%Backend port%C_RESET%      %C_CYAN%%BACKEND_PORT%%C_RESET%
+echo   %C_GRAY%Frontend port%C_RESET%     5173
+echo   %C_GRAY%Backend language%C_RESET%  %APP_LANG% %C_DIM%^(console output^)%C_RESET%
+if defined TLS_ON (echo   %C_GRAY%TLS%C_RESET%               %ICON_OK%%C_RESET%  enabled %C_DIM%^(phone mic + push work^)%C_RESET%) else (echo   %C_GRAY%TLS%C_RESET%               %ICON_WARN%%C_RESET%  off %C_DIM%^(http only - phone mic blocked^)%C_RESET%)
+if "%CERT_STATE%"=="created" echo   %C_GRAY%Certificate%C_RESET%       %ICON_OK%%C_RESET%  generated + CA trusted
+if "%CERT_STATE%"=="renewed" echo   %C_GRAY%Certificate%C_RESET%       %ICON_OK%%C_RESET%  renewed for the current IP
+if "%CERT_STATE%"=="present" echo   %C_GRAY%Certificate%C_RESET%       %ICON_OK%%C_RESET%  found %C_DIM%^(cert\server.pem^)%C_RESET%
+if "%CERT_STATE%"=="no-mkcert" echo   %C_GRAY%Certificate%C_RESET%       %ICON_WARN%%C_RESET%  mkcert missing - install it, then rerun
+if "%CERT_STATE%"=="generate-failed" echo   %C_GRAY%Certificate%C_RESET%       %ICON_ERR%%C_RESET%  generation failed
 REM Always printed: this is the file to install on the phone once per device.
-if defined CA_EXPORT echo   Phone CA:           %C_CYAN%%CA_EXPORT%%C_RESET%
-if defined TLS_ON (echo   Health endpoint:    %C_CYAN%https://127.0.0.1:%BACKEND_PORT%/api/health%C_RESET%) else (echo   Health endpoint:    %C_CYAN%http://127.0.0.1:%BACKEND_PORT%/api/health%C_RESET%)
+if defined CA_EXPORT echo   %C_GRAY%Phone CA%C_RESET%          %C_CYAN%%CA_EXPORT%%C_RESET%
+if defined TLS_ON (echo   %C_GRAY%Health%C_RESET%            %C_CYAN%https://127.0.0.1:%BACKEND_PORT%/api/health%C_RESET%) else (echo   %C_GRAY%Health%C_RESET%            %C_CYAN%http://127.0.0.1:%BACKEND_PORT%/api/health%C_RESET%)
 echo.
 if not defined OC_URL call :ensure_opencode_cli
-if not defined OC_URL echo %ICON_OK%%C_RESET%  OpenCode CLI        %OPENCODE_CLI_V%
+if not defined OC_URL echo   %C_GRAY%OpenCode CLI%C_RESET%      %ICON_OK%%C_RESET%  %C_CYAN%%OPENCODE_CLI_V%%C_RESET%
 if not defined OC_URL echo.
 call :footer
 pause
@@ -788,7 +891,7 @@ REM ==========================================================================
 :prod
 call :banner
 title RemoteCode - Prod
-echo %C_BOLD%  PRODUCTION MODE%C_RESET%
+echo   %C_BOLD%%C_CYAN%PRODUCTION MODE%C_RESET%  %C_DIM%·%C_RESET%  %C_GRAY%single port server%C_RESET%
 echo.
 call :show_ip
 echo.
@@ -804,7 +907,7 @@ call :steps_begin "Build Project"
 
 call :step_start 1
 call :env_check
-REM No :step_done here - every check row already carries its own [√], so a
+REM No :step_done here - every check row already carries its own ✓, so a
 REM closing Done line would only repeat the status in a column of its own.
 if errorlevel 1 call :step_fail 1
 call :read_env
@@ -844,39 +947,44 @@ call :spine
 
 call :step_start 4
 call :step_info "typecheck + Vite frontend + server compile"
-echo %C_DIM%  ^|%C_RESET%    %C_CYAN%^>^>%C_RESET%  Building for production...
+echo %C_DIM%  │%C_RESET%    %C_CYAN%^>^>%C_RESET%  Building for production...
 call npm run build
 if errorlevel 1 (
   call :step_fail 4
   call :fatal "Build failed." "Fix the errors above and retry."
   exit /b 1
 )
-echo %C_DIM%  ^|%C_RESET%    %ICON_OK%%C_RESET%  Build              done
+echo %C_DIM%  │%C_RESET%    %ICON_OK%%C_RESET%  Build              done
 call :step_done 4
 call :spine
 
-echo %C_BOLD%%C_CYAN%  READY - PRODUCTION%C_RESET%
+call :ready_box "REMOTECODE IS READY" "PRODUCTION MODE"
 echo.
-echo   Status     %ICON_RUN%%C_RESET%  RUNNING
-echo   Mode       Production ^(single port - 5173 stays closed, this is normal^)
-if defined TLS_ON (echo   Security   HTTPS ^(trusted cert - phone mic + push work^)) else (echo   Security   %ICON_WARN%%C_RESET%  HTTP only - the phone microphone is blocked without HTTPS)
+echo   %C_BOLD%%C_BLUE%STATUS%C_RESET%
+echo   %ICON_RUN%%C_RESET%  %C_GREEN%%C_BOLD%SERVER RUNNING%C_RESET%
+echo   %C_GRAY%Mode%C_RESET%      Production %C_DIM%^(single port - 5173 stays closed, this is normal^)%C_RESET%
+echo.
+echo   %C_BOLD%%C_BLUE%ACCESS%C_RESET%
 REM TLS decides the URL scheme for every address in this panel and for the
 REM health probe :waitopen runs below: with a certificate the backend serves
 REM HTTPS only, so an http:// address would never connect.
 set "WO_SCHEME=http"
 if defined TLS_ON set "WO_SCHEME=https"
-echo   URL        %C_CYAN%%WO_SCHEME%://localhost:%BACKEND_PORT%%C_RESET%
+echo   %C_GRAY%Application%C_RESET%  %C_CYAN%%WO_SCHEME%://localhost:%BACKEND_PORT%%C_RESET%
 REM Reuses the LAN_IP :show_ip already detected under the banner; the probe
 REM is only repeated if that line somehow never ran. Alt URL rows carry the
 REM other LAN candidates :lan_ip found, so the right network is still one
 REM copy-paste away when the top pick is not the phone's network.
 if not defined LAN_IP call :lan_ip
-if defined LAN_IP echo   Phone      %C_CYAN%%WO_SCHEME%://%LAN_IP%:%BACKEND_PORT%%C_RESET%  %C_GRAY%^(same Wi-Fi, no VPN^)%C_RESET%
-if defined LAN_IP_ALT1 echo   Alt URL    %C_CYAN%%WO_SCHEME%://%LAN_IP_ALT1%:%BACKEND_PORT%%C_RESET%  %C_GRAY%^(%LAN_IF_ALT1%^)%C_RESET%
-if defined LAN_IP_ALT2 echo   Alt URL    %C_CYAN%%WO_SCHEME%://%LAN_IP_ALT2%:%BACKEND_PORT%%C_RESET%  %C_GRAY%^(%LAN_IF_ALT2%^)%C_RESET%
-if defined LAN_IP if defined TLS_ON echo   %C_GRAY%             ^(accept the certificate warning once per device^)%C_RESET%
+if defined LAN_IP echo   %C_GRAY%Phone%C_RESET%        %C_CYAN%%WO_SCHEME%://%LAN_IP%:%BACKEND_PORT%%C_RESET%  %C_GRAY%^(same Wi-Fi, no VPN^)%C_RESET%
+if defined LAN_IP_ALT1 echo   %C_GRAY%Alt URL%C_RESET%      %C_CYAN%%WO_SCHEME%://%LAN_IP_ALT1%:%BACKEND_PORT%%C_RESET%  %C_GRAY%^(%LAN_IF_ALT1%^)%C_RESET%
+if defined LAN_IP_ALT2 echo   %C_GRAY%Alt URL%C_RESET%      %C_CYAN%%WO_SCHEME%://%LAN_IP_ALT2%:%BACKEND_PORT%%C_RESET%  %C_GRAY%^(%LAN_IF_ALT2%^)%C_RESET%
+echo.
+echo   %C_BOLD%%C_BLUE%SECURITY%C_RESET%
+if defined TLS_ON (echo   %ICON_OK%%C_RESET%  %C_GREEN%HTTPS enabled%C_RESET% %C_DIM%^(trusted cert - phone mic + push work^)%C_RESET%) else (echo   %ICON_WARN%%C_RESET%  %C_YELLOW%HTTP only%C_RESET% - the phone microphone is blocked without HTTPS)
+if defined LAN_IP if defined TLS_ON echo   %C_GRAY%Accept the certificate warning once per device.%C_RESET%
 REM Same CA row as dev: the phone has to trust this file for HTTPS + mic.
-if defined CA_EXPORT echo   Phone CA   %C_CYAN%%CA_EXPORT%%C_RESET%
+if defined CA_EXPORT echo   %C_GRAY%Phone CA%C_RESET%     %C_CYAN%%CA_EXPORT%%C_RESET%
 echo.
 call :footer
 echo   Starting production server ^(Ctrl+C to stop^)...
@@ -895,7 +1003,7 @@ REM ==========================================================================
 :dev
 call :banner
 title RemoteCode - Dev
-echo %C_BOLD%  DEVELOPMENT MODE%C_RESET%
+echo   %C_BOLD%%C_CYAN%DEVELOPMENT MODE%C_RESET%  %C_DIM%·%C_RESET%  %C_GRAY%Vite 5173 + backend%C_RESET%
 echo.
 call :show_ip
 echo.
@@ -912,7 +1020,7 @@ call :steps_begin "Start Project"
 
 call :step_start 1
 call :env_check
-REM No :step_done here - every check row already carries its own [√].
+REM No :step_done here - every check row already carries its own ✓.
 if errorlevel 1 call :step_fail 1
 call :read_env
 call :spine
@@ -947,14 +1055,14 @@ REM a build here it meets whatever stale bundle the last build left behind
 REM (the same reason a retired version number lingers on the phone).
 call :step_start 4
 call :step_info "vite build for the phone HTTPS origin"
-echo %C_DIM%  ^|%C_RESET%    %C_CYAN%^>^>%C_RESET%  Building frontend...
+echo %C_DIM%  │%C_RESET%    %C_CYAN%^>^>%C_RESET%  Building frontend...
 call npm run build:client --silent
 if errorlevel 1 (
   call :step_fail 4
   call :fatal "Build failed." "Fix the errors above and retry."
   exit /b 1
 )
-echo %C_DIM%  ^|%C_RESET%    %ICON_OK%%C_RESET%  Build              done
+echo %C_DIM%  │%C_RESET%    %ICON_OK%%C_RESET%  Build              done
 call :step_done 4
 call :spine
 
@@ -967,11 +1075,14 @@ REM both the backend row and the :waitopen health probe have to match it.
 set "WO_SCHEME=http"
 if defined TLS_ON set "WO_SCHEME=https"
 
-echo %C_BOLD%%C_CYAN%  READY - DEVELOPMENT%C_RESET%
+call :ready_box "REMOTECODE IS READY" "DEVELOPMENT MODE"
 echo.
-echo   Status     %ICON_RUN%%C_RESET%  STARTING ^(live log below^)
-echo   Frontend   %C_CYAN%http://localhost:5173%C_RESET%
-echo   Backend    %C_CYAN%%WO_SCHEME%://localhost:%BACKEND_PORT%%C_RESET%
+echo   %C_BOLD%%C_BLUE%STATUS%C_RESET%
+echo   %ICON_RUN%%C_RESET%  %C_GREEN%%C_BOLD%STARTING%C_RESET% %C_DIM%^(live log below^)%C_RESET%
+echo   %C_GRAY%Frontend%C_RESET%   %C_CYAN%http://localhost:5173%C_RESET%
+echo   %C_GRAY%Backend%C_RESET%    %C_CYAN%%WO_SCHEME%://localhost:%BACKEND_PORT%%C_RESET%
+echo.
+echo   %C_BOLD%%C_BLUE%PHONE%C_RESET%
 REM The phone talks to Vite here, not to the backend: 5173 is what the dev
 REM server binds on 0.0.0.0, and it proxies the API to APP_PORT itself.
 REM Reuses the LAN_IP :show_ip already detected under the banner; the probe
@@ -979,20 +1090,22 @@ REM is only repeated if that line somehow never ran. Alt URL rows carry the
 REM other LAN candidates :lan_ip found, so the right network is still one
 REM copy-paste away when the top pick is not the phone's network.
 if not defined LAN_IP call :lan_ip
-if defined LAN_IP echo   Phone      %C_CYAN%http://%LAN_IP%:5173%C_RESET%  %C_GRAY%^(same Wi-Fi, no VPN^)%C_RESET%
-if defined LAN_IP_ALT1 echo   Alt URL    %C_CYAN%http://%LAN_IP_ALT1%:5173%C_RESET%  %C_GRAY%^(%LAN_IF_ALT1%^)%C_RESET%
-if defined LAN_IP_ALT2 echo   Alt URL    %C_CYAN%http://%LAN_IP_ALT2%:5173%C_RESET%  %C_GRAY%^(%LAN_IF_ALT2%^)%C_RESET%
-if not defined TLS_ON echo   Security   %ICON_WARN%%C_RESET%  HTTP only - the phone microphone is blocked without HTTPS
+if defined LAN_IP echo   %C_GRAY%Open%C_RESET%       %C_CYAN%http://%LAN_IP%:5173%C_RESET%  %C_GRAY%^(same Wi-Fi, no VPN^)%C_RESET%
+if defined LAN_IP_ALT1 echo   %C_GRAY%Alt URL%C_RESET%    %C_CYAN%http://%LAN_IP_ALT1%:5173%C_RESET%  %C_GRAY%^(%LAN_IF_ALT1%^)%C_RESET%
+if defined LAN_IP_ALT2 echo   %C_GRAY%Alt URL%C_RESET%    %C_CYAN%http://%LAN_IP_ALT2%:5173%C_RESET%  %C_GRAY%^(%LAN_IF_ALT2%^)%C_RESET%
+echo.
+echo   %C_BOLD%%C_BLUE%SECURITY%C_RESET%
+if not defined TLS_ON echo   %ICON_WARN%%C_RESET%  %C_YELLOW%HTTP only%C_RESET% - the phone microphone is blocked without HTTPS
 REM In dev the certificate is served by the backend on APP_PORT, so the
 REM phone can reach it directly for a trusted HTTPS origin (the mic needs
 REM one, and Vite's own dev server has no TLS). The proxy in vite.config.ts
 REM follows APP_TLS_* and talks https to the backend, so both paths work.
-if defined TLS_ON if defined LAN_IP echo   Phone TLS  %C_CYAN%https://%LAN_IP%:%BACKEND_PORT%%C_RESET%  %C_GRAY%^(use this for the microphone^)%C_RESET%
-if defined TLS_ON if defined LAN_IP echo   %C_GRAY%             accept the certificate warning once per device%C_RESET%
+if defined TLS_ON if defined LAN_IP echo   %ICON_OK%%C_RESET%  %C_GREEN%HTTPS enabled%C_RESET%  %C_CYAN%https://%LAN_IP%:%BACKEND_PORT%%C_RESET%  %C_DIM%^(use this for the microphone^)%C_RESET%
+if defined TLS_ON if defined LAN_IP echo   %C_GRAY%Accept the certificate warning once per device.%C_RESET%
 REM The CA file the phone has to trust. Printed every run so the path is
 REM always one glance away instead of an mkcert -CAROOT lookup.
-if defined CA_EXPORT echo   Phone CA   %C_CYAN%%CA_EXPORT%%C_RESET%
-if defined CA_EXPORT if defined TLS_ON echo   %C_GRAY%             install once on the phone to trust the HTTPS origin%C_RESET%
+if defined CA_EXPORT echo   %C_GRAY%Phone CA%C_RESET%   %C_CYAN%%CA_EXPORT%%C_RESET%
+if defined CA_EXPORT if defined TLS_ON echo   %C_GRAY%Install once on the phone to trust the HTTPS origin.%C_RESET%
 echo.
 call :footer
 echo   Opening %C_CYAN%http://localhost:5173%C_RESET% in your browser once backend + frontend are up...
