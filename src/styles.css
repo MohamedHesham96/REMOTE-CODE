@@ -20,7 +20,7 @@
   --panel: #11151c;
   --panel-raised: #171c24;
   --panel-soft: #1e242e;
-  --border: rgba(160, 178, 205, 0.12);
+  --border: rgba(160, 178, 205, 0.16);
   --muted: #8a94a6;
   --text: #e8ecf3;
   --text-body: #c9d1de;
@@ -162,7 +162,7 @@
   --panel: #131920;
   --panel-raised: #1a2028;
   --panel-soft: #222a33;
-  --border: rgba(160, 200, 178, 0.14);
+  --border: rgba(160, 200, 178, 0.18);
   --muted: #7d8b89;
   --text: #d8e8dd;
   --text-body: #aec6b7;
@@ -287,18 +287,18 @@
   color-scheme: light;
   color: #0f172a;
   background: #f6f7f9;
-  --accent-rgb: var(--accent-rgb);
+  --accent-rgb: 79, 70, 229;
   --accent-strong-rgb: 67, 56, 202;
   --accent-deep-rgb: 67, 56, 202;
-  --accent-blue-rgb: var(--accent-blue-rgb);
-  --green-rgb: var(--green-rgb);
+  --accent-blue-rgb: 37, 99, 235;
+  --green-rgb: 5, 150, 105;
   --yellow-rgb: 180, 83, 9;
-  --red-rgb: var(--red-rgb);
+  --red-rgb: 225, 29, 72;
   --bg: radial-gradient(circle at 14% 14%, rgba(var(--accent-rgb), 0.09), transparent 46%), radial-gradient(circle at 86% 12%, rgba(var(--accent-blue-rgb), 0.08), transparent 46%), radial-gradient(circle at 80% 84%, rgba(var(--green-rgb), 0.05), transparent 48%), linear-gradient(165deg, #fbfcfe, #eef1f6);
   --panel: #ffffff;
   --panel-raised: #ffffff;
   --panel-soft: #f3f5f9;
-  --border: #e3e8ef;
+  --border: #c5cfdc;
   --muted: #5f6b7d;
   --text: #0f172a;
   --text-body: #334155;
@@ -341,7 +341,7 @@
   --todo-muted: #94a3b8;
   --todo-inprogress-text: #1e293b;
   --result-files-bg: rgba(var(--accent-rgb), 0.05);
-  --result-files-border: rgba(var(--accent-rgb), 0.22);
+  --result-files-border: rgba(var(--accent-rgb), 0.35);
   --log-muted: #64748b;
   --working-banner-text: #92400e;
   --working-badge-text: #92400e;
@@ -353,14 +353,14 @@
   --accent-soft-bg: rgba(var(--accent-rgb), 0.09);
   --accent-soft-bg2: rgba(var(--accent-rgb), 0.07);
   --accent-soft-bg3: rgba(var(--accent-rgb), 0.11);
-  --accent-border: rgba(var(--accent-rgb), 0.24);
+  --accent-border: rgba(var(--accent-rgb), 0.34);
   --green-text: #047857;
-  --green-border: rgba(var(--green-rgb), 0.3);
+  --green-border: rgba(var(--green-rgb), 0.45);
   --green-bg: rgba(var(--green-rgb), 0.09);
-  --warning-border: rgba(var(--yellow-rgb), 0.32);
+  --warning-border: rgba(var(--yellow-rgb), 0.45);
   --warning-bg: rgba(var(--yellow-rgb), 0.09);
   --warning-text: #92400e;
-  --error-border: rgba(var(--red-rgb), 0.3);
+  --error-border: rgba(var(--red-rgb), 0.42);
   --error-bg: rgba(var(--red-rgb), 0.07);
   --error-text: #be123c;
   --file-text: #4f46e5;
@@ -372,8 +372,8 @@
   --question-hint: #a8a29e;
   --question-count-text: #92400e;
   --question-count-bg: rgba(var(--yellow-rgb), 0.12);
-  --question-card-border: rgba(var(--yellow-rgb), 0.3);
-  --question-option-border: #e7e5e4;
+  --question-card-border: rgba(var(--yellow-rgb), 0.42);
+  --question-option-border: #d6d2ce;
   --question-option-bg: #ffffff;
   --question-option-selected-bg: rgba(var(--yellow-rgb), 0.09);
   --question-option-selected-border: #b45309;
@@ -400,9 +400,9 @@
   --task-activity-text: #475569;
   --live-stat-text: #4338ca;
   --live-stat-bg: rgba(var(--accent-rgb), 0.07);
-  --live-stat-border: rgba(var(--accent-rgb), 0.22);
+  --live-stat-border: rgba(var(--accent-rgb), 0.35);
   --live-time-text: #92400e;
-  --progress-track-bg: #e3e8ef;
+  --progress-track-bg: #dbe1ea;
   --final-result-text: #1e293b;
   --final-result-bg: rgba(var(--green-rgb), 0.06);
   --result-pending-text: #64748b;
@@ -413,8 +413,8 @@
   --button-ghost-text: #475569;
   --label-text: #475569;
   --session-item-active-bg: rgba(var(--accent-rgb), 0.09);
-  --session-item-border: rgba(15, 23, 42, 0.09);
-  --session-item-border-hover: rgba(var(--accent-rgb), 0.36);
+  --session-item-border: rgba(15, 23, 42, 0.18);
+  --session-item-border-hover: rgba(var(--accent-rgb), 0.5);
   --session-item-ring: rgba(var(--accent-rgb), 0.18);
 }
 
@@ -436,7 +436,7 @@
   --panel: #161a21;
   --panel-raised: #1c2129;
   --panel-soft: #242a35;
-  --border: rgba(186, 199, 217, 0.15);
+  --border: rgba(186, 199, 217, 0.18);
   --muted: #808b9d;
   --text: #eef1f6;
   --text-body: #cdd4e0;
@@ -858,10 +858,10 @@ h2.session-title-editable { cursor: pointer; }
 .icon-theme:hover:not(:disabled) { color: color-mix(in srgb, var(--accent) 78%, var(--text)); border-color: rgba(var(--accent-rgb), 0.62); background: rgba(var(--accent-rgb), 0.18); box-shadow: 0 4px 16px rgba(var(--accent-rgb), 0.22); }
 .icon-lang { color: var(--accent-blue); background: rgba(var(--accent-blue-rgb), 0.12); border-color: rgba(var(--accent-blue-rgb), 0.4); text-shadow: 0 0 12px rgba(var(--accent-blue-rgb), 0.4); }
 .icon-lang:hover:not(:disabled) { color: color-mix(in srgb, var(--accent-blue) 78%, var(--text)); border-color: rgba(var(--accent-blue-rgb), 0.62); background: rgba(var(--accent-blue-rgb), 0.18); box-shadow: 0 4px 16px rgba(var(--accent-blue-rgb), 0.22); }
-/* السجل رمادي مطفي مثل زرار كتم الصوت: القراءة بتستهلكه كتير، والألوان الزاهية
-   بتتعب العين وكمان كانت قريبة من أخضر زرار الـ git، فبقي محايد يتقري بصمت */
-.icon-history { color: var(--text-dimmer); background: var(--surface-card); border-color: var(--border); }
-.icon-history:hover:not(:disabled) { color: var(--text); border-color: var(--accent-border); background: var(--surface-tint); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16); }
+/* السجل مرجع زي المثبّتة — الاتنين «رجوع لحاجة محفوظة» — فبياخد نفس حدّ
+   الأكسنت وخلفيته الملوّنة عشان يبان ضمن مجموعة أزرار الهيدر بدل حد رمادي باهت. */
+.icon-history { color: var(--accent-strong); background: rgba(var(--accent-rgb), 0.12); border-color: rgba(var(--accent-rgb), 0.4); text-shadow: 0 0 12px rgba(var(--accent-rgb), 0.4); }
+.icon-history:hover:not(:disabled) { color: var(--accent-strong); border-color: rgba(var(--accent-rgb), 0.62); background: rgba(var(--accent-rgb), 0.18); box-shadow: 0 4px 16px rgba(var(--accent-rgb), 0.22); }
 .icon-pinned { position: relative; overflow: visible; color: var(--accent-strong); background: var(--accent-soft-bg3); border-color: var(--accent-border); }
 .icon-pinned:hover:not(:disabled) { color: var(--accent-strong); background: var(--accent-soft-bg2); border-color: var(--accent-border); box-shadow: 0 4px 16px rgba(var(--accent-rgb), 0.25); }
 /* الإعدادات سماوي مخضر (teal) عشان ما تتقاطعش مع نيلية المظهر ولا زرجة الملفات */
@@ -1187,16 +1187,16 @@ h2.session-title-editable { cursor: pointer; }
 /* موديلات مجانية */
 /* One row that fills the line: model name and thinking-level chip side by side.
    The name is the flexible one, so it ellipsizes first and the chip never shifts. */
-.model-pill { display: flex; flex: 1 1 auto; align-items: center; gap: 9px; width: 100%; max-width: 260px; padding: 7px 11px; border: 1px solid rgba(var(--green-rgb), 0.28); border-radius: 1px; color: var(--model-green-text); background: var(--green-bg); font-size: 11px; font-weight: 700; }
+.model-pill { display: flex; flex: 1 1 auto; align-items: center; gap: 9px; width: 100%; max-width: 260px; padding: 7px 11px; border: 1px solid var(--green-border); border-radius: 1px; color: var(--model-green-text); background: var(--green-bg); font-size: 11px; font-weight: 700; }
 .model-pill:hover { border-color: rgba(var(--green-rgb), 0.55); background: var(--green-bg); }
 .model-pill-id { min-width: 0; flex: 1 1 auto; display: flex; align-items: center; gap: 7px; }
 .model-pill-name { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.model-pill-variant { flex: 0 1 auto; min-width: 0; max-width: 55%; display: flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 1px; color: var(--model-green-text); background: var(--green-bg); font-size: 9px; font-weight: 700; white-space: nowrap; overflow: hidden; border: 1px solid rgba(var(--green-rgb), 0.3); }
+.model-pill-variant { flex: 0 1 auto; min-width: 0; max-width: 55%; display: flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 1px; color: var(--model-green-text); background: var(--green-bg); font-size: 9px; font-weight: 700; white-space: nowrap; overflow: hidden; border: 1px solid var(--green-border); }
 .model-pill-variant-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 800; }
 .free-badge { padding: 2px 7px; border-radius: 1px; color: #06281c; background: var(--green); font-size: 9px; font-weight: 800; white-space: nowrap; }
 .needs-badge { padding: 2px 7px; border-radius: 1px; border: 1px solid var(--border); color: var(--muted); font-size: 9px; font-weight: 800; white-space: nowrap; }
 .model-card:disabled { opacity: 0.55; cursor: not-allowed; }
-.current-badge { padding: 2px 7px; border-radius: 1px; color: var(--current-badge-text); background: var(--current-badge-bg); font-size: 9px; font-weight: 800; white-space: nowrap; }
+.current-badge { padding: 2px 7px; border: 1px solid var(--accent-border); border-radius: 1px; color: var(--current-badge-text); background: var(--current-badge-bg); font-size: 9px; font-weight: 800; white-space: nowrap; }
 .variant-options { margin-bottom: 12px; }
 /* مستوى التفكير قائمة منسدلة عادية بلا بطاقة — العنوان والقائمة فقط حتى لا
    تنافس قائمة النماذج بصريًا */
