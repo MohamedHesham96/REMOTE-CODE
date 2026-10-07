@@ -42,10 +42,10 @@ describe("voiceLanguageCode", () => {
 })
 
 describe("nextVoiceLanguage", () => {
-  it("بيلفّ تلقائي ← عربي ← إنجليزي ← تلقائي", () => {
+  it("ينتقل من تلقائي أو إنجليزي إلى العربية مباشرةً", () => {
     expect(nextVoiceLanguage("auto")).toBe("ar")
+    expect(nextVoiceLanguage("en")).toBe("ar")
     expect(nextVoiceLanguage("ar")).toBe("en")
-    expect(nextVoiceLanguage("en")).toBe("auto")
   })
 })
 

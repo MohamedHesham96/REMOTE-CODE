@@ -7,11 +7,10 @@ export type VoiceLanguage = "auto" | "ar" | "en"
 
 export const VOICE_LANGUAGES: VoiceLanguage[] = ["auto", "ar", "en"]
 
-// اللغة التالية في الدورة — زر تبديل اللغة جنب المايك بيلفّ: تلقائي ← عربي ←
-// إنجليزي ← تلقائي. الإعداد مخزّن في localStorage عبر saveVoiceLanguage.
+// يتجاوز الزر وضع الإنجليزية الصريح عند الانتقال من تلقائي أو إنجليزي إلى
+// العربية؛ ويمكن اختيار الوضع التلقائي مجددًا من الإعدادات.
 export function nextVoiceLanguage(value: VoiceLanguage): VoiceLanguage {
-  const index = VOICE_LANGUAGES.indexOf(value)
-  return VOICE_LANGUAGES[(index + 1) % VOICE_LANGUAGES.length] ?? "auto"
+  return value === "ar" ? "en" : "ar"
 }
 
 const VOICE_LANGUAGE_KEY = "opencode-voice-language"

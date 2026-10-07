@@ -17,8 +17,9 @@ interface VoiceButtonProps {
 // زر مايك جنب حقل الكتابة: ضغطة تبدأ الاستماع، والكلام بيتفرّغ لحظة بلحظة
 // جوه الحقل نفسه عشان المستخدم يشوفه وهو بيحصّل ويصحّح قبل الإرسال. وزر
 // القفل (زيه زي الوتساب) بيثبّت الاستماع: المايك يفضل سامع مهما طال الصمت
-// لحد ما المستخدم يقفله بنفسه. وزر اللغة جنب القفل بيلفّ لغة التعرّف:
-// تلقائي ← عربي ← إنجليزي. تجميع النص (الأساس + المُفرّغ) مسؤولية الهوك،
+// لحد ما المستخدم يقفله بنفسه. وزر اللغة جنب القفل يبدّل مباشرةً بين العربية
+// والإنجليزية، وينتقل من تلقائي إلى العربية؛ ويمكن استعادة تلقائي من الإعدادات.
+// تجميع النص (الأساس + المُفرّغ) مسؤولية الهوك،
 // وهنا بس بنكتب اللي بيوصلنا في الحقل.
 export function VoiceButton({ t, voiceLanguage, composer, onComposerChange, onError, onVoiceLanguageChange }: VoiceButtonProps) {
   const { supported, listening, locked, start, stop, toggleLock } = useVoiceInput({
@@ -96,7 +97,7 @@ export function VoiceButton({ t, voiceLanguage, composer, onComposerChange, onEr
             <span className="voice-lock-beta" aria-hidden>beta</span>
           </button>
         ) : null}
-        {/* زر اللغة: بيلفّ الإعداد تلقائي → عربي → إنجليزي، والحرف ظاهر عليه
+        {/* زر اللغة: يبدّل العربية والإنجليزية مباشرةً، والحرف ظاهر عليه
             عشان المستخدم يعرف اللغة الفعّالة قبل ما يتكلم. */}
         <button
           type="button"
