@@ -78,8 +78,35 @@ echo █   █  █      ██ ██  █   █    █    █             █ 
 echo ████   ████   █ █ █  █   █    █    ████   █████  █      █   █  █   █  ████
 echo █  █   █      █   █  █   █    █    █             █      █   █  █   █  █
 echo █   █  █████  █   █   ███     █    █████          ████   ███   ████   █████%C_RESET%
+REM Project name and version sit right under the art. The version is read
+REM from package.json on every launch - the same number the app shows - so the
+REM banner can never keep advertising a number that a release bump moved past.
+call :read_version
+echo %C_CYAN%RemoteCode  %APP_VERSION%%C_RESET%
 echo.
 goto :eof
+
+REM Read the project version out of package.json without Node, because the
+REM banner prints before :env_check and must still render on a machine whose
+REM toolchain is not working yet. Falls back to "v?" when the file is missing;
+REM :env_check reports that as a fatal error right after.
+:read_version
+set "APP_VERSION="
+for /f "usebackq tokens=2 delims=:" %%v in (`findstr /r /c:"^  .version." "package.json" 2^>nul`) do if not defined APP_VERSION call :clean_version "%%v"
+if not defined APP_VERSION set "APP_VERSION=v?"
+goto :eof
+
+REM The raw value is "1.8.0", - strip the spaces, quotes and trailing comma,
+REM then add the leading v the UI uses. Exported with %-expansion, not !: a
+REM !-value read on the endlocal line expands after the scope is gone and
+REM comes back as the literal "!<name>" text.
+:clean_version
+setlocal EnableDelayedExpansion
+set "CV=%~1"
+set "CV=!CV: =!"
+set "CV=!CV:"=!"
+set "CV=!CV:,=!"
+endlocal & set "APP_VERSION=v%CV%" & goto :eof
 
 REM Thin section header: call :section "TITLE"
 REM Inside a step tree the header hangs off the spine ("|--- TITLE ---")
