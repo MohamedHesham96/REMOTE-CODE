@@ -9,7 +9,12 @@ import type { Release } from "./releases"
 // كل نص هنا مزدوج اللغة (ar/en) بنفس أسلوب i18n.ts — العربية فصحى بلا لهجة،
 // والإنجليزية فصيحة. إضافة إصدار جديد = إضافة كائن بنصوص اللغتين معًا.
 //
-// التسلسل الزمني الحقيقي من الأقدم (5775b51) للأحدث (1b753c5):
+// التسلسل الزمني الحقيقي من الأقدم (5775b51) للأحدث (c33cfc2):
+//   v1.9.0 (2026-10-08)  →  3 commits التحكم الصوتي الطبيعي + كلمة التنبيه + الزر العايم
+//   v1.8.5 (2026-10-08)  →  1 commit  تنبيه التحديث + ملخص الاستهلاك + المسارات الكاملة
+//   v1.8.4 (2026-10-08)  →  2 commits المفضّلة + ملخص المشاريع + تفرّع المحادثة
+//   v1.8.3 (2026-10-08)  →  1 commit  لوحة الانتباه + إعادة المحاولة + إشعار الاكتمال
+//   v1.8.2 (2026-10-07)  →  1 commit  واجهة المشغّل الجديدة
 //   v1.8.1 (2026-10-07)  →  2 commits عنوان الشبكة في المشغّل + رقم النسخة
 //   v1.8.0 (2026-10-07)  → 11 commits الثيمات + حالة التخطي + أوامر الصوت + الأداء
 //   v1.7.0 (2026-10-06)  →  13 commit قفل المايك واللصق ومثبّتات النماذج والجداول
@@ -25,6 +30,273 @@ import type { Release } from "./releases"
 // إعادة التوليد: شغّل `scripts/generate-releases.mjs` لأخذ صورة جديدة من
 // التاريخ، ثم راجع المجموعة الناتجة قبل إضافتها كإصدار جديد هنا.
 export const releases: Release[] = [
+  {
+    version: "v1.9.0",
+    date: "2026-10-08",
+    title: {
+      ar: "تحكم صوتي طبيعي وكلمة تنبيه",
+      en: "Natural-language voice control and a wake word",
+    },
+    summary: {
+      ar: "تحدّث بأسلوبك العادي فينفّذ التطبيق الأمر — التنقّل بين اللوحات، وفتح المشاريع والمحادثات، وتبديل النموذج والمظهر واللغة، وإجراءات Git — مع كلمة تنبيه تفتح اللوحة من دون لمس الهاتف، وزر عائم في متناول الإبهام.",
+      en: "Speak in your own words and the app carries out the command — moving between panels, opening projects and conversations, switching the model, theme, and language, and running Git actions — with a wake phrase that opens the panel hands-free and a floating button within thumb reach.",
+    },
+    commits: ["c51c9b1", "80a82ca", "c33cfc2"],
+    changes: [
+      {
+        category: "features",
+        title: {
+          ar: "تحكم صوتي بعبارات طبيعية داخل التطبيق",
+          en: "Voice control with natural phrases inside the app",
+        },
+        description: {
+          ar: "قل ما تريد بصياغتك: انتقل بين اللوحات، وافتح مشروعًا أو محادثة، وبدّل النموذج والمظهر واللغة، ونفّذ إجراءات Git. الأوامر الخطرة مثل إيقاف المهمة أو الرجوع عن التغييرات تطلب تأكيدًا قبل التنفيذ، ولو كان طلبك غامضًا تعرض اللوحة خيارات لتختار منها.",
+          en: "Say what you want in your own words: move between panels, open a project or conversation, switch the model, theme, and language, and run Git actions. Risky commands such as stopping a task or reverting changes ask for confirmation first, and an ambiguous request shows choices to pick from.",
+        },
+        commits: ["c51c9b1"],
+      },
+      {
+        category: "features",
+        title: {
+          ar: "كلمة تنبيه تفتح التحكم الصوتي بلا لمس",
+          en: "A wake phrase opens voice control hands-free",
+        },
+        description: {
+          ar: "فعّل مستمع كلمة التنبيه واختر عبارة من إعدادات الصوت، فيفتح المستمع في الخلفية اللوحة عند قول العبارة — مع عبارة افتراضية لكل لغة، وتوقف تلقائي أثناء فتح اللوحة أو إخفاء الصفحة أو انشغال الميكروفون بمستهلك آخر.",
+          en: "Enable the wake listener and pick a phrase in the voice settings, and the background listener opens the panel when you say it — with a default phrase per language and automatic pausing while the panel is open, the page is hidden, or the mic is busy elsewhere.",
+        },
+        commits: ["80a82ca"],
+      },
+      {
+        category: "improvements",
+        title: {
+          ar: "زر تحكم صوتي عائم فوق شريط الكتابة",
+          en: "A floating voice-control button above the composer",
+        },
+        description: {
+          ar: "انتقل زر التحكم الصوتي من الشريط العلوي إلى زر عائم منتصف الشاشة فوق الكومبوزر، فيبقى في المكان نفسه على كل الشاشات وفي متناول الإبهام.",
+          en: "The voice-control button moved from the top bar to a floating button centered above the composer, so it stays in the same spot on every screen and within thumb reach.",
+        },
+        commits: ["c33cfc2"],
+      },
+      {
+        category: "technical",
+        title: {
+          ar: "ملكية مشتركة للميكروفون بين الإملاء والأوامر والتنبيه",
+          en: "Shared microphone ownership across dictation, commands, and wake listening",
+        },
+        description: {
+          ar: "سجل واحد يحكم ملكية الميكروفون، فلا تتصادم جلسات الإملاء والتحكم الصوتي وكلمة التنبيه؛ من ليس صاحب الملكية يتوقف ويعيد المحاولة عندما يتحرر الميكروفون.",
+          en: "A single registry governs microphone ownership so dictation, voice control, and the wake listener never clash; whoever lacks ownership stops and retries once the mic is free.",
+        },
+        commits: ["80a82ca"],
+      },
+    ],
+  },
+  {
+    version: "v1.8.5",
+    date: "2026-10-08",
+    title: {
+      ar: "تنبيه تحديث وملخص استهلاك ومسارات ملفات كاملة",
+      en: "Update notifications, session usage, and full result paths",
+    },
+    summary: {
+      ar: "شريط هادئ يخبرك بوجود إصدار أحدث مع ملاحظاته، وملخص استهلاك الجلسة في درج السجل، والمسار الكامل لملفات النتيجة معروضًا وقابلًا للنسخ.",
+      en: "A quiet banner tells you a newer version exists, with its notes; a session usage summary lands in history; and result files show a full, copyable path.",
+    },
+    commits: ["9c224ef"],
+    changes: [
+      {
+        category: "features",
+        title: {
+          ar: "تنبيه بوجود إصدار أحدث مع عرض التحديث",
+          en: "A newer-version notice with an in-app overview",
+        },
+        description: {
+          ar: "يفحص السيرفر نسخة المشروع على GitHub في الخلفية من دون تعطيل أي شيء، وعند وجود إصدار أحدث يظهر شريط هادئ في مساحة العمل يعرض الإصدارين مع زر لعرض الجديد أو تأجيله، وتُضاف بطاقة الإصدار الأحدث أعلى لوحة الإصدارات مع ملاحظاته من GitHub.",
+          en: "The server checks the project version on GitHub in the background without blocking anything; when a newer release exists a quiet banner shows both versions with buttons to view or postpone, and the release notes panel gains a card for the newer version with its notes from GitHub.",
+        },
+        commits: ["9c224ef"],
+      },
+      {
+        category: "features",
+        title: {
+          ar: "ملخص استهلاك الجلسة في درج السجل",
+          en: "Session usage summary in the history drawer",
+        },
+        description: {
+          ar: "يعرض أعلى السجل عدد الرموز (إدخال/إخراج/إجمالي) والتكلفة وعدد الطلبات ومدة العمل، ولا يعرض إلا الأرقام التي يرسلها المحرك فعلًا — فغيابها يظهر «غير متاح» لا صفرًا.",
+          en: "The top of history shows token counts (input/output/total), cost, request count, and working duration, displaying only what the engine actually reports — missing numbers read as unavailable rather than zero.",
+        },
+        commits: ["9c224ef"],
+      },
+      {
+        category: "improvements",
+        title: {
+          ar: "المسار الكامل لملفات النتيجة مع نسخ بضغطة",
+          en: "Full result-file paths with one-tap copy",
+        },
+        description: {
+          ar: "تعرض قائمة ملفات النتيجة المسار الكامل الذي يرسله المحرك، ويمكن الضغط عليه للتوسيع أو نسخه، وإذا لم يتوفر المسار الكامل تظهر ملاحظة بذلك بدل التخمين.",
+          en: "The result-file list shows the full path the engine sends, tappable to expand or copy; when no full path is available a note says so instead of guessing.",
+        },
+        commits: ["9c224ef"],
+      },
+    ],
+  },
+  {
+    version: "v1.8.4",
+    date: "2026-10-08",
+    title: {
+      ar: "طلبات مفضّلة وملخصات مشاريع وتفرّع من المحادثة",
+      en: "Favorite prompts, project summaries, and conversation branching",
+    },
+    summary: {
+      ar: "احفظ الطلبات التي تكررها في مفضّلة مشتركة بين الأجهزة، وشاهد في قائمة المشاريع ما يعمل وما يحتاج انتباه، وابدأ فرعًا جديدًا من أي محادثة والأصل لا يتغيّر.",
+      en: "Save repeated prompts in a favorites list shared across devices, see what is running and what needs attention in the project list, and start a branch from any conversation without touching the original.",
+    },
+    commits: ["1b71079", "69d6cbe"],
+    changes: [
+      {
+        category: "features",
+        title: {
+          ar: "طلبات مفضّلة مشتركة بين الأجهزة",
+          en: "Favorite prompts shared across devices",
+        },
+        description: {
+          ar: "احفظ نص الطلب من الكومبوزر أو كارت المهمة أو السجل في مفضّلة محفوظة على السيرفر، فتتشترك فيها كل الأجهزة وتبقى بعد تحديث الصفحة وإعادة تشغيل السيرفر. لوحة منزلقة تتيح استخدام الطلب أو تعديل نصه واسمه أو حذفه، مع نجمة تبيّن الطلبات المحفوظة.",
+          en: "Save a prompt from the composer, a task card, or history into a server-backed favorites list shared by every device and kept across page refreshes and server restarts. A bottom sheet lets you use, rename, edit, or delete a favorite, with a star marking saved prompts.",
+        },
+        commits: ["1b71079"],
+      },
+      {
+        category: "features",
+        title: {
+          ar: "تفرّع جديد من محادثة قائمة",
+          en: "Branch a new conversation from an existing one",
+        },
+        description: {
+          ar: "زر في ترويسة كارت المهمة ينشئ محادثة جديدة بالسياق نفسه لمواصلة العمل في اتجاه آخر، ويبقى الأصل كما هو. الفرع جلسة مستقلة تظهر في القائمة وتُسمّى وتُعدَّل بحرية.",
+          en: "A button in the task-card header creates a new conversation with the same context to continue in another direction while the original stays untouched. The branch is an independent session in the list that can be renamed and edited freely.",
+        },
+        commits: ["1b71079"],
+      },
+      {
+        category: "improvements",
+        title: {
+          ar: "ملخص لكل مشروع في قائمة المشاريع",
+          en: "A summary for every project in the project list",
+        },
+        description: {
+          ar: "يظهر أسفل اسم كل مشروع عدد المحادثات الجارية والمحتاجة انتباه وإجمالي محادثاته، أو «خامل · آخر نشاط منذ…»، والبناء من الحالات الحية القائمة بلا نداءات إضافية.",
+          en: "Under each project name the list shows running and attention counts and the conversation total, or \"idle · last activity\", built from existing live state with no extra calls.",
+        },
+        commits: ["1b71079"],
+      },
+      {
+        category: "fixes",
+        title: {
+          ar: "المفضّلة لا تختفي بعد تحديث الصفحة",
+          en: "Favorites no longer disappear after a refresh",
+        },
+        description: {
+          ar: "كانت قائمة المفضّلة تُستبدل أحيانًا بنسخة السيرفر الأقدم أثناء التحديث فتضيع الطلبات الحديثة؛ الآن تُطبَّق أحدث صورة بعد انتهاء التعديل المحلي.",
+          en: "The favorites list was sometimes replaced by an older server copy during a refresh, losing recent saves; the newest snapshot now wins after the local edit settles.",
+        },
+        commits: ["69d6cbe"],
+      },
+    ],
+  },
+  {
+    version: "v1.8.3",
+    date: "2026-10-08",
+    title: {
+      ar: "مركز انتباه للمعلّقات وإعادة محاولة المهام الفاشلة",
+      en: "An attention center for pending work and failed-task retries",
+    },
+    summary: {
+      ar: "لوحة واحدة تجمع الأسئلة والأذونات المعلّقة من كل المشاريع، وشارة تعدّها في الشريط العلوي، مع زر لإعادة تشغيل الطلب الذي فشل وإشعار عند اكتمال المهمة أو فشلها.",
+      en: "One panel gathers pending questions and permissions from every project, a top-bar badge counts them, and a failed request can be retried, with a push when a task completes or fails.",
+    },
+    commits: ["80e2df4"],
+    changes: [
+      {
+        category: "features",
+        title: {
+          ar: "لوحة انتباه موحّدة لكل المعلّقات",
+          en: "A unified attention panel for everything pending",
+        },
+        description: {
+          ar: "زر في الشريط العلوي يحمل شارة بعدد الأسئلة والأذونات المعلّقة من كل المشاريع، ويفتح لوحة تجمعها مع اسم المحادثة والمشروع للإجابة أو الرد عليها في مكان واحد.",
+          en: "A top-bar button carries a badge counting pending questions and permissions across all projects and opens a panel that gathers them with their conversation and project names so they can be answered in one place.",
+        },
+        commits: ["80e2df4"],
+      },
+      {
+        category: "features",
+        title: {
+          ar: "إعادة محاولة الطلب الفاشل من بطاقة المهمة",
+          en: "Retry a failed request from its task card",
+        },
+        description: {
+          ar: "عند فشل المهمة تعرض البطاقة تفاصيل الخطأ مع زر لإعادة المحاولة بالنموذج والوكيل نفسيهما، أو المتابعة يدويًا، وحارس يمنع تكرار الإرسال من الضغطات السريعة.",
+          en: "When a task fails the card shows the error details with a button to retry with the same model and agent, or to continue manually, with a guard that blocks duplicate sends from rapid taps.",
+        },
+        commits: ["80e2df4"],
+      },
+      {
+        category: "improvements",
+        title: {
+          ar: "إشعار عند اكتمال المهمة لا عند الفشل فقط",
+          en: "A push when a task completes, not only when it fails",
+        },
+        description: {
+          ar: "يُرسل إشعار عند نجاح تشغيل المهمة كذلك، فتعرف من الهاتف أن العمل انتهى حتى إن لم يصل حدث الخمول المتوقع.",
+          en: "A push is now sent when a run succeeds as well, so the phone tells you the work finished even if the expected idle event never arrives.",
+        },
+        commits: ["80e2df4"],
+      },
+    ],
+  },
+  {
+    version: "v1.8.2",
+    date: "2026-10-07",
+    title: {
+      ar: "واجهة مشغّل جديدة بهوية بصرية موحّدة",
+      en: "A redesigned launcher with a unified visual identity",
+    },
+    summary: {
+      ar: "يعرض المشغّل شعار المشروع ورقم نسخته داخل لوحة هوية واضحة، وتوحّدت أشجار الخطوات وأقسامها ولوحات التحذير والخطأ في شكل واحد.",
+      en: "The launcher draws the project wordmark and its version inside a clear identity panel, and step trees, section headers, and warning and error panels share one consistent look.",
+    },
+    commits: ["ebe5e22"],
+    changes: [
+      {
+        category: "uiux",
+        title: {
+          ar: "لوحة هوية المشروع ورقم النسخة في المشغّل",
+          en: "Project identity panel and version in the launcher",
+        },
+        description: {
+          ar: "يظهر اسم المشروع ورقم النسخة المقروء من package.json داخل إطار، مع شعار حرفي بخط ثابت يظهر واحدًا في كل الطرفيات، وتُطبع النسخة الحية في تذييل كل شاشة.",
+          en: "The banner shows the project name and the version read from package.json inside a frame, with lettering in a fixed block font that renders identically across terminals, and the live version prints in every screen footer.",
+        },
+        commits: ["ebe5e22"],
+      },
+      {
+        category: "uiux",
+        title: {
+          ar: "أشجار خطوات ولوحات رسائل على محاذاة واحدة",
+          en: "Step trees and message panels on one alignment",
+        },
+        description: {
+          ar: "أشجار خطوات البناء وعناوين الأقسام ولوحات التحذير والخطأ صارت تُرسم بحدود صندوقية ولون موحّد مع علامات نجاح وفشل واضحة، ويتّسع كل صندوق لنصه فلا ينكسر سطره في طرفية ضيقة.",
+          en: "Build step trees, section headers, and warning and error panels now use box-drawing borders and one brand color with clear success and failure marks, and each panel sizes itself to its text so lines never wrap in a narrow terminal.",
+        },
+        commits: ["ebe5e22"],
+      },
+    ],
+  },
   {
     version: "v1.8.1",
     date: "2026-10-07",
