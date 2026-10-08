@@ -1,5 +1,5 @@
 import { request } from "./http"
-import type { ActiveSession, AppConfig, Session, SessionStatus } from "../types"
+import type { ActiveSession, AppConfig, AttentionItem, Session, SessionStatus } from "../types"
 
 export function getConfig(): Promise<AppConfig> {
   return request<AppConfig>("/api/config")
@@ -29,6 +29,10 @@ export function deleteSession(id: string): Promise<{ deleted: boolean }> {
 
 export function getStatuses(): Promise<Record<string, SessionStatus>> {
   return request<Record<string, SessionStatus>>("/api/session/status")
+}
+
+export function getAttention(): Promise<AttentionItem[]> {
+  return request<AttentionItem[]>("/api/attention")
 }
 
 export function getActivity(lang: "ar" | "en" = "ar"): Promise<ActiveSession[]> {

@@ -19,6 +19,7 @@ import { collectResultFiles } from "./opencode/result-files.js"
 import { consoleLang, serverMessage, type ServerLang } from "./i18n.js"
 import type {
   ActiveSession,
+  AttentionItem,
   ConversationQuestionRequest,
   EnginePermission,
   GitChanges,
@@ -73,6 +74,7 @@ import {
   VARIANTS_CACHE_MS,
   withTimeout,
 } from "./opencode/utils.js"
+import { mapWithConcurrency } from "./utils/concurrency.js"
 
 // نص مُرمَّز داخلي مش نص للمستخدم — الراوت بيمرّره لـ serverMessage
 // ليترجم حسب لغة الطلب، فـ opencode.ts ما فيهوش نصوص مترجمة.
@@ -110,6 +112,9 @@ interface RequestTurn {
   // مرفقات رسالة المستخدم (الصور/الملفات) — بتتخزّن عشان الواجهة تعرضها في
   // الطلب، لأن المحرك بيحفظها على رسالة المستخدم نفسها.
   attachments: RequestAttachment[]
+  error?: string
+  retryAgent?: string
+  retryModel?: SessionModelRef
 }
 
 export class OpenCodeService {
@@ -157,6 +162,10 @@ export class OpenCodeService {
   private promptSeq = 0
   private queueWatchdog: NodeJS.Timeout | null = null
   private readonly pendingPermissions = new Map<string, EnginePermission>()
+  private readonly retryingSessions = new Set<string>()
+  private readonly retriedTurns = new Map<string, string>()
+  private attentionCache: { expiresAt: number; value: AttentionItem[] } | null = null
+  private attentionGeneration = 0
   // عدّاد زيادات الأذونات: أي add/delete بيرفعها ببطء. ده نسخة بسيطة لكنها
   // كافية للـ ETag لأن الإضافات/الإزافات نادرة. الزيادات الكبيرة (مثلاً
   // 10 إضافات في ثانية) بتنتج ETag مختلف في كل واحدة، وده مرغوب — العميل
@@ -347,6 +356,7 @@ export class OpenCodeService {
     this.eventsStarted = true
     this.startQueueWatchdog()
     void this.consumeEvents()
+    void this.syncPendingPermissions().catch(() => undefined)
   }
 
   private async consumeEvents(): Promise<void> {
@@ -363,6 +373,7 @@ export class OpenCodeService {
       }
 
       if (!this.abortController.signal.aborted) {
+        await this.syncPendingPermissions().catch(() => undefined)
         await sleep(2000)
       }
     }
@@ -371,6 +382,16 @@ export class OpenCodeService {
   private trackEvent(event: OpenCodeEvent): void {
     // الاتحاد اللفظي المغلق يُنسخ لنص حر — نفس علة server/sse/filter.ts.
     const eventType: string = event.type
+    if (
+      eventType.startsWith("form.")
+      || eventType.startsWith("permission.")
+      || eventType === "session.created"
+      || eventType === "session.deleted"
+      || eventType === "session.renamed"
+      || eventType === "session.moved"
+    ) {
+      this.invalidateAttention()
+    }
     // أي دورة حياة جلسة تبطل كاش النشاط فورًا (من غير انتظار TTL) عشان
     // القائمة متعرضش حالة قديمة، والـ TTL القصير يمتص العواصف بين الأحداث
     if (
@@ -401,6 +422,8 @@ export class OpenCodeService {
       const deleted = event.data as { sessionID?: unknown } | undefined
       if (typeof deleted?.sessionID === "string") {
         this.rootBySession.delete(deleted.sessionID)
+        this.clearSessionPermissions(deleted.sessionID)
+        this.retriedTurns.delete(deleted.sessionID)
       }
     }
 
@@ -957,14 +980,11 @@ export class OpenCodeService {
     this.stallWatches.delete(id)
     this.skippedTurns.delete(id)
     this.idlePolls.delete(id)
-    for (const [permissionId, permission] of this.pendingPermissions) {
-      if (permission.sessionID === id) {
-        this.pendingPermissions.delete(permissionId)
-      }
-    }
+    this.clearSessionPermissions(id)
     this.activityCache = null
     await this.persistMobileSessions()
     await this.requireClient().session.remove({ sessionID: id })
+    this.invalidateAttention()
     return true
   }
 
@@ -1015,8 +1035,19 @@ export class OpenCodeService {
           current.steps += 1
         }
       }
-      current.entries.push(entry)
-      current.updatedAt = Math.max(current.updatedAt, entry.time.created, entry.time.completed ?? 0)
+        current.entries.push(entry)
+        current.retryAgent = entry.agent
+        current.retryModel = {
+          providerID: entry.model.providerID,
+          modelID: entry.model.id,
+          ...(entry.model.variant ? { variant: entry.model.variant } : {}),
+        }
+        if (entry.error?.message) {
+          current.error = entry.error.message
+        } else {
+          delete current.error
+        }
+        current.updatedAt = Math.max(current.updatedAt, entry.time.created, entry.time.completed ?? 0)
       if (entry.time.completed) {
         current.completedAt = Math.max(current.completedAt, entry.time.completed)
       }
@@ -1194,7 +1225,7 @@ export class OpenCodeService {
         ? "running"
         : skippedForSession?.has(turn.id)
           ? "skipped"
-          : turn.completedAt === 0 && turn.entries.length > 0
+          : (turn.completedAt === 0 && turn.entries.length > 0) || turn.error
             ? "stopped"
             : "done"
       // النص الحي: كل نصوص الـ assistant في الـ turn ده لحد دلوقتي، بما فيها
@@ -1218,6 +1249,9 @@ export class OpenCodeService {
         startedAt: turn.createdAt,
         completedAt: turn.completedAt,
         updatedAt: turn.updatedAt,
+        ...(turn.error ? { error: turn.error } : {}),
+        ...(turn.retryAgent ? { retryAgent: turn.retryAgent } : {}),
+        ...(turn.retryModel ? { retryModel: turn.retryModel } : {}),
       }
     })
 
@@ -2040,6 +2074,181 @@ export class OpenCodeService {
     return forms.map((form) => this.mapFormRequest(form))
   }
 
+  async attention(): Promise<AttentionItem[]> {
+    if (this.attentionCache && this.attentionCache.expiresAt > Date.now()) {
+      return this.attentionCache.value
+    }
+    return this.dedup("attention", async () => {
+      const generation = this.attentionGeneration
+      const value = await this.buildAttention()
+      if (generation === this.attentionGeneration) {
+        this.attentionCache = { expiresAt: Date.now() + 10_000, value }
+      }
+      return value
+    })
+  }
+
+  private async buildAttention(): Promise<AttentionItem[]> {
+    const [sessions, projects] = await Promise.all([
+      this.listAllSessions(),
+      Promise.resolve().then(() => this.requireClient().project.list()).catch(() => []),
+    ])
+    const sessionById = new Map(sessions.map((session) => [session.id, session]))
+    const { rootOf } = sessionRoots(sessions)
+    this.rememberRoots(rootOf)
+    const projectNameByDirectory = new Map(projects.map((project) => [directoryKey(project.canonical), project.name || folderName(project.canonical)]))
+    const directories = [...new Set(sessions
+      .map((session) => session.location.directory)
+      .filter((directory) => isListableProjectDirectory(directory, homedir())))]
+    const pendingByDirectory = await mapWithConcurrency(directories, 4, async (directory) => {
+      const [forms, permissions] = await Promise.all([
+        Promise.resolve().then(() => this.requireClient().form.list({ location: { directory } })).then((result) => result.data).catch(() => [] as FormInfo[]),
+        Promise.resolve().then(() => this.requireClient().permission.request.list({ location: { directory } })).then((result) => result.data).catch(() => []),
+      ])
+      return { directory, forms, permissions }
+    })
+    const items: AttentionItem[] = []
+    for (const group of pendingByDirectory) {
+      const projectName = projectNameByDirectory.get(directoryKey(group.directory)) || folderName(group.directory)
+      for (const form of group.forms) {
+        const session = sessionById.get(form.sessionID)
+        if (!session) {
+          continue
+        }
+        items.push({
+          kind: "question",
+          sessionID: session.id,
+          conversationID: rootOf.get(session.id) ?? session.id,
+          sessionTitle: session.title || "",
+          projectName,
+          directory: group.directory,
+          request: this.mapFormRequest(form),
+        })
+      }
+      for (const request of group.permissions) {
+        const session = sessionById.get(request.sessionID)
+        if (!session) {
+          continue
+        }
+        items.push({
+          kind: "permission",
+          sessionID: session.id,
+          conversationID: rootOf.get(session.id) ?? session.id,
+          sessionTitle: session.title || "",
+          projectName,
+          directory: group.directory,
+          permission: {
+            id: request.id,
+            sessionID: request.sessionID,
+            title: request.message?.trim() || request.action,
+            pattern: request.resources,
+          },
+        })
+      }
+    }
+    return items
+  }
+
+  private async syncPendingPermissions(): Promise<void> {
+    const startedAtVersion = this.permissionsVersion
+    const sessions = await this.listAllSessions()
+    const directories = [...new Set(sessions.map((session) => session.location.directory).filter(Boolean))]
+    const groups = await mapWithConcurrency(directories, 4, async (directory) =>
+      this.requireClient().permission.request.list({ location: { directory } }),
+    )
+    if (this.permissionsVersion !== startedAtVersion) {
+      void this.syncPendingPermissions().catch(() => undefined)
+      return
+    }
+    const next = new Map<string, EnginePermission>()
+    for (const group of groups) {
+      for (const request of group.data) {
+        next.set(request.id, {
+          id: request.id,
+          sessionID: request.sessionID,
+          title: request.message?.trim() || request.action,
+          pattern: request.resources.join(", "),
+        })
+      }
+    }
+    const unchanged = next.size === this.pendingPermissions.size
+      && [...next].every(([id, permission]) => {
+        const current = this.pendingPermissions.get(id)
+        return current?.sessionID === permission.sessionID
+          && current.title === permission.title
+          && current.pattern === permission.pattern
+      })
+    if (unchanged) {
+      return
+    }
+    this.pendingPermissions.clear()
+    for (const [id, permission] of next) {
+      this.pendingPermissions.set(id, permission)
+    }
+    this.permissionsVersion += 1
+  }
+
+  private clearSessionPermissions(sessionId: string): void {
+    let changed = false
+    for (const [id, permission] of this.pendingPermissions) {
+      if (permission.sessionID === sessionId) {
+        this.pendingPermissions.delete(id)
+        changed = true
+      }
+    }
+    if (changed) {
+      this.permissionsVersion += 1
+    }
+  }
+
+  private invalidateAttention(): void {
+    this.attentionCache = null
+    this.attentionGeneration += 1
+    this.inflight.delete("attention")
+  }
+
+  async retryFailedRequest(sessionId: string, requestId: string): Promise<{ retried: boolean; queued: boolean }> {
+    if (this.retryingSessions.has(sessionId) || this.retriedTurns.get(sessionId) === requestId) {
+      return { retried: false, queued: false }
+    }
+    this.retryingSessions.add(sessionId)
+    try {
+      const [current, attention] = await Promise.all([this.requests(sessionId), this.attention()])
+      const latest = current.requests[current.requests.length - 1]
+      if (
+        !latest
+        || latest.id !== requestId
+        || latest.state !== "stopped"
+        || !latest.error
+        || current.status.type !== "idle"
+        || current.queued > 0
+        || current.questions.length > 0
+        || [...this.pendingPermissions.values()].some((permission) => permission.sessionID === sessionId)
+        || attention.some((item) => item.conversationID === sessionId)
+      ) {
+        return { retried: false, queued: false }
+      }
+      const result = await this.prompt(
+        sessionId,
+        latest.prompt,
+        latest.retryAgent,
+        latest.retryModel,
+        latest.attachments.map((attachment) => ({ uri: attachment.uri, name: attachment.name })),
+      )
+      this.retriedTurns.delete(sessionId)
+      this.retriedTurns.set(sessionId, requestId)
+      if (this.retriedTurns.size > 200) {
+        const oldest = this.retriedTurns.keys().next()
+        if (!oldest.done) {
+          this.retriedTurns.delete(oldest.value)
+        }
+      }
+      return { retried: true, queued: result.queued }
+    } finally {
+      this.retryingSessions.delete(sessionId)
+    }
+  }
+
   async replyQuestion(sessionId: string, requestId: string, answers: unknown): Promise<boolean> {
     const forms = await this.listForms(sessionId)
     const form = forms.find((candidate) => candidate.id === requestId)
@@ -2050,6 +2259,7 @@ export class OpenCodeService {
     await this.requireClient().session.form.reply({ sessionID: sessionId, formID: requestId, answer })
     // الرد غيّر حالة الأسئلة — ابطل الكاش والنداء الجاري فورًا عشان الـ poll الجاي يشوفها
     this.invalidateQuestions(sessionId)
+    this.invalidateAttention()
     return true
   }
 
@@ -2061,6 +2271,7 @@ export class OpenCodeService {
     }
     await this.requireClient().session.form.cancel({ sessionID: sessionId, formID: requestId })
     this.invalidateQuestions(sessionId)
+    this.invalidateAttention()
     return true
   }
 
@@ -2118,6 +2329,7 @@ export class OpenCodeService {
 
   async replyPermission(id: string, permissionId: string, response: "once" | "always" | "reject"): Promise<boolean> {
     await this.requireClient().permission.reply({ sessionID: id, requestID: permissionId, decision: response })
+    this.invalidateAttention()
 
     if (this.pendingPermissions.delete(permissionId)) {
       this.permissionsVersion += 1
@@ -2149,6 +2361,10 @@ export class OpenCodeService {
     this.modelsCache = null
     this.staticCatalogCache = null
     this.pendingPermissions.clear()
+    this.retryingSessions.clear()
+    this.retriedTurns.clear()
+    this.attentionCache = null
+    this.attentionGeneration += 1
     this.busySessions.clear()
     this.finishedRuns.clear()
     this.rootBySession.clear()

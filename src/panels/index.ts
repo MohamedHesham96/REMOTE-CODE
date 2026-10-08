@@ -1,5 +1,6 @@
 export { ModelPicker } from "./ModelPicker"
 export { ActiveSessionsPanel } from "./ActiveSessionsPanel"
+export { AttentionPanel } from "./AttentionPanel"
 export { GitChangesPanel } from "./GitChangesPanel"
 export { HistoryPanel } from "./HistoryPanel"
 export { PinnedConversationsPanel } from "./PinnedConversationsPanel"

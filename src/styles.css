@@ -979,8 +979,19 @@ h2.session-title-editable { cursor: pointer; }
 
 .workspace { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .activity-button { position: relative; overflow: visible; }
+.attention-button { position: relative; overflow: visible; color: var(--error-text); }
+.attention-button > span:first-child { width: 17px; height: 17px; display: grid; place-items: center; border: 1px solid var(--error-border); border-radius: 50%; background: var(--error-bg); font-size: 11px; font-weight: 900; }
+.attention-count-badge { position: absolute; top: -5px; left: -5px; z-index: 2; min-width: 16px; height: 16px; display: grid; place-items: center; padding: 0 4px; border: 1px solid var(--surface-card); border-radius: 99px; background: var(--red); color: #fff; font-size: 9px; font-weight: 900; line-height: 1; pointer-events: none; }
+html[dir="ltr"] .attention-count-badge { left: auto; right: -5px; }
 .count-badge { position: absolute; top: -5px; left: -5px; z-index: 2; min-width: 15px; height: 15px; display: grid; place-items: center; padding: 0 4px; border-radius: 1px; background: var(--yellow); color: #221a05; font-size: 8.5px; font-weight: 800; line-height: 1; white-space: nowrap; pointer-events: none; }
 .activity-drawer { width: min(430px, 94vw); }
+.attention-drawer { width: min(620px, 96vw); padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+.attention-items { display: grid; gap: 14px; }
+.attention-item { min-width: 0; padding: 11px; border: 1px solid var(--accent-border); border-radius: 1px; background: var(--surface-card); }
+.attention-context { display: grid; gap: 3px; min-width: 0; margin-bottom: 10px; }
+.attention-context strong { overflow-wrap: anywhere; color: var(--text); font-size: 13px; }
+.attention-context span { overflow-wrap: anywhere; color: var(--muted); font-size: 10px; }
+.attention-item .question-card, .attention-item .permission-card { margin: 0; }
 .activity-groups { display: grid; gap: 14px; overflow-y: auto; padding: 2px 0 8px; }
 .activity-section { display: grid; gap: 10px; }
 .activity-section:last-child { margin-bottom: 0; }
@@ -1534,6 +1545,13 @@ html[dir="ltr"] .request-row.request-row-running { box-shadow: inset 3px 0 0 0 v
 .task-panel[data-phase="skipped"] .task-panel-dot { border: 2px solid var(--muted); background: transparent; box-shadow: none; }
 .task-panel[data-phase="skipped"] .task-panel-label,
 .task-panel[data-phase="skipped"] .task-panel-activity { color: var(--muted); }
+.task-next-action { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 3px 0 2px; }
+.task-next-action .button { min-height: 34px; padding: 7px 11px; font-size: 11px; }
+.task-next-action-error { align-items: stretch; flex-direction: column; padding: 8px 10px; border-inline-start: 2px solid var(--red); background: var(--error-bg); }
+.task-failure-detail { min-width: 0; }
+.task-failure-detail strong { color: var(--error-text); font-size: 10px; }
+.task-failure-detail p { max-height: 96px; overflow: auto; margin: 4px 0 0; color: var(--text-body); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
+.task-next-buttons { display: flex; flex-wrap: wrap; gap: 7px; }
 .final-result-label { color: var(--task-request-label); font-size: 10px; font-weight: 700; }
 .task-activity { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--task-activity-text); font-size: 13px; font-weight: 700; line-height: 1.7; }
 .activity-pulse { width: 10px; height: 10px; flex: 0 0 10px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s infinite; }

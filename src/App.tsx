@@ -15,13 +15,11 @@ import {
   getRequests,
   getSessionModel,
   getStatuses,
-  listPermissions,
   listSessions,
   login,
   logout,
   removeQueuedRequest,
   renameSession,
-  replyPermission,
   runQueuedRequest,
   selectProject,
   sendMessage,
@@ -57,6 +55,7 @@ import { StickyQuestions } from "./components/requests/StickyQuestions"
 import { RequestCard } from "./components/requests/RequestCard"
 import { VoiceButton } from "./components/VoiceButton"
 import { useActivityGrace } from "./hooks/useActivityGrace"
+import { useAgentWorkflow } from "./hooks/useAgentWorkflow"
 import { useEventStream } from "./hooks/useEventStream"
 import { useGitRequests } from "./hooks/useGitRequests"
 import { usePinnedConversations } from "./hooks/usePinnedConversations"
@@ -73,6 +72,7 @@ import { isSettledRequest } from "./utils/task-status"
 // والشات يظهران فورًا، وهذه اللوحات تنزل عند أول فتح لها
 const ModelPicker = lazy(() => import("./panels").then((module) => ({ default: module.ModelPicker })))
 const ActiveSessionsPanel = lazy(() => import("./panels").then((module) => ({ default: module.ActiveSessionsPanel })))
+const AttentionPanel = lazy(() => import("./panels").then((module) => ({ default: module.AttentionPanel })))
 const GitChangesPanel = lazy(() => import("./panels").then((module) => ({ default: module.GitChangesPanel })))
 const HistoryPanel = lazy(() => import("./panels").then((module) => ({ default: module.HistoryPanel })))
 const PinnedConversationsPanel = lazy(() => import("./panels").then((module) => ({ default: module.PinnedConversationsPanel })))
@@ -181,7 +181,6 @@ function App() {
   // اللي بيتبعرض منه (أيقونة + "شغّال/جاهز" + تنبيه الإتمام) هو حالة مستقرة،
   // مش آخر عيّنة وصلتنا — عشان تضارب الـ SSE مع الـ poll ما يخطفش الشاشة.
   const [statuses, setSettledStatus] = useSettledStatuses(rawStatuses)
-  const [permissions, setPermissions] = useState<Permission[]>([])
   const [composer, setComposer] = useState("")
   const composerRef = useRef<HTMLDivElement>(null)
   // مرفقات الرسالة الجاية (صور/ملفات). بتتبعت مع أول رسالة وبتتفضّى بعدها.
@@ -377,27 +376,10 @@ function App() {
     const hasPending = requests.some((r) => !isSettledRequest(r.state))
     return hasPending ? singleActiveIdSet(activeId) : EMPTY_PENDING_IDS
   }, [activeId, requests])
-  // ممرّرات PermissionCard/ StickyQuestions: نفس الفلتر كان بيتنفّذ مرتين
-  // في JSX (مرة لطول الفحص، مرة للـ map). نحسبه مرة واحدة في useMemo عشان
-  // مرجع المصفوفة يثبت عبر الـ renders اللي ما بتغيرش `activeId`/`permissions`/
-  // `requestQuestions`.
-  const activePermissions = useMemo(
-    () => activeId ? permissions.filter((permission) => permission.sessionID === activeId) : EMPTY_PERMISSIONS,
-    [permissions, activeId],
-  )
   const activeQuestions = useMemo(
     () => activeId ? requestQuestions.filter((question) => question.sessionID === activeId) : EMPTY_QUESTIONS,
     [requestQuestions, activeId],
   )
-  // Set فيه ids الجلسات اللي عندها إذن معلق — بنستخدمه في القائمة الجانبية
-  // بدل `permissions.some(...)` اللي كان بيمشي O(N·M) في كل صف.
-  const permissionSessionIds = useMemo(() => {
-    const set = new Set<string>()
-    for (const permission of permissions) {
-      set.add(permission.sessionID)
-    }
-    return set
-  }, [permissions])
   const activeSessions = useMemo(() => mergeActiveSessions(
     activity,
     sessions,
@@ -611,11 +593,8 @@ function App() {
     }
     const ticket = ++requestsSeq.current
     let next: SessionRequests
-    let nextPermissions: Permission[]
     try {
-      const fetched = await Promise.all([getRequests(id, langRef.current), listPermissions()])
-      next = fetched[0]
-      nextPermissions = fetched[1]
+      next = await getRequests(id, langRef.current)
     } catch {
       return
     }
@@ -650,7 +629,6 @@ function App() {
       }
       return { ...current, [id]: next.status }
     })
-    setPermissions(nextPermissions)
   }, [])
 
   const refreshStatuses = useCallback(async () => {
@@ -692,6 +670,22 @@ function App() {
       // Keep last known activity when the poll fails (offline / reconnecting).
     }
   }, [trackActivity, markFetched])
+
+  const agentWorkflow = useAgentWorkflow({
+    activeIdRef,
+    setRawStatuses,
+    setSettledStatus,
+    refreshRequests,
+    refreshActivity,
+    markFetched,
+    addToast,
+    t,
+  })
+  const { items: attentionItems, permissions, permissionSessionIds, conversationIds: attentionConversationIds, isOpen: showAttention, retryingRequestId, refreshAttention, handleEvent, open: handleShowAttention, close: closeAttention, handlePermission, handleQuestionAnswered: handleAttentionQuestionAnswered, handleRetryRequest } = agentWorkflow
+  const activePermissions = useMemo(
+    () => activeId ? permissions.filter((permission) => permission.sessionID === activeId) : EMPTY_PERMISSIONS,
+    [permissions, activeId],
+  )
 
   // نسخة مدمجة من تحديث النشاط للأحداث عالية التكرار: مهما اتنادت،
   // التنفيذ الفعلي مرة واحدة بعد 700ms من آخر نداء — تمنع عاصفة /api/activity
@@ -981,6 +975,12 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (authState === "signedIn") {
+      void refreshAttention()
+    }
+  }, [authState, refreshAttention])
+
   // تحميل سجل المحادثة المنظم كل ما تفتح الدرج أو تتبدل الجلسة
   useEffect(() => {
     if (showHistory && authState === "signedIn" && activeId) {
@@ -1111,6 +1111,9 @@ function App() {
       }
       void refreshStatuses()
       void refreshActivity()
+      if (!isFresh("attention")) {
+        void refreshAttention()
+      }
       // طلبات المحادثة المفتوحة (ومعاها الأسئلة والأذونات) مالهاش poll دوري
       // غير ده: بدونها سؤال بييجي وقت ما الستريم ميت والجلسة idle ما بيظهرش
       // غير بعد refresh، لأن الـ poll بتاعها بيقف وهي مش busy ولا فيها طابور.
@@ -1139,6 +1142,9 @@ function App() {
         if (!isFresh("activity")) {
           staggerTimers.push(window.setTimeout(() => void refreshActivity(), 400))
         }
+        if (!isFresh("attention")) {
+          staggerTimers.push(window.setTimeout(() => void refreshAttention(), 600))
+        }
         if (!isFresh("sessions")) {
           staggerTimers.push(window.setTimeout(() => void refreshSessions().catch(() => undefined), 900))
         }
@@ -1163,9 +1169,10 @@ function App() {
       document.removeEventListener("visibilitychange", onVisible)
       window.removeEventListener("focus", onVisible)
     }
-  }, [authState, selectedProject, refreshStatuses, refreshRequests, loadModels, refreshActivity, refreshGitChanges, refreshSessions, isFresh])
+  }, [authState, selectedProject, refreshStatuses, refreshRequests, loadModels, refreshActivity, refreshAttention, refreshGitChanges, refreshSessions, isFresh])
 
   const handleOpenCodeEvent = useCallback((event: ClientEvent) => {
+    handleEvent(event)
     if (event.type === "session.status") {
       // نفس الحالة اللي عندنا بالفعل (نفس النوع) — مفيش داعي ننتج ref جديد
       // للـ rawStatuses، والـ useSettledStatuses والـ effect بتاع باقي الجلسات
@@ -1274,12 +1281,8 @@ function App() {
       }
     }
     if (event.type === "permission.updated") {
-      setPermissions((current) => [...current.filter((permission) => permission.id !== event.properties.id), event.properties])
       notifyAttention(t.permissionNeedsApproval)
       requestActivityRefresh()
-    }
-    if (event.type === "permission.replied") {
-      setPermissions((current) => current.filter((permission) => permission.id !== event.properties.permissionID))
     }
     if (event.type === "session.created" || event.type === "session.updated" || event.type === "session.deleted") {
       void refreshSessions().catch(() => undefined)
@@ -1301,8 +1304,9 @@ function App() {
     }
     if (event.type === "session.error" && event.properties.sessionID === activeIdRef.current) {
       notifyAttention(t.taskStoppedWithError)
+      void refreshRequests(event.properties.sessionID)
     }
-  }, [notifyAttention, refreshSessions, refreshRequests, refreshActivity, requestActivityRefresh, setSettledStatus, t])
+  }, [handleEvent, notifyAttention, refreshSessions, refreshRequests, refreshActivity, requestActivityRefresh, setSettledStatus, t])
 
   const handleUnknownEvent = useCallback(() => {
     addToast(t.unknownEvent, "error")
@@ -1320,6 +1324,7 @@ function App() {
     refreshStatuses,
     refreshRequests,
     refreshActivity,
+    refreshAttention,
     onEvent: handleOpenCodeEvent,
     onUnknownEvent: handleUnknownEvent,
   })
@@ -1821,7 +1826,6 @@ function App() {
     gitRequests.show()
     void refreshGitChanges()
   }, [gitRequests, refreshGitChanges])
-
   const handleSkip = useCallback(async (request: SessionRequest) => {
     if (!activeId || queueAction) {
       return
@@ -1897,16 +1901,6 @@ function App() {
     }
   }, [activeId, queueAction, refreshRequests, addToast, t.queuedRemoveFailed])
 
-  const handlePermission = useCallback(async (permission: Permission, response: "once" | "always" | "reject") => {
-    try {
-      await replyPermission(permission.sessionID, permission.id, response)
-      setPermissions((current) => current.filter((item) => item.id !== permission.id))
-      // الرد شايفه بعينك (الكارت اختفى) — من غير toast
-    } catch (error: unknown) {
-      addToast(error instanceof Error ? error.message : t.permissionReplyFailed, "error")
-    }
-  }, [addToast, t])
-
   // خريطة ردود ثابتة لكل كارت إذن: الـ arrow inline كان بياخد مرجعًا جديدًا
   // كل رندر فيكسر memo كارت الإذن. الخريطة بتتبني من نفس مصفوفة الأذونات
   // المعروضة، فكل كارت بياخد دالة ثابتة طول ما إذنه ما اتغيّرش.
@@ -1928,6 +1922,10 @@ function App() {
       void refreshRequests(id).catch(() => undefined)
     }
   }, [refreshRequests])
+
+  const handleContinueTask = useCallback(() => {
+    composerRef.current?.focus()
+  }, [])
 
   const displayedModel: SessionModelRef | null = activeId ? currentModel : (pendingModel || projectDefaultModel || currentModel || defaultModel)
   // عنصر النموذج الكامل من القائمة: عنه بنعرف قدرات الإدخال وعنه اسم العرض.
@@ -2183,6 +2181,7 @@ function App() {
           onOpenSessions={handleOpenSessions}
           onNewSession={handleNewSessionSidebar}
           onShowActivity={handleShowActivity}
+          onShowAttention={handleShowAttention}
           onShowHistory={handleShowHistory}
           onShowPinned={handleShowPinned}
           onShowReleases={handleShowReleases}
@@ -2194,6 +2193,7 @@ function App() {
           onToggleSound={toggleSound}
           onLogout={handleLogoutTop}
           activeSessionsCount={activeSessions.length}
+          needsAttentionCount={attentionItems.length}
           gitChangedCount={gitChangedCount}
           projectPinsCount={projectPins.length}
           displayedModelName={displayedModelName}
@@ -2208,7 +2208,7 @@ function App() {
           <div className="workspace-scroll" ref={workspaceScrollRef} onPointerDown={releaseScrollPin}>
             {requests.length > 0 ? (
               <div className="request-stack">
-                <RequestCard requests={requests} sessionId={activeId} listRef={requestListRef} title={activeTitle} status={activeStatus} stalled={activeId ? stalledIds.has(activeId) : false} waitingOnUser={activeId !== null && (activeQuestions.length > 0 || activePermissions.length > 0)} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={handleSkip} onRunNow={handleRunNow} onRemove={handleRemoveQueued} busyAction={queueAction} t={t} />
+                <RequestCard requests={requests} sessionId={activeId} listRef={requestListRef} title={activeTitle} status={activeStatus} stalled={activeId ? stalledIds.has(activeId) : false} waitingOnUser={activeId !== null && (attentionConversationIds.has(activeId) || activeQuestions.length > 0 || activePermissions.length > 0)} hasChanges={gitChangedCount > 0} retryingRequestId={retryingRequestId} onRetry={handleRetryRequest} onReviewChanges={handleOpenGitChanges} onContinue={handleContinueTask} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={handleSkip} onRunNow={handleRunNow} onRemove={handleRemoveQueued} busyAction={queueAction} t={t} />
               </div>
             ) : (
               <div className="welcome-state">
@@ -2313,6 +2313,19 @@ function App() {
               onClose={() => setShowActivity(false)}
               t={t}
               lang={lang}
+            />
+          </PanelErrorBoundary>
+        </Suspense>
+      ) : null}
+      {showAttention ? (
+        <Suspense fallback={<PanelFallback />}>
+          <PanelErrorBoundary t={t} panelName="AttentionPanel" onClose={closeAttention}>
+            <AttentionPanel
+              items={attentionItems}
+              onClose={closeAttention}
+              onPermissionReply={handlePermission}
+              onQuestionAnswered={handleAttentionQuestionAnswered}
+              t={t}
             />
           </PanelErrorBoundary>
         </Suspense>

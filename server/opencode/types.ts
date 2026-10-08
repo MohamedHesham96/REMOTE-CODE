@@ -21,8 +21,24 @@ export interface EnginePermission {
   id: string
   sessionID: string
   title: string
-  pattern?: string
+  pattern?: string | string[]
 }
+
+export interface AttentionContext {
+  sessionID: string
+  conversationID: string
+  sessionTitle: string
+  projectName: string
+  directory: string
+}
+
+export type AttentionItem = (AttentionContext & {
+  kind: "question"
+  request: ConversationQuestionRequest
+}) | (AttentionContext & {
+  kind: "permission"
+  permission: EnginePermission
+})
 
 export interface ServiceOptions {
   projectDirectory: string
@@ -115,6 +131,9 @@ export interface SessionRequest {
   startedAt: number
   completedAt: number
   updatedAt: number
+  error?: string
+  retryAgent?: string
+  retryModel?: SessionModelRef
 }
 
 export interface SessionRequests {

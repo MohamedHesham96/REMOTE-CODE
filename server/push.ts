@@ -127,9 +127,14 @@ export class PushService {
     // الاتحاد اللفظي المغلق يُنسخ لنص حر — نفس علة server/sse/filter.ts.
     const eventType: string = event.type
 
+    if (eventType === "session.execution.started") {
+      const started = event.data as unknown as { sessionID: string }
+      this.busySessions.add(started.sessionID)
+    }
+
     if (eventType === "session.status") {
       const withStatus = event.data as unknown as { sessionID: string; status: { type: string } }
-      if (withStatus.status.type === "busy") {
+      if (withStatus.status.type === "busy" || withStatus.status.type === "retry") {
         this.busySessions.add(withStatus.sessionID)
       }
     }
@@ -164,9 +169,20 @@ export class PushService {
       }))
     }
 
+    if (eventType === "session.execution.succeeded" && this.busySessions.delete((event.data as unknown as { sessionID: string }).sessionID)) {
+      const sessionId = (event.data as unknown as { sessionID: string }).sessionID
+      void this.broadcast((lang) => ({
+        title: serverMessage("pushDoneTitle", lang),
+        body: serverMessage("pushDoneBody", lang),
+        sessionId,
+        tag: `opencode-${sessionId}`,
+      }))
+    }
+
     if (eventType === "session.execution.failed") {
       const failed = event.data as unknown as { sessionID: string }
       const sessionId = failed.sessionID
+      this.busySessions.delete(sessionId)
       void this.broadcast((lang) => ({
         title: serverMessage("pushErrorTitle", lang),
         body: serverMessage("pushErrorBody", lang),

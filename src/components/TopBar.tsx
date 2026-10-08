@@ -10,6 +10,7 @@ interface TopBarProps {
   onOpenSessions: () => void
   onNewSession: () => void
   onShowActivity: () => void
+  onShowAttention: () => void
   onShowHistory: () => void
   onShowPinned: () => void
   onShowReleases: () => void
@@ -21,6 +22,7 @@ interface TopBarProps {
   onToggleSound: () => void
   onLogout: () => void
   activeSessionsCount: number
+  needsAttentionCount: number
   gitChangedCount: number
   projectPinsCount: number
   displayedModelName: string
@@ -37,6 +39,7 @@ function TopBarInner({
   onOpenSessions,
   onNewSession,
   onShowActivity,
+  onShowAttention,
   onShowHistory,
   onShowPinned,
   onShowReleases,
@@ -48,6 +51,7 @@ function TopBarInner({
   onToggleSound,
   onLogout,
   activeSessionsCount,
+  needsAttentionCount,
   gitChangedCount,
   projectPinsCount,
   displayedModelName,
@@ -94,6 +98,9 @@ function TopBarInner({
         <button className="icon-button mobile-only" onClick={onOpenSessions} aria-label={t.openSessions}>☰</button>
         <span className="topbar-rail-divider mobile-only" aria-hidden />
         <div className="topbar-actions">
+          <button className="icon-button attention-button" onClick={onShowAttention} aria-label={`${t.needsAttention}${needsAttentionCount > 0 ? ` (${needsAttentionCount})` : ""}`} title={t.needsAttention}>
+            <span aria-hidden>!</span>{needsAttentionCount > 0 ? <span className="attention-count-badge">{needsAttentionCount}</span> : null}
+          </button>
           <button className="icon-button activity-button icon-activity" onClick={onShowActivity} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activeSessionsCount > 0 ? <span className="count-badge">{activeSessionsCount}</span> : null}</button>
           {/* ترتيب الأزرار مقصود: زر الـ git جنب زر "النشطة" عشان متابعة الملفات
               والرجوع لأقوى محادثة شغّالة يبقوا في نفس السطر من الذهن، والمثبّتة

@@ -1,4 +1,4 @@
-import { memo, useState } from "react"
+import { memo, useRef, useState } from "react"
 import type { Strings } from "../i18n"
 import type { Permission } from "../types"
 
@@ -7,17 +7,23 @@ import type { Permission } from "../types"
 // كانش memo.
 interface PermissionCardProps {
   permission: Permission
-  onReply: (value: "once" | "always" | "reject") => void
+  onReply: (value: "once" | "always" | "reject") => void | Promise<void>
   t: Strings
 }
 
 function PermissionCardInner({ permission, onReply, t }: PermissionCardProps) {
   const [working, setWorking] = useState(false)
+  const workingRef = useRef(false)
   const reply = async (value: "once" | "always" | "reject") => {
+    if (workingRef.current) {
+      return
+    }
+    workingRef.current = true
     setWorking(true)
     try {
       await onReply(value)
     } finally {
+      workingRef.current = false
       setWorking(false)
     }
   }

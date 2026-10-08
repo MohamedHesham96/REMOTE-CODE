@@ -29,6 +29,13 @@ function sameRecords<T extends object>(left: T[], right: T[]): boolean {
 // استجابة البثّ تعيد إنشاء كل الطلبات حتى لو تغيّر نص الطلب الجاري فقط؛
 // مشاركة مراجع الصفوف الثابتة تسمح لـ React بتجاوز رسم السجل التاريخي كله.
 export function sameSessionRequest(left: SessionRequest, right: SessionRequest): boolean {
+  const sameRetryModel = left.retryModel === right.retryModel || (
+    left.retryModel !== undefined
+    && right.retryModel !== undefined
+    && left.retryModel.providerID === right.retryModel.providerID
+    && left.retryModel.modelID === right.retryModel.modelID
+    && left.retryModel.variant === right.retryModel.variant
+  )
   return left === right || (
     left.id === right.id
     && left.index === right.index
@@ -45,6 +52,9 @@ export function sameSessionRequest(left: SessionRequest, right: SessionRequest):
     && left.startedAt === right.startedAt
     && left.completedAt === right.completedAt
     && left.updatedAt === right.updatedAt
+    && left.error === right.error
+    && left.retryAgent === right.retryAgent
+    && sameRetryModel
   )
 }
 

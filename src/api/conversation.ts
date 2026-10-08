@@ -143,3 +143,7 @@ export function removeQueuedRequest(id: string, requestId: string): Promise<{ re
 export function runQueuedRequest(id: string, requestId: string): Promise<{ started: boolean; steered: boolean; queued: boolean; remaining: number }> {
   return request<{ started: boolean; steered: boolean; queued: boolean; remaining: number }>(`/api/session/${encodeURIComponent(id)}/request/${encodeURIComponent(requestId)}/run`, { method: "POST" })
 }
+
+export function retryFailedRequest(id: string, requestId: string): Promise<{ retried: boolean; queued: boolean }> {
+  return request<{ retried: boolean; queued: boolean }>(`/api/session/${encodeURIComponent(id)}/request/${encodeURIComponent(requestId)}/retry`, { method: "POST" })
+}

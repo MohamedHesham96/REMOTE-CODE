@@ -6,6 +6,7 @@ import { useNowTick } from "../../hooks/useNowTick"
 import { ConversationTitle } from "./ConversationTitle"
 import { RequestRow } from "./RequestRow"
 import { TaskStatusPanel } from "./TaskStatusPanel"
+import { TaskNextAction } from "./TaskNextAction"
 
 // كارت واحد للمحادثة كلها: كل الطلبات قائمة جواه، والطلب الأخير هو المفتوح.
 // ترويسة الكارت شايلة عنوان المحادثة بدل عنوان الحالة — الحالة مكتفية
@@ -42,10 +43,15 @@ interface RequestCardProps {
   status: SessionStatus | undefined
   stalled: boolean
   waitingOnUser: boolean
+  hasChanges: boolean
+  retryingRequestId: string | null
+  onRetry: (request: SessionRequest) => void
+  onReviewChanges: () => void
+  onContinue: () => void
   t: Strings
 }
 
-function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle, isEditingTitle, titleDraft, renamingTitle, onStartRename, onCancelRename, onTitleDraftChange, onRenameSubmit, onTitleKeyDown, onCopy, onToast, onSkip, onRunNow, onRemove, busyAction, status, stalled, waitingOnUser, t }: RequestCardProps) {
+function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle, isEditingTitle, titleDraft, renamingTitle, onStartRename, onCancelRename, onTitleDraftChange, onRenameSubmit, onTitleKeyDown, onCopy, onToast, onSkip, onRunNow, onRemove, busyAction, status, stalled, waitingOnUser, hasChanges, retryingRequestId, onRetry, onReviewChanges, onContinue, t }: RequestCardProps) {
   const [openId, setOpenId] = useState<string | null>(null)
   const latest = requests[requests.length - 1]
   // الطلب الشغّال هو المفتوح افتراضيًا؛ بعد ما يخلص آخر طلب هو اللي يفضل مفتوح.
@@ -62,6 +68,16 @@ function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle,
       <div className="task-summary-top">
         <ConversationTitle title={title} canRename={canRenameTitle} isEditing={isEditingTitle} draft={titleDraft} renaming={renamingTitle} t={t} onStartRename={onStartRename} onCancelRename={onCancelRename} onDraftChange={onTitleDraftChange} onSubmit={onRenameSubmit} onKeyDown={onTitleKeyDown} />
         <TaskStatusPanel view={view} />
+        <TaskNextAction
+          view={view}
+          error={latest?.error}
+          hasChanges={hasChanges}
+          retrying={retryingRequestId === latest?.id}
+          onRetry={() => { if (latest) onRetry(latest) }}
+          onReviewChanges={onReviewChanges}
+          onContinue={onContinue}
+          t={t}
+        />
       </div>
       <ul className="request-list" ref={listRef}>
         {requests.map((request) => (

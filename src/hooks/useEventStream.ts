@@ -14,6 +14,7 @@ interface EventStreamOptions {
   refreshStatuses: () => void
   refreshRequests: (id?: string) => Promise<void>
   refreshActivity: () => void
+  refreshAttention: () => void
   onEvent: (event: ClientEvent) => void
   onUnknownEvent: () => void
 }
@@ -22,7 +23,7 @@ interface EventStreamOptions {
 // والمثبّتات، وإعادة مزامنة متدرجة بعد أي انقطاع، وحارس جمود بيعيد إنشاء
 // الستريم لو صمت (اتصال نصف مفتوح ما بيعملش onerror على الموبايل).
 export function useEventStream(options: EventStreamOptions): boolean {
-  const { enabled, activeIdRef, sseLiveRef, lastSseAtRef, isFresh, refreshStatuses, refreshRequests, refreshActivity, onEvent, onUnknownEvent } = options
+  const { enabled, activeIdRef, sseLiveRef, lastSseAtRef, isFresh, refreshStatuses, refreshRequests, refreshActivity, refreshAttention, onEvent, onUnknownEvent } = options
   const [eventConnected, setEventConnected] = useState(false)
   const eventsConnectedOnce = useRef(false)
 
@@ -50,6 +51,7 @@ export function useEventStream(options: EventStreamOptions): boolean {
       if (!isFresh("activity")) {
         resyncTimers.push(window.setTimeout(() => void refreshActivity(), 700))
       }
+      resyncTimers.push(window.setTimeout(refreshAttention, 1000))
     }
 
     let source: EventSource | null = null
@@ -140,7 +142,7 @@ export function useEventStream(options: EventStreamOptions): boolean {
       sseLiveRef.current = false
       setEventConnected(false)
     }
-  }, [enabled, activeIdRef, sseLiveRef, lastSseAtRef, isFresh, refreshStatuses, refreshRequests, refreshActivity, onEvent, onUnknownEvent])
+  }, [enabled, activeIdRef, sseLiveRef, lastSseAtRef, isFresh, refreshStatuses, refreshRequests, refreshActivity, refreshAttention, onEvent, onUnknownEvent])
 
   return eventConnected
 }

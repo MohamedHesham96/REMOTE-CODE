@@ -4,6 +4,21 @@ import { getServerLang, serverMessage } from "../i18n.js"
 import type { RouteContext } from "./context.js"
 
 export function registerInteractionRoutes(app: Express, ctx: RouteContext): void {
+  app.get("/api/attention", ctx.pollLimiter, async (request, response) => {
+    try {
+      const items = await ctx.openCode.attention()
+      const etag = etagFor(JSON.stringify(items))
+      response.setHeader("ETag", etag)
+      if (request.headers["if-none-match"] === etag) {
+        response.status(304).end()
+        return
+      }
+      response.json(items)
+    } catch (error) {
+      ctx.connection.handleError(error, response, request)
+    }
+  })
+
   app.get("/api/permission", (_request, response) => {
     const etag = etagFor(ctx.openCode.permissionsVersionValue())
     response.setHeader("ETag", etag)

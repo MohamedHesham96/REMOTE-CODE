@@ -130,4 +130,17 @@ export function registerConversationRoutes(app: Express, ctx: RouteContext): voi
       ctx.connection.handleError(error, response, request)
     }
   })
+
+  app.post("/api/session/:id/request/:requestId/retry", async (request, response) => {
+    try {
+      const requestId = request.params.requestId.trim()
+      if (!requestId) {
+        response.status(400).json({ error: "REQUEST_REQUIRED", message: serverMessage("requestRequired", getServerLang(request)) })
+        return
+      }
+      response.json(await ctx.openCode.retryFailedRequest(request.params.id, requestId))
+    } catch (error) {
+      ctx.connection.handleError(error, response, request)
+    }
+  })
 }

@@ -19,6 +19,10 @@ interface FakeClient {
   session: Record<string, unknown>
   message: Record<string, unknown>
   permission: Record<string, unknown>
+  form: Record<string, unknown>
+  project: Record<string, unknown>
+  forms: Array<Record<string, unknown>>
+  permissionRequests: Array<Record<string, unknown>>
 }
 
 function sessionSummary(id: string, directory: string): Record<string, unknown> {
@@ -43,6 +47,10 @@ function createFakeClient(raw: { running: boolean }): FakeClient {
     session: {},
     message: {},
     permission: {},
+    form: {},
+    project: {},
+    forms: [],
+    permissionRequests: [],
   }
   fake.session = {
     prompt: (options: { text?: string; delivery?: string; files?: Array<Record<string, unknown>> }) => {
@@ -77,12 +85,21 @@ function createFakeClient(raw: { running: boolean }): FakeClient {
       cancel: () => Promise.resolve(undefined),
     },
   }
+  fake.form = {
+    list: () => Promise.resolve({ location: { directory: DIRECTORY }, data: fake.forms }),
+  }
   fake.message = {
     list: () => Promise.resolve({ data: fake.messages, cursor: {} }),
   }
   fake.permission = {
     reply: () => Promise.resolve(undefined),
     list: () => Promise.resolve([]),
+    request: {
+      list: () => Promise.resolve({ location: { directory: DIRECTORY }, data: fake.permissionRequests }),
+    },
+  }
+  fake.project = {
+    list: () => Promise.resolve([{ id: "prj_test", canonical: DIRECTORY, name: "RemoteCode", time: { created: 1, updated: 2 } }]),
   }
   return fake
 }
@@ -1504,5 +1521,95 @@ describe("subtask sessions collapse onto their root", () => {
     internals.trackEvent({ type: "session.deleted", data: { sessionID: KID(0) } } as unknown as OpenCodeEvent)
 
     expect(service.conversationOf(KID(0))).toBe(KID(0))
+  })
+})
+
+describe("agent attention and retry workflow", () => {
+  it("reconstructs pending questions and permissions for sessions after reconnect", async () => {
+    const { service, fake } = createService()
+    const childSession = "ses_child"
+    fake.sessions.push({ ...sessionSummary(childSession, DIRECTORY), parentID: SESSION })
+    fake.forms = [{
+      id: "form_1",
+      sessionID: SESSION,
+      title: "Choose a color",
+      fields: [{ type: "select", key: "color", title: "Color", options: [{ value: "blue", label: "Blue" }] }],
+    }, {
+      id: "form_child",
+      sessionID: childSession,
+      title: "Choose a size",
+      fields: [{ type: "select", key: "size", title: "Size", options: [{ value: "small", label: "Small" }] }],
+    }]
+    fake.permissionRequests = [{
+      id: "perm_1",
+      sessionID: childSession,
+      action: "shell",
+      resources: ["npm test"],
+      message: "Run the tests?",
+    }]
+
+    const items = await service.attention()
+
+    expect(items).toHaveLength(3)
+    expect(items.find((item) => item.kind === "question" && item.request.id === "form_1")).toMatchObject({ kind: "question", sessionID: SESSION, conversationID: SESSION, sessionTitle: "", projectName: "RemoteCode", request: { id: "form_1", sessionID: SESSION } })
+    expect(items.find((item) => item.kind === "question" && item.request.id === "form_child")).toMatchObject({ kind: "question", sessionID: childSession, conversationID: SESSION, projectName: "RemoteCode", request: { id: "form_child", sessionID: childSession } })
+    expect(items.find((item) => item.kind === "permission")).toMatchObject({ kind: "permission", sessionID: childSession, conversationID: SESSION, projectName: "RemoteCode", permission: { id: "perm_1", title: "Run the tests?", pattern: ["npm test"] } })
+
+    const syncPermissions = (service as unknown as { syncPendingPermissions: () => Promise<void> }).syncPendingPermissions
+    await syncPermissions.call(service)
+    expect(service.permissions()).toEqual([{ id: "perm_1", sessionID: childSession, title: "Run the tests?", pattern: "npm test" }])
+  })
+
+  it("shows the stored engine failure and only retries the failed turn once", async () => {
+    const { service, fake } = createService()
+    const failed = assistantMessage("msg_assistant", "", 2)
+    failed.error = { type: "ProviderError", message: "Provider temporarily unavailable" }
+    fake.messages = [userMessage("msg_failed", "Build the report", 1), failed]
+
+    const snapshot = await service.requests(SESSION)
+    expect(snapshot.requests[0]).toMatchObject({ id: "msg_failed", state: "stopped", error: "Provider temporarily unavailable" })
+
+    const results = await Promise.all([
+      service.retryFailedRequest(SESSION, "msg_failed"),
+      service.retryFailedRequest(SESSION, "msg_failed"),
+    ])
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+    expect(results.filter((result) => result.retried)).toHaveLength(1)
+    expect(fake.dispatched).toEqual(["Build the report"])
+    expect(fake.switchCalls).toEqual([
+      { agent: "build" },
+      { id: "space-bunny-free", providerID: "opencode" },
+    ])
+    await expect(service.retryFailedRequest(SESSION, "msg_failed")).resolves.toEqual({ retried: false, queued: false })
+  })
+
+  it("does not retry a stopped turn without a stored engine error", async () => {
+    const { service, fake } = createService()
+    fake.messages = [userMessage("msg_stopped", "Stop this", 1), assistantMessage("msg_assistant", "", 2)]
+
+    await expect(service.retryFailedRequest(SESSION, "msg_stopped")).resolves.toEqual({ retried: false, queued: false })
+    expect(fake.dispatched).toEqual([])
+  })
+
+  it("allows another retry after the retry itself becomes a new failed turn", async () => {
+    const { service, fake, emit } = createService()
+    const firstFailure = assistantMessage("msg_a1", "", 2)
+    firstFailure.error = { type: "ProviderError", message: "Temporary failure" }
+    fake.messages = [userMessage("msg_u1", "Run the task", 1), firstFailure]
+    await expect(service.retryFailedRequest(SESSION, "msg_u1")).resolves.toMatchObject({ retried: true })
+    emit(idleEvent())
+
+    const secondFailure = assistantMessage("msg_a2", "", 4)
+    secondFailure.error = { type: "ProviderError", message: "Temporary failure again" }
+    fake.messages = [
+      userMessage("msg_u1", "Run the task", 1),
+      firstFailure,
+      userMessage("msg_u2", "Run the task", 3),
+      secondFailure,
+    ]
+
+    await expect(service.retryFailedRequest(SESSION, "msg_u2")).resolves.toMatchObject({ retried: true })
+    expect(fake.dispatched).toEqual(["Run the task", "Run the task"])
   })
 })

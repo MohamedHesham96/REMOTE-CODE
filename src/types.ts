@@ -25,6 +25,26 @@ export interface Permission {
   pattern?: string | string[]
 }
 
+export interface AttentionContext {
+  sessionID: string
+  conversationID: string
+  sessionTitle: string
+  projectName: string
+  directory: string
+}
+
+export interface QuestionAttentionItem extends AttentionContext {
+  kind: "question"
+  request: ConversationQuestionRequest
+}
+
+export interface PermissionAttentionItem extends AttentionContext {
+  kind: "permission"
+  permission: Permission
+}
+
+export type AttentionItem = QuestionAttentionItem | PermissionAttentionItem
+
 interface ServerEventBase {
   properties: {
     sessionID: string
@@ -162,6 +182,9 @@ export interface SessionRequest {
   startedAt: number
   completedAt: number
   updatedAt: number
+  error?: string
+  retryAgent?: string
+  retryModel?: SessionModelRef
 }
 
 export interface SessionRequests {

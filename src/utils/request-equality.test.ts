@@ -33,6 +33,7 @@ describe("sameSessionRequest", () => {
     expect(sameSessionRequest(request(), request({ usedTools: ["write"] }))).toBe(false)
     expect(sameSessionRequest(request(), request({ resultFiles: [] }))).toBe(false)
     expect(sameSessionRequest(request(), request({ attachments: [] }))).toBe(false)
+    expect(sameSessionRequest(request(), request({ error: "provider failed" }))).toBe(false)
   })
 })
 

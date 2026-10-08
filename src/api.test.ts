@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { addPin, forgetPins, getPins, mergePins, removePin } from "./api"
-import { getRequests, getStatuses, listPermissions, rejectQuestion, removeQueuedRequest, renameSession, replyQuestion, runQueuedRequest, sendMessage, skipRunningRequest } from "./api"
+import { getAttention, getRequests, getStatuses, listPermissions, rejectQuestion, removeQueuedRequest, renameSession, replyQuestion, retryFailedRequest, runQueuedRequest, sendMessage, skipRunningRequest } from "./api"
 import { clearEtagCache } from "./api/http"
 import type { PinnedConversation, Session, SessionRequest, SessionRequests, SessionStatus } from "./types"
 
@@ -319,6 +319,23 @@ describe("request efficiency", () => {
     expect(second.requests[1]).not.toBe(first.requests[1])
     expect(second.requests[1]?.liveText).toBe("new text")
     expect(second.questions).toBe(first.questions)
+  })
+})
+
+describe("workflow requests", () => {
+  it("loads server-owned attention and retries a failed turn by its existing session id", async () => {
+    const payload = [{ kind: "permission", sessionID: "ses_one", sessionTitle: "Build", projectName: "app", directory: "/app", permission: { id: "perm_1", sessionID: "ses_one", title: "Run tests" } }]
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ retried: true, queued: false }), { status: 200, headers: { "Content-Type": "application/json" } }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getAttention()).resolves.toEqual(payload)
+    await expect(retryFailedRequest("ses/one", "msg_failed")).resolves.toEqual({ retried: true, queued: false })
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/session/ses%2Fone/request/msg_failed/retry", expect.objectContaining({
+      method: "POST",
+      credentials: "include",
+    }))
   })
 })
 

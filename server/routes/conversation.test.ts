@@ -21,11 +21,13 @@ let base = ""
 let promptCalls: Array<{ id: string; text: string; attachments?: PromptAttachment[] }>
 let models = [VISION, TEXT_ONLY]
 let sessionModelValue: string | null = "vision"
+let retryCalls: Array<{ id: string; requestId: string }>
 
 beforeEach(async () => {
   promptCalls = []
   models = [VISION, TEXT_ONLY]
   sessionModelValue = "vision"
+  retryCalls = []
   const app = express()
   app.use(express.json())
   const ctx = {
@@ -39,6 +41,10 @@ beforeEach(async () => {
         defaultModel: null,
       }),
       models: () => Promise.resolve(models),
+      retryFailedRequest: (id: string, requestId: string) => {
+        retryCalls.push({ id, requestId })
+        return Promise.resolve({ retried: true, queued: false })
+      },
     },
     pollLimiter: (_request: unknown, _response: unknown, next: () => void) => next(),
     connection: { handleError: vi.fn((_error: unknown, response: { status: (code: number) => { json: (body: unknown) => void } }) => response.status(500).json({ error: "SERVER_ERROR" })) },
@@ -60,6 +66,11 @@ async function post(body: unknown): Promise<{ status: number; body: Record<strin
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
+  return { status: response.status, body: await response.json() as Record<string, unknown> }
+}
+
+async function retry(): Promise<{ status: number; body: Record<string, unknown> }> {
+  const response = await fetch(`${base}/api/session/ses_test/request/msg_failed/retry`, { method: "POST" })
   return { status: response.status, body: await response.json() as Record<string, unknown> }
 }
 
@@ -121,5 +132,15 @@ describe("message attachments", () => {
 
     expect(result.status).toBe(202)
     expect(promptCalls[0]?.text).toBe("")
+  })
+})
+
+describe("failed request retry", () => {
+  it("retries the failed request in its existing session", async () => {
+    const result = await retry()
+
+    expect(result.status).toBe(200)
+    expect(result.body).toEqual({ retried: true, queued: false })
+    expect(retryCalls).toEqual([{ id: "ses_test", requestId: "msg_failed" }])
   })
 })

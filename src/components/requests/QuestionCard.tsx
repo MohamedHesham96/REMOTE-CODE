@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { rejectQuestion, replyQuestion } from "../../api"
 import type { Strings } from "../../i18n"
 import type { ConversationQuestionAnswers, ConversationQuestionRequest } from "../../types"
@@ -7,6 +7,7 @@ export function QuestionCard({ request, sessionId, onAnswered, t }: { request: C
   const [answers, setAnswers] = useState<ConversationQuestionAnswers>(() => request.questions.map(() => []))
   const [customDrafts, setCustomDrafts] = useState<string[]>(() => request.questions.map(() => ""))
   const [working, setWorking] = useState<"reply" | "reject" | null>(null)
+  const workingRef = useRef(false)
   const [error, setError] = useState("")
 
   const toggleOption = (questionIndex: number, label: string) => {
@@ -55,9 +56,10 @@ export function QuestionCard({ request, sessionId, onAnswered, t }: { request: C
   })
 
   const submitReply = async () => {
-    if (!canReply || working) {
+    if (!canReply || workingRef.current) {
       return
     }
+    workingRef.current = true
     setWorking("reply")
     setError("")
     try {
@@ -70,14 +72,16 @@ export function QuestionCard({ request, sessionId, onAnswered, t }: { request: C
     } catch (replyError: unknown) {
       setError(replyError instanceof Error ? replyError.message : t.replyFailed)
     } finally {
+      workingRef.current = false
       setWorking(null)
     }
   }
 
   const submitReject = async () => {
-    if (working) {
+    if (workingRef.current) {
       return
     }
+    workingRef.current = true
     setWorking("reject")
     setError("")
     try {
@@ -90,6 +94,7 @@ export function QuestionCard({ request, sessionId, onAnswered, t }: { request: C
     } catch (rejectError: unknown) {
       setError(rejectError instanceof Error ? rejectError.message : t.rejectFailed)
     } finally {
+      workingRef.current = false
       setWorking(null)
     }
   }
