@@ -2,6 +2,7 @@ import type { AppConfig } from "../types"
 import type { Language, Strings } from "../i18n"
 import { THEME_META, themeDescription, themeLabel, THEMES, type AppTheme } from "../theme"
 import { VOICE_LANGUAGES, voiceLanguageDescription, voiceLanguageLabel, type VoiceLanguage } from "../voice"
+import { defaultWakePhrase, type WakeWordStatus } from "../wake-word"
 import { SettingsIcon } from "../display"
 
 // شكل حالة الإشعارات: من App.tsx (الـ Push API check)، local type لتفادي
@@ -29,9 +30,31 @@ interface SettingsDrawerProps {
   onLangChange: (value: Language) => void
   voiceLanguage: VoiceLanguage
   onVoiceLanguageChange: (value: VoiceLanguage) => void
+  wakeWordEnabled: boolean
+  wakeWordStatus: WakeWordStatus
+  wakeWordPhrase: string
+  onToggleWakeWord: () => void
+  onWakeWordPhraseChange: (value: string) => void
   soundOn: boolean
   onTestSound: () => void
   onToggleSound: () => void
+}
+
+// نص توضيحي واحد تحت حقل العبارة يغطي كل الحالات الممكنة — الحالة جاية محسوبة
+// من App (الهوك هو اللي يعرف إن كان سامع فعلًا أو الإذن اترفض)
+function wakeWordStatusText(status: WakeWordStatus, t: Strings): string {
+  switch (status) {
+    case "active":
+      return t.wakeWordStatusActive
+    case "blocked":
+      return t.wakeWordStatusBlocked
+    case "unsupported":
+      return t.wakeWordStatusUnsupported
+    case "tooShort":
+      return t.wakeWordTooShort
+    default:
+      return t.wakeWordPhraseHint
+  }
 }
 
 // درج الإعدادات — مُستخرَج من App.tsx ليشحن مع بقية اللوحات الكسولة.
@@ -56,6 +79,11 @@ export function SettingsDrawer({
   onLangChange,
   voiceLanguage,
   onVoiceLanguageChange,
+  wakeWordEnabled,
+  wakeWordStatus,
+  wakeWordPhrase,
+  onToggleWakeWord,
+  onWakeWordPhraseChange,
   soundOn,
   onTestSound,
   onToggleSound,
@@ -164,6 +192,40 @@ export function SettingsDrawer({
               ))}
             </div>
           </div>
+          <div className="setting-row">
+            <div>
+              <strong>🗣 {t.wakeWord}</strong>
+              <small>{t.wakeWordDesc}</small>
+            </div>
+            <button
+              type="button"
+              className={`button ${wakeWordEnabled ? "button-ghost" : "button-secondary"}`}
+              onClick={onToggleWakeWord}
+              aria-pressed={wakeWordEnabled}
+            >
+              {wakeWordEnabled ? t.disable : t.enable}
+            </button>
+          </div>
+          {wakeWordEnabled ? (
+            <div className="setting-row setting-row-theme">
+              <label className="wake-word-field">
+                <span className="wake-word-label">{t.wakeWordPhraseLabel}</span>
+                <input
+                  className="wake-word-input"
+                  type="text"
+                  value={wakeWordPhrase}
+                  onChange={(event) => onWakeWordPhraseChange(event.target.value)}
+                  placeholder={defaultWakePhrase(lang)}
+                  dir="auto"
+                  maxLength={48}
+                  disabled={wakeWordStatus === "unsupported"}
+                />
+                <small className={wakeWordStatus === "tooShort" ? "wake-word-warning" : undefined}>
+                  {wakeWordStatusText(wakeWordStatus, t)}
+                </small>
+              </label>
+            </div>
+          ) : null}
           <div className="setting-row">
             <div>
               <strong>🔔 {t.taskDoneSound}</strong>

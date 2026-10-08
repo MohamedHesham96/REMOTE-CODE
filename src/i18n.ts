@@ -326,6 +326,17 @@ const ar = {
   voiceLanguageAutoDesc: "يتبع لغة الجهاز",
   voiceLanguageArabicDesc: "التعرّف على العربية — ar-EG",
   voiceLanguageEnglishDesc: "التعرّف على الإنجليزية — en-US",
+  // كلمة التنبيه: فتح لوحة التحكم الصوتي من غير لمس. الإعداد والتخزين محليان
+  // للجهاز لأن القرار قرار خصوصية.
+  wakeWord: "كلمة التنبيه",
+  wakeWordDesc: "قل العبارة ليتفتح التحكم الصوتي من غير لمس الهاتف.",
+  wakeWordPhraseLabel: "عبارة التنبيه",
+  wakeWordPhraseHint: "تُلتقط العبارة بلغة الإدخال الصوتي المختارة أعلاه.",
+  wakeWordTooShort: "العبارة قصيرة جدًا — اكتب ثلاثة أحرف على الأقل.",
+  wakeWordStatusActive: "الميكروفون سامع لكلمة التنبيه",
+  wakeWordStatusUnsupported: "متصفحك لا يدعم التعرّف على الصوت.",
+  wakeWordStatusBlocked: "تعذّر الوصول إلى الميكروفون — راجع إذن المتصفح.",
+  wakeWordMicBlocked: "توقّف مستمع كلمة التنبيه: تعذّر الوصول إلى الميكروفون.",
   // التحكم الصوتي باللغة الطبيعية: طبقة تفاعل فوق إجراءات RemoteCode
   // الموجودة نفسها. النصوص دي رسائل الوكلاء وأسئلة التوضيح وتأكيدات الأمان.
   voiceControl: "التحكم الصوتي",
@@ -807,6 +818,17 @@ const en: typeof ar = {
   voiceLanguageAutoDesc: "Follows the device language",
   voiceLanguageArabicDesc: "Arabic recognition — ar-EG",
   voiceLanguageEnglishDesc: "English recognition — en-US",
+  // Wake word: open voice control without touching the phone. Local to the
+  // device because the background microphone is a privacy decision.
+  wakeWord: "Wake word",
+  wakeWordDesc: "Say the phrase to open voice control without touching the phone.",
+  wakeWordPhraseLabel: "Wake phrase",
+  wakeWordPhraseHint: "The phrase is recognized in the voice input language selected above.",
+  wakeWordTooShort: "The phrase is too short — enter at least three characters.",
+  wakeWordStatusActive: "Listening for the wake phrase",
+  wakeWordStatusUnsupported: "Your browser does not support speech recognition.",
+  wakeWordStatusBlocked: "The microphone could not be reached — check the browser permission.",
+  wakeWordMicBlocked: "Wake word listening stopped: the microphone could not be reached.",
   // Natural-language voice control: an interaction layer over RemoteCode's
   // existing actions. These strings power agent replies, clarifications, and
   // safety confirmations.

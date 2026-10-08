@@ -33,7 +33,8 @@ import type { ActiveSession, AppConfig, AuthState, ClientEvent, ComposerAttachme
 import { isSoundEnabled, playAttentionSound, playCompletionSound, setSoundEnabled, unlockAudio, vibrate } from "./sound"
 import { applyTheme, getSavedTheme, nextTheme, saveTheme, themeLabel, THEME_META, type AppTheme } from "./theme"
 import { applyLanguage, getSavedLanguage, getStrings, saveLanguage, type Language } from "./i18n"
-import { getSavedVoiceLanguage, saveVoiceLanguage, type VoiceLanguage } from "./voice"
+import { getSavedVoiceLanguage, saveVoiceLanguage, voiceRecognitionTag, type VoiceLanguage } from "./voice"
+import { effectiveWakePhrase, getSavedWakeWordEnabled, getSavedWakeWordPhrase, isValidWakePhrase, saveWakeWordEnabled, saveWakeWordPhrase, type WakeWordStatus } from "./wake-word"
 import {
   displayTitle,
   getVarietyLevels,
@@ -77,6 +78,7 @@ import { isSettledRequest } from "./utils/task-status"
 import { sameSessionUsage } from "./utils/usage"
 import { buildVoiceContext, buildVoiceExecutors, emptyVoiceContext, type VoiceAppHandlers, type VoiceAppState } from "./voice-agent/app-bindings"
 import type { VoicePanelId } from "./voice-agent/context"
+import { useWakeWord } from "./voice-agent/useWakeWord"
 import type { VoiceAgentBindings } from "./voice-agent/useVoiceControl"
 
 // أدراج ثقيلة تُحمّل عند الطلب فقط (code-splitting): القائمة الرئيسية
@@ -236,6 +238,10 @@ function App() {
   const [theme, setTheme] = useState<AppTheme>(() => getSavedTheme())
   const [lang, setLang] = useState<Language>(() => getSavedLanguage())
   const [voiceLanguage, setVoiceLanguage] = useState<VoiceLanguage>(() => getSavedVoiceLanguage())
+  // كلمة التنبيه: إعدادان محليان (تفعيل + عبارة) — الميكروفون الخلفي قرار
+  // خصوصية على الجهاز ده، فمايتخزّنوش على السيرفر
+  const [wakeWordEnabled, setWakeWordEnabled] = useState<boolean>(() => getSavedWakeWordEnabled())
+  const [wakeWordPhrase, setWakeWordPhrase] = useState<string>(() => getSavedWakeWordPhrase())
   const t = getStrings(lang)
   const langRef = useRef<Language>(lang)
   langRef.current = lang
@@ -1754,6 +1760,44 @@ function App() {
   const handleShowModels = useCallback(() => setShowModels(true), [])
   const handleShowVoice = useCallback(() => setShowVoice(true), [])
   const handleCloseVoice = useCallback(() => setShowVoice(false), [])
+  // إعدادا كلمة التنبيه: الحالة والتخزين المحلي بيتحدّثوا مع بعض عشان ما يبقاش
+  // فيه مصدرين للحقيقة
+  const handleToggleWakeWord = useCallback(() => {
+    setWakeWordEnabled((current) => {
+      const next = !current
+      saveWakeWordEnabled(next)
+      return next
+    })
+  }, [])
+  const handleWakeWordPhraseChange = useCallback((value: string) => {
+    setWakeWordPhrase(value)
+    saveWakeWordPhrase(value)
+  }, [])
+  const handleWakeWordBlocked = useCallback(() => {
+    addToast(getStrings(langRef.current).wakeWordMicBlocked, "error")
+  }, [addToast])
+
+  // مستمع كلمة التنبيه: جلسة تعرّف خلفية تفتح اللوحة لما العبارة تتقال. معطّل
+  // بره تسجيل الدخول أو من غير مشروع مفتوح لأن اللوحة نفسها مش موجودة ساعتها،
+  // ومعلّق طول ما لوحة الأوامر مفتوحة عشان مفيش جلستين تعرّف يتخبطوا.
+  const wakePhrase = effectiveWakePhrase(wakeWordPhrase, lang)
+  const wakeWord = useWakeWord({
+    enabled: wakeWordEnabled && authState === "signedIn" && selectedProject !== null,
+    phrase: wakePhrase,
+    languageTag: voiceRecognitionTag(voiceLanguage),
+    suspended: showVoice,
+    onWake: handleShowVoice,
+    onBlocked: handleWakeWordBlocked,
+  })
+  const wakeWordStatus: WakeWordStatus = !wakeWordEnabled
+    ? "off"
+    : !wakeWord.supported
+      ? "unsupported"
+      : wakeWord.blocked
+        ? "blocked"
+        : isValidWakePhrase(wakePhrase)
+          ? (wakeWord.listening ? "active" : "idle")
+          : "tooShort"
   // `toggleLanguage` و `toggleTheme` و `toggleSound` مستقرة فوق (إلا حذفتها
   // في الأعلى عشان تتشارك مع سطر الذيل. التوب بار بياخدها مباشرة).
 
@@ -2752,6 +2796,11 @@ function App() {
               onLangChange={(value) => setLang(value)}
               voiceLanguage={voiceLanguage}
               onVoiceLanguageChange={(value) => setVoiceLanguage(value)}
+              wakeWordEnabled={wakeWordEnabled}
+              wakeWordStatus={wakeWordStatus}
+              wakeWordPhrase={wakeWordPhrase}
+              onToggleWakeWord={handleToggleWakeWord}
+              onWakeWordPhraseChange={handleWakeWordPhraseChange}
               soundOn={soundOn}
               onTestSound={testSound}
               onToggleSound={toggleSound}

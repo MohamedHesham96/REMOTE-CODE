@@ -841,7 +841,7 @@ h2.session-title-editable { cursor: pointer; }
    new-conversation button. The bar is flexible so the name ellipsizes
    first when the line gets tight. */
 .model-bar { flex: 0 1 auto; min-width: 0; max-width: 100%; display: flex; }
-.icon-button { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 1px; color: var(--text-dimmer); background: var(--surface-card); font-size: 19px; }
+.icon-button { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--border); border-radius: 1px; color: var(--text-dimmer); background: var(--surface-card); font-size: 19px; }
 .icon-button:hover:not(:disabled) { color: var(--text); border-color: var(--accent-border); }
 .topbar-actions .icon-button { transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease, filter 0.18s ease; }
 .topbar-actions .icon-button:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.12) saturate(1.15); }
@@ -984,6 +984,50 @@ h2.session-title-editable { cursor: pointer; }
 .attention-count-badge { position: absolute; top: -5px; left: -5px; z-index: 2; min-width: 16px; height: 16px; display: grid; place-items: center; padding: 0 4px; border: 1px solid var(--surface-card); border-radius: 99px; background: var(--red); color: #fff; font-size: 9px; font-weight: 900; line-height: 1; pointer-events: none; }
 html[dir="ltr"] .attention-count-badge { left: auto; right: -5px; }
 .count-badge { position: absolute; top: -5px; left: -5px; z-index: 2; min-width: 15px; height: 15px; display: grid; place-items: center; padding: 0 4px; border-radius: 1px; background: var(--yellow); color: #221a05; font-size: 8.5px; font-weight: 800; line-height: 1; white-space: nowrap; pointer-events: none; }
+/* الإيموجي والحروف بتترسم بمقاسات مختلفة من نظام لنظام، وممكن تخرج عن إطار
+   الزرار على بعض الشاشات. القواعد دي بتثبّت ارتفاع السطر وتوسّط الشكل جوه
+   صندوقه من غير ما تتغيّر أشكال الأيقونات نفسها. */
+.icon-button,
+.session-pin,
+.session-delete,
+.model-pin,
+.project-option-icon,
+.project-switch-icon,
+.pinned-unpin,
+.question-option-check,
+.request-action-icon,
+.favorite-star,
+.favorite-action,
+.title-edit,
+.title-action { line-height: 1; }
+.session-delete,
+.request-action-icon,
+.favorite-star { display: grid; place-items: center; }
+.composer-favorites-toggle,
+.project-name-badge > span[aria-hidden],
+.model-pill-id > span[aria-hidden],
+.questions-minibar > span[aria-hidden],
+.activity-group-icon,
+.pinned-group-icon,
+.update-banner-mark,
+.theme-option-icon { line-height: 1; }
+/* صندوق الشكل نفسه بيتوسّط مضمونه بدل ضبط الإزاحة يدويًا بـ vertical-align */
+.pin-badge,
+.theme-option-icon { display: inline-flex; align-items: center; justify-content: center; }
+.pin-badge svg { vertical-align: 0; }
+/* زر نصّي بأيقونة جوّاه (نسخ/حفظ في السجل): الأيقونة والنص على محور واحد */
+.history-copy { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+/* حشوة الأزرار الافتراضية من المتصفح (1px 6px) بتاكل مساحة الشكل جوه المربع
+   الصغير على الموبايل فتنزاح الأيقونة على جنب؛ نلغيها لكل أزرار الأيقونات. */
+.session-pin,
+.session-delete,
+.pinned-unpin,
+.favorite-action,
+.title-edit,
+.title-action { padding: 0; }
+/* زر القائمة على الموبايل بياخد display: grid من الميديا كويري (.mobile-only)
+   فبنثبّت التوسيط المرن هنا بأولوية أعلى عشان الشكل يفضل في نص المربع */
+.icon-button.mobile-only { display: flex; align-items: center; justify-content: center; }
 .activity-drawer { width: min(430px, 94vw); }
 .attention-drawer { width: min(620px, 96vw); padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
 .attention-items { display: grid; gap: 14px; }
@@ -1189,6 +1233,7 @@ html[dir="ltr"] .attention-count-badge { left: auto; right: -5px; }
 .theme-option { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 12px 6px; border: 1px solid var(--border); border-radius: 1px; color: var(--muted); background: var(--surface-card); font-size: 11px; font-weight: 700; transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease; }
 .theme-option-icon { font-size: 20px; line-height: 1; }
 .theme-option.active { border-color: var(--accent-border); color: var(--accent-strong); background: var(--accent-soft-bg); box-shadow: 0 0 0 1px var(--accent-border); }.setting-row strong { font-size: 12px; }.setting-row small { color: var(--muted); font-size: 10px; }.status-pill { padding: 5px 8px; border-radius: 1px; font-size: 10px; }.status-pill.success { color: var(--green-text); background: var(--green-bg); }.status-pill.warning { color: var(--yellow); background: rgba(var(--yellow-rgb),0.1); }.info-box, .warning-box { padding: 12px; border-radius: 1px; color: var(--info-box-color); background: var(--info-box-bg); font-size: 11px; line-height: 1.8; }.warning-box { color: var(--warning-box-color); background: var(--warning-box-bg); }
+.wake-word-field { display: grid; gap: 6px; }.wake-word-label { color: var(--muted); font-size: 11px; font-weight: 700; }.wake-word-input { width: 100%; padding: 11px 12px; color: var(--text); background: var(--surface-input); border: 1px solid var(--border); border-radius: 1px; outline: none; font: inherit; font-size: 13px; }.wake-word-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15); }.setting-row .wake-word-warning { color: var(--yellow); }
 
 .toast-stack { position: fixed; z-index: 50; right: 18px; bottom: 18px; display: grid; gap: 8px; width: min(360px, calc(100vw - 36px)); }
 .toast { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 1px; color: var(--toast-text); background: var(--toast-bg); box-shadow: var(--shadow); font-size: 11px; animation: toast-in 0.2s ease; }.toast-success { border-color: rgba(var(--green-rgb),0.3); }.toast-error { border-color: rgba(var(--red-rgb),0.35); }.toast button { border: 0; color: var(--toast-close); background: transparent; font-size: 18px; }
@@ -1779,7 +1824,12 @@ html[dir="ltr"] .request-row.request-row-running { box-shadow: inset 3px 0 0 0 v
      siblings in one flex row, which is what makes them exactly equal size. */
   .topbar-rail { order: 0; flex: 1 1 100%; min-width: 0; display: flex; align-items: center; gap: 4px; }
   .topbar-actions { display: contents; }
-  .topbar-rail .icon-button { position: relative; flex: 1 1 0; min-width: 0; width: auto; height: auto; aspect-ratio: 1; font-size: 16px; }
+  .topbar-rail .icon-button { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; width: auto; height: auto; aspect-ratio: 1; line-height: 1; font-size: clamp(12px, 4.4vw - 2px, 16px); }
+  /* مقاس الأيقونة يتقلّص مع عرض الشاشة زي الصندوق بالظبط (نسبة عرض الزرار
+     الفعلي)، فما تسبقش المربع ولا تزحف على جنب على أضيق الموبايلات. */
+  .topbar-rail .icon-button svg { width: clamp(11px, 4.4vw - 2px, 17px); height: clamp(11px, 4.4vw - 2px, 17px); }
+  /* دايرة "!" في زر الانتباه: نفس منحنى تصغير الأيقونات عشان تفضل جوه الزرار */
+  .topbar-rail .attention-button > span:first-child { width: clamp(12px, 4.4vw - 2px, 17px); height: clamp(12px, 4.4vw - 2px, 17px); font-size: clamp(8px, 2.8vw, 11px); }
   .current-session { order: 1; flex: 1 1 100%; min-width: 0; display: flex; flex-direction: column; }
   .topbar-project-row { gap: 6px; flex-wrap: nowrap; }
   .model-bar { flex: 1 1 auto; }
@@ -1829,9 +1879,18 @@ html[dir="ltr"] .request-row.request-row-running { box-shadow: inset 3px 0 0 0 v
    المهمة — الشارة معلومة لغة مش حالة نجاح. الحرف العربي أكتر حجمًا بس
    عشان يفضل مقروء. */
 .lang-button { position: relative; font-size: 13px; font-weight: 800; }
-.lang-globe { font-size: 19px; line-height: 1; filter: saturate(1.4); transform: translateY(-2px); }
+.lang-globe { display: grid; place-items: center; font-size: 19px; line-height: 1; filter: saturate(1.4); }
 .lang-code { position: absolute; bottom: 2px; inset-inline-start: 2px; min-width: 18px; height: 15px; display: grid; place-items: center; padding: 0 4px; border-radius: 1px; background: linear-gradient(135deg, var(--accent-deep), var(--accent-blue)); color: var(--on-accent); font-size: 8px; font-weight: 800; line-height: 1; letter-spacing: 0.03em; box-shadow: 0 2px 6px rgba(var(--accent-rgb), 0.5); pointer-events: none; }
 .lang-code.lang-ar { font-size: 11px; padding-bottom: 2px; }
+
+/* على الشاشات الضيقة: أيقونة الثيم والكرة الأرضية بتتبعا مقاس صف الأزرار بدل
+   مقاسهما الثابت، وشارة اللغة بتصغّر عشان الشكل كله يفضل جوه مربّع الزرار. */
+@media (max-width: 480px) {
+  .topbar-rail .icon-theme span,
+  .topbar-rail .lang-globe { font-size: inherit; }
+  .topbar-rail .lang-code { bottom: 1px; inset-inline-start: 1px; min-width: 13px; height: 12px; padding: 0 3px; font-size: 6.5px; }
+  .topbar-rail .lang-code.lang-ar { font-size: 8.5px; padding-bottom: 1px; }
+}
 
 /* دعم اتجاه LTR للغة الإنجليزية */
 html[lang="en"] body { font-family: "Inter", "Cairo", system-ui, sans-serif; }

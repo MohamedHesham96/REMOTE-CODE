@@ -6,6 +6,7 @@
 // Web Speech ونفس دوال تجميع النص البحتة من voice.ts.
 import { useCallback, useEffect, useRef, useState } from "react"
 import { reduceVoiceTranscript, requiresFinalConfidence, type RecognizedSegment, type VoiceTranscriptState } from "../voice"
+import { acquireMic, releaseMic } from "./mic-lock"
 import { deviceSpeechLanguage, getSpeechRecognitionCtor, type SpeechRecognitionInstanceLike } from "./speech"
 
 // مهلة بدء الكلام: بعد فتح الميكروفون فيه وقت معقول للمستخدم يبدأ —
@@ -42,6 +43,9 @@ export function useCommandRecognition(options: UseCommandRecognitionOptions): Co
   const [supported] = useState(() => getSpeechRecognitionCtor() !== undefined)
   const [listening, setListening] = useState(false)
   const recognitionRef = useRef<SpeechRecognitionInstanceLike | null>(null)
+  // هوية الجلسة في سجل ملكية الميكروفون: مستمع كلمة التنبيه يوقف جلسته لما
+  // اللوحة تستحوذ، ويرجع لما نفلت (شوف mic-lock.ts)
+  const micTokenRef = useRef<symbol>(Symbol("voice-command"))
   const silenceTimerRef = useRef<number | null>(null)
   const maxTimerRef = useRef<number | null>(null)
   const cancelledRef = useRef(false)
@@ -141,6 +145,8 @@ export function useCommandRecognition(options: UseCommandRecognitionOptions): Co
       startingRef.current = false
       clearSilenceTimer()
       clearMaxTimer()
+      // الجلسة خلصت: نفلت الميكروفون عشان مستمع كلمة التنبيه يقدر يرجع
+      releaseMic(micTokenRef.current)
       setListening(false)
       if (cancelledRef.current) {
         return
@@ -158,6 +164,9 @@ export function useCommandRecognition(options: UseCommandRecognitionOptions): Co
     }
 
     recognitionRef.current = recognition
+    // الملكية قبل start عشان مستمع كلمة التنبيه يوقف فورًا لو كان شغال،
+    // فمفيش جلستين تعرّف بيتخبطوا
+    acquireMic(micTokenRef.current)
     try {
       recognition.start()
       setListening(true)
@@ -181,6 +190,7 @@ export function useCommandRecognition(options: UseCommandRecognitionOptions): Co
       // start() ممكن يرمي لو جلسة سابقة لسه بتنهي — نبلّغ بهدوء
       recognitionRef.current = null
       startingRef.current = false
+      releaseMic(micTokenRef.current)
       setListening(false)
       optionsRef.current.onError("failed")
     }
@@ -194,6 +204,7 @@ export function useCommandRecognition(options: UseCommandRecognitionOptions): Co
     recognitionRef.current = null
     startingRef.current = false
     recognition?.abort()
+    releaseMic(micTokenRef.current)
     setListening(false)
   }, [clearSilenceTimer, clearMaxTimer])
 
@@ -204,6 +215,7 @@ export function useCommandRecognition(options: UseCommandRecognitionOptions): Co
     clearMaxTimer()
     recognitionRef.current?.abort()
     recognitionRef.current = null
+    releaseMic(micTokenRef.current)
   }, [clearSilenceTimer, clearMaxTimer])
 
   return { supported, listening, start, cancel }

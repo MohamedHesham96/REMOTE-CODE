@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { deviceSpeechLanguage, getSpeechRecognitionCtor, type SpeechRecognitionInstanceLike } from "../voice-agent/speech"
+import { acquireMic, releaseMic } from "../voice-agent/mic-lock"
 import { mergeTranscript, reduceVoiceTranscript, requiresFinalConfidence, type RecognizedSegment, type VoiceTranscriptState } from "../voice"
 
 // وضع القفل: المتصفح ممكن يقفل الجلسة لوحده (صمت طويل، أو حد داخلي للمدة).
@@ -43,6 +44,9 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
   const [listening, setListening] = useState(false)
   const [locked, setLocked] = useState(false)
   const recognitionRef = useRef<SpeechRecognitionInstanceLike | null>(null)
+  // هوية الجلسة في سجل ملكية الميكروفون: مستمع كلمة التنبيه يوقف لما نستحوذ
+  // ويرجع لما نفلت (شوف mic-lock.ts)
+  const micTokenRef = useRef<symbol>(Symbol("voice-input"))
   // نسخة مرجعية من القفل: الـ onend بيتنفّذ خارج دورة الرندر، فقراءة الحالة
   // مباشرةً فيه بتشوف قيمة قديمة.
   const lockedRef = useRef(false)
@@ -179,6 +183,9 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
           beginRef.current()
         }, LOCK_RESTART_DELAY_MS)
       } else {
+        // الملكية بتتفلت بس لما الجلسة تخلص فعلًا — في وضع القفل بتفضل معانا
+        // عبر إعادات التشغيل عشان مستمع كلمة التنبيه مايقاطعش الإملاء
+        releaseMic(micTokenRef.current)
         lockedRef.current = false
         setLocked(false)
         setListening(false)
@@ -186,6 +193,8 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     }
 
     recognitionRef.current = recognition
+    // الملكية قبل start عشان مستمع كلمة التنبيه يوقف فورًا لو كان شغال
+    acquireMic(micTokenRef.current)
     try {
       recognition.start()
       setListening(true)
@@ -203,6 +212,7 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     } catch {
       // start() بيقدر يرمي لو الجلسة السابقة لسه مـ finalizing
       recognitionRef.current = null
+      releaseMic(micTokenRef.current)
       lockedRef.current = false
       setLocked(false)
       setListening(false)
@@ -260,11 +270,16 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     }
   }, [clearSilenceTimer])
 
-  // ميكروفون مفتوح وهو مفيش مكوّن يستقبل الكلام = تسريب؛ اقفل الجلسة مع unmount
+  // ميكروفون مفتوح وهو مفيش مكوّن يستقبل الكلام = تسريب؛ اقفل الجلسة مع unmount.
+  // إسقاط القفل قبل abort مقصود: من غيره الـ onend كان بيعيد تشغيل الجلسة بعد
+  // فك المكوّن، فالميكروفون يفضل سامع وواجهة الاستقبال مش موجودة أصلًا.
   useEffect(() => () => {
     clearRestartTimer()
     clearSilenceTimer()
+    lockedRef.current = false
+    failedRef.current = true
     recognitionRef.current?.abort()
+    releaseMic(micTokenRef.current)
   }, [clearRestartTimer, clearSilenceTimer])
 
   return { supported, listening, locked, start, stop, toggleLock }

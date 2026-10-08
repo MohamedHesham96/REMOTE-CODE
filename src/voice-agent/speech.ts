@@ -7,6 +7,7 @@ export interface SpeechRecognitionInstanceLike {
   continuous: boolean
   interimResults: boolean
   maxAlternatives: number
+  onstart: (() => void) | null
   onresult: ((event: SpeechRecognitionResultEventLike) => void) | null
   onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null
   onend: (() => void) | null

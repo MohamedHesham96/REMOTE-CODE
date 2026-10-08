@@ -202,7 +202,9 @@ export const VOICE_CLEAR_COMMANDS: readonly string[] = ["امسح الكلام �
 // تطبيع خاص بالمطابقة (مش للعرض): بيشيل التشكيل والتطويل ويوحّد الألفات
 // والهمزات والتاء المربوطة والياء، وبيرجّع الحروف صغيرة، عشان المحرّك يكتب
 // «إمسح» بتشكيل أو بهمزة مختلفة أو "Clear" بحرف كبير والكلام يفضل يتطابق.
-function normalizeForCommandMatch(text: string): string {
+// مشترك بين أوامر المسح (voice.ts) وكلمة التنبيه (wake-word.ts) — التطبيع
+// واحد عشان اختلافات المحرّك الإملائية ما تفرقش في أي مطابقة صوتية.
+export function normalizeForVoiceMatch(text: string): string {
   return normalizeTranscript(text)
     .replace(/[\u064B-\u0652\u0670\u0640]/g, "")
     .replace(/[أإآٱ]/g, "ا")
@@ -213,11 +215,11 @@ function normalizeForCommandMatch(text: string): string {
 }
 
 export function hasVoiceClearCommand(text: string): boolean {
-  const haystack = normalizeForCommandMatch(text)
+  const haystack = normalizeForVoiceMatch(text)
   if (!haystack) {
     return false
   }
-  return VOICE_CLEAR_COMMANDS.some((command) => haystack.includes(normalizeForCommandMatch(command)))
+  return VOICE_CLEAR_COMMANDS.some((command) => haystack.includes(normalizeForVoiceMatch(command)))
 }
 
 // بادئة محجوبة بعد أمر مسح: المحرّك بيعيد إرسال الجلسة، فبنشيل النص اللي كان
