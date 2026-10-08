@@ -1,5 +1,6 @@
-import { DEFAULT_MODEL_KEY, LAST_SESSION_KEY, PINNED_MODELS_KEY, PINNED_MODELS_LIMIT, PINNED_SESSIONS_KEY, PINNED_SESSIONS_LIMIT, RECENT_PROJECTS_KEY } from "../constants"
-import type { PinnedConversation, Session, SessionModelRef, SessionRequest } from "../types"
+import { DEFAULT_MODEL_KEY, FAVORITES_KEY, LAST_SESSION_KEY, PINNED_MODELS_KEY, PINNED_MODELS_LIMIT, PINNED_SESSIONS_KEY, PINNED_SESSIONS_LIMIT, RECENT_PROJECTS_KEY } from "../constants"
+import type { FavoritePrompt, PinnedConversation, Session, SessionModelRef, SessionRequest } from "../types"
+import { normalizeFavoritePrompts } from "./favorite-prompts"
 import { normalizeProjectPath } from "./paths"
 
 // كاش ذاكرة للقراءات من localStorage: الـ writers في الأسفل بتقرأ القيمة
@@ -245,6 +246,39 @@ export function togglePinnedModel(keys: string[], key: string): string[] {
     return keys
   }
   return [clean, ...keys]
+}
+
+// ── الطلبات المفضّلة ──
+// المصدر الحقيقي على السيرفر (data/favorites.json)، والـ localStorage هنا
+// كاش للعرض الأول بس — نفس نمط المثبّتات بالظبط: مفيش وميض فاضي عند أول
+// رسم، والبثّ الحي من السيرفر هو اللي بيحدّث النسخة بعد كده.
+
+export function loadFavoritePrompts(): FavoritePrompt[] {
+  return normalizeFavoritePrompts(readLocalJSONRaw(FAVORITES_KEY))
+}
+
+export function saveFavoritePrompts(favorites: FavoritePrompt[]): void {
+  const next = normalizeFavoritePrompts(favorites)
+  const current = readLocalJSONRaw(FAVORITES_KEY)
+  // ما نكتبش نفس القيمة: التقاط غير ضروري في كل render
+  if (sameFavoriteCache(current, next)) {
+    return
+  }
+  writeLocalJSON(FAVORITES_KEY, next)
+}
+
+function sameFavoriteCache(left: unknown, right: FavoritePrompt[]): boolean {
+  if (!Array.isArray(left) || left.length !== right.length) {
+    return false
+  }
+  for (let i = 0; i < right.length; i += 1) {
+    const a = left[i] as FavoritePrompt | undefined
+    const b = right[i]
+    if (!a || !b || a.id !== b.id || a.text !== b.text || a.label !== b.label || a.createdAt !== b.createdAt) {
+      return false
+    }
+  }
+  return true
 }
 
 // ── المثبّتات ──

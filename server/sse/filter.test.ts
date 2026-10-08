@@ -1,6 +1,6 @@
 import type { OpenCodeEvent } from "@opencode/client"
 import { describe, expect, it } from "vitest"
-import { conversationEvent, finishedRunEvent, type ConversationLookup } from "./filter.js"
+import { clientEvent, conversationEvent, finishedRunEvent, type ConversationLookup } from "./filter.js"
 
 // العطل الأصلي: مهمة Task بتفتح جلسات ابن، وحالة كل جلسة بتبعت على الـ id
 // بتاعها. فالسيرفر كان بيعدّيها زي ما هي، والعميل كان بيعامل المهمة
@@ -152,5 +152,21 @@ describe("finishedRunEvent", () => {
 
   it("يتجاهل حدث ناقص من غير session id", () => {
     expect(finishedRunEvent({ type: "session.execution.succeeded", data: {} } as unknown as OpenCodeEvent, lookup({}))).toBeNull()
+  })
+})
+
+// الفرع (fork) جلسة جديدة مستقلة، والعميل بيعرف الجلسات الجديدة من حدث
+// session.created — فالترجمة دي بتخلي أي فرع يتعمل من جهاز تاني يبان عند
+// الباقي من غير poll.
+describe("clientEvent — session.forked", () => {
+  it("بيترجم session.forked لجلسة جديدة", () => {
+    const event = clientEvent({ type: "session.forked", data: { sessionID: "ses_branch" } } as unknown as OpenCodeEvent)
+
+    expect(event).toEqual({ type: "session.created", properties: { sessionID: "ses_branch" } })
+  })
+
+  it("بيسيب session.created و session.deleted زي ما هم", () => {
+    expect(clientEvent({ type: "session.created", data: { sessionID: "ses_new" } } as unknown as OpenCodeEvent)).toEqual({ type: "session.created", properties: { sessionID: "ses_new" } })
+    expect(clientEvent({ type: "session.deleted", data: { sessionID: "ses_old" } } as unknown as OpenCodeEvent)).toEqual({ type: "session.deleted", properties: { sessionID: "ses_old" } })
   })
 })

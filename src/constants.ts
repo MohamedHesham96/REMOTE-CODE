@@ -23,6 +23,17 @@ export const PINNED_MODELS_LIMIT = 5
 export const PINS_SYNC_EVENT = "opencode:pins"
 // نفس الحاجة لمثبّتات النماذج على قناة SSE تانية
 export const MODEL_PINS_SYNC_EVENT = "opencode:modelPins"
+// ونفس الحاجة للطلبات المفضّلة على قناة SSE تالتة
+export const FAVORITES_SYNC_EVENT = "opencode:favorites"
+// كاش عرض محلي للمفضّلات — مصدر الحقيقة ملف السيرفر (data/favorites.json)،
+// والكاش ليه عشان أول رسم يبان فورًا من غير وميض فاضي
+export const FAVORITES_KEY = "opencode.favoritePrompts"
+// سقف المفضّلات — لازم يطابق MAX_FAVORITES في server/favorites.ts
+export const FAVORITES_LIMIT = 100
+// سقف النص — نفس سقف الرسالة في المحرك (20000 محرف)
+export const FAVORITE_TEXT_LIMIT = 20000
+// سقف اسم العرض — لازم يطابق MAX_LABEL في server/favorites.ts
+export const FAVORITE_LABEL_LIMIT = 120
 export const ACTIVE_GRACE_MS = 5 * 60 * 1000
 // بعد قد إيه من صمت (ولا أداة شغّالة) نعتبر الطلب "في انتظار" بدل "قيد التنفيذ".
 // قصير من مهلة الجمود اللي في السيرفر (BUSY_STALL_MS = ١٠ د) عن قصد: ده

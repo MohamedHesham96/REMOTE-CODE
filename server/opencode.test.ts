@@ -16,6 +16,9 @@ interface FakeClient {
   messages: Array<Record<string, unknown>>
   sessions: Array<Record<string, unknown>>
   switchCalls: Array<Record<string, unknown>>
+  forked: string[]
+  updates: Array<Record<string, unknown>>
+  sessionTitle: string
   session: Record<string, unknown>
   message: Record<string, unknown>
   permission: Record<string, unknown>
@@ -44,6 +47,9 @@ function createFakeClient(raw: { running: boolean }): FakeClient {
     messages: [],
     sessions: [sessionSummary(SESSION, DIRECTORY)],
     switchCalls: [],
+    forked: [],
+    updates: [],
+    sessionTitle: "",
     session: {},
     message: {},
     permission: {},
@@ -69,8 +75,15 @@ function createFakeClient(raw: { running: boolean }): FakeClient {
       cursor: {},
     }),
     remove: () => Promise.resolve(undefined),
-    get: () => Promise.resolve(sessionSummary(SESSION, DIRECTORY)),
-    update: () => Promise.resolve(undefined),
+    get: () => Promise.resolve({ ...sessionSummary(SESSION, DIRECTORY), title: fake.sessionTitle }),
+    update: (options: Record<string, unknown>) => {
+      fake.updates.push(options)
+      return Promise.resolve(undefined)
+    },
+    fork: (options: { sessionID?: string }) => {
+      fake.forked.push(options.sessionID ?? "")
+      return Promise.resolve(sessionSummary("ses_branch", DIRECTORY))
+    },
     switchAgent: (options: { agent?: string }) => {
       fake.switchCalls.push({ agent: options.agent })
       return Promise.resolve(undefined)
@@ -1189,6 +1202,8 @@ describe("project list filtering", () => {
       worktree: "E:/mSales/app",
       name: "mSales App",
       time: { created: 1, updated: 99 },
+      // محادثة واحدة جذرية اتقرت مع القائمة — العدد بيتحسب من غير نداء إضافي
+      sessionCount: 1,
     }])
   })
 })
@@ -1611,5 +1626,70 @@ describe("agent attention and retry workflow", () => {
 
     await expect(service.retryFailedRequest(SESSION, "msg_u2")).resolves.toMatchObject({ retried: true })
     expect(fake.dispatched).toEqual(["Run the task", "Run the task"])
+  })
+})
+
+// فرع المحادثة: المحرك بينشئ جلسة جديدة بنفس السياق (fork)، والأصل ما
+// بيتغيّرش. الاسم بيتولّد من عنوان الأصل + لاحقة حسب لغة الطلب، والعنوان
+// الافتراضي بيتساب للجيل التلقائي.
+describe("session branching", () => {
+  it("بينشئ فرعًا مستقلًا باسم الأصل + لاحقة الفرع", async () => {
+    const { service, fake } = createService()
+    fake.sessionTitle = "إصلاح المصادقة"
+
+    const branch = await service.branchSession(SESSION)
+
+    expect(fake.forked).toEqual([SESSION])
+    expect(branch).toMatchObject({ id: "ses_branch", title: "إصلاح المصادقة — فرع", directory: DIRECTORY })
+    expect(fake.updates).toEqual([{ sessionID: "ses_branch", title: "إصلاح المصادقة — فرع" }])
+  })
+
+  it("بيتبع لغة الطلب في اللاحقة", async () => {
+    const { service, fake } = createService()
+    fake.sessionTitle = "Fix authentication"
+
+    const branch = await service.branchSession(SESSION, "en")
+
+    expect(branch.title).toBe("Fix authentication — Branch")
+  })
+
+  it("العنوان الافتراضي بيتساب للجيل التلقائي بدل لاحقة مكررة", async () => {
+    const { service, fake } = createService()
+    fake.sessionTitle = "محادثة جديدة"
+
+    const branch = await service.branchSession(SESSION)
+
+    expect(branch.title).toBe("")
+    expect(fake.updates).toEqual([])
+  })
+
+  it("فشل إعادة التسمية لا يسقط الفرع — الفرع اتعمل فعلًا", async () => {
+    const { service, fake } = createService()
+    fake.sessionTitle = "مهمة"
+    fake.session.update = () => Promise.reject(new Error("update failed"))
+
+    await expect(service.branchSession(SESSION)).resolves.toMatchObject({ id: "ses_branch", title: "" })
+    expect(fake.forked).toEqual([SESSION])
+  })
+
+  it("فشل إنشاء الفرع بيرتفع للعميل من غير أي تعديل على الأصل", async () => {
+    const { service, fake } = createService()
+    fake.session.fork = () => Promise.reject(new Error("engine failed"))
+
+    await expect(service.branchSession(SESSION)).rejects.toThrow("engine failed")
+    expect(fake.updates).toEqual([])
+  })
+
+  it("الفرع ما بيلمسش طابور الأصل الشغّال", async () => {
+    const { service, fake } = createService()
+    fake.sessionTitle = "مهمة"
+    await service.prompt(SESSION, "طلب شغال")
+    expect(service.hasPendingWork(SESSION)).toBe(true)
+
+    await service.branchSession(SESSION)
+
+    expect(service.hasPendingWork(SESSION)).toBe(true)
+    expect(fake.forked).toEqual([SESSION])
+    expect(fake.updates).toEqual([{ sessionID: "ses_branch", title: "مهمة — فرع" }])
   })
 })

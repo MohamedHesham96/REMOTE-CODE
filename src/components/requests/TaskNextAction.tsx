@@ -28,13 +28,15 @@ export function TaskNextAction({ view, error, hasChanges, retrying, onRetry, onR
       </div>
     )
   }
-  if (view.phase !== "completed") {
+  // بعد اكتمال المهمة يبقى إجراء واحد فقط عند وجود تغييرات: مراجعتها.
+  // زر "متابعة العمل" اتشال لأن الـ composer مفتوح تحت وفي متناول اليد، فالزر
+  // كان تكرارًا بصريًا بلا وظيفة جديدة.
+  if (view.phase !== "completed" || !hasChanges) {
     return null
   }
   return (
     <div className="task-next-action">
-      {hasChanges ? <button type="button" className="button button-primary" onClick={onReviewChanges}>{t.reviewChanges}</button> : null}
-      <button type="button" className={hasChanges ? "button button-secondary" : "button button-primary"} onClick={onContinue}>{t.continueTask}</button>
+      <button type="button" className="button button-primary" onClick={onReviewChanges}>{t.reviewChanges}</button>
     </div>
   )
 }

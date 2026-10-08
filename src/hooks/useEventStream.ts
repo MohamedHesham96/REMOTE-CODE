@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
-import type { ClientEvent, PinnedConversation } from "../types"
-import { MODEL_PINS_SYNC_EVENT, PINS_SYNC_EVENT, SSE_STALE_MS, SSE_WATCHDOG_MS } from "../constants"
+import type { ClientEvent, FavoritePrompt, PinnedConversation } from "../types"
+import { FAVORITES_SYNC_EVENT, MODEL_PINS_SYNC_EVENT, PINS_SYNC_EVENT, SSE_STALE_MS, SSE_WATCHDOG_MS } from "../constants"
 
 interface EventStreamOptions {
   enabled: boolean
@@ -110,6 +110,16 @@ export function useEventStream(options: EventStreamOptions): boolean {
           window.dispatchEvent(new CustomEvent(MODEL_PINS_SYNC_EVENT, { detail: { models: payload.models } }))
         } catch {
           // رد مش مفهوم — الـ refresh والـ poll بيجيبوا الصورة الصح
+        }
+      })
+      // الطلبات المفضّلة: نفس البثّ على نفس القناة، فالحفظ أو التعديل أو
+      // الحذف من أي جهاز يوصل لكل النوافذ المفتوحة فورًا من غير poll.
+      next.addEventListener("favorites", (rawEvent) => {
+        try {
+          const payload = JSON.parse((rawEvent as MessageEvent<string>).data) as { favorites?: FavoritePrompt[] }
+          window.dispatchEvent(new CustomEvent(FAVORITES_SYNC_EVENT, { detail: { favorites: payload.favorites } }))
+        } catch {
+          // رد مش مفهوم — الـ refresh بيجيب الصورة الصح
         }
       })
       next.onerror = () => {

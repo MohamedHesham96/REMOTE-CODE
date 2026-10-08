@@ -10,15 +10,17 @@ interface HistoryTurnCardProps {
   turn: HistoryTurn
   expanded: boolean
   sessionId: string | null
+  favorited: boolean
   onToggleExpanded: (id: string) => void
   onCopy: (text: string) => void
+  onSaveFavorite: (text: string) => void
   t: Strings
   lang: Language
 }
 
 // כروت السجل ثقيلة: كل واحد يفحص الجداول وينشئ عناصر Markdown. تثبيت الصف
 // يمنع إعادة ذلك عند الكتابة في البحث أو فتح/طيّ بطاقة أخرى.
-const HistoryTurnCard = memo(function HistoryTurnCard({ turn, expanded, sessionId, onToggleExpanded, onCopy, t, lang }: HistoryTurnCardProps) {
+const HistoryTurnCard = memo(function HistoryTurnCard({ turn, expanded, sessionId, favorited, onToggleExpanded, onCopy, onSaveFavorite, t, lang }: HistoryTurnCardProps) {
   const result = turn.finalResult.trim()
   // الرد اللي فيه جدول ما بنقصّوش نصيًا عشان الجدول يبان مرتّب.
   const hasTable = result.length > 400 && result.includes("|") && parseMarkdownBlocks(result).some((block) => block.kind === "table")
@@ -35,7 +37,20 @@ const HistoryTurnCard = memo(function HistoryTurnCard({ turn, expanded, sessionI
       <div className="history-block history-question">
         <div className="history-label">💬 {t.yourQuestion}</div>
         <p>{turn.prompt || "—"}</p>
-        <button className="history-copy" onClick={() => onCopy(turn.prompt)}>{t.copyQuestion}</button>
+        <div className="history-question-actions">
+          <button className="history-copy" onClick={() => onCopy(turn.prompt)}>{t.copyQuestion}</button>
+          {turn.prompt.trim() ? (
+            <button
+              type="button"
+              className={`history-copy history-favorite${favorited ? " is-on" : ""}`}
+              onClick={() => onSaveFavorite(turn.prompt)}
+              disabled={favorited}
+              title={favorited ? t.favoriteSaved : t.saveAsFavorite}
+            >
+              {favorited ? "★" : "☆"} {t.saveAsFavorite}
+            </button>
+          ) : null}
+        </div>
       </div>
       <div className="history-block history-answer">
         <div className="history-label">✅ {t.finalResult}</div>
@@ -80,6 +95,9 @@ interface HistoryPanelProps {
   loading: boolean
   error: string
   sessionId: string | null
+  // نصوص المحفوظ في المفضّلة — النجمة بتقرا منها O(1) لكل بطاقة
+  favoritedTexts: ReadonlySet<string>
+  onSaveFavorite: (text: string) => void
   onClose: () => void
   onCopy: (text: string) => void
   onRetry: () => void
@@ -87,7 +105,7 @@ interface HistoryPanelProps {
   lang: Language
 }
 
-function HistoryPanelInner({ turns, loading, error, sessionId, onClose, onCopy, onRetry, t, lang }: HistoryPanelProps) {
+function HistoryPanelInner({ turns, loading, error, sessionId, favoritedTexts, onSaveFavorite, onClose, onCopy, onRetry, t, lang }: HistoryPanelProps) {
   const [query, setQuery] = useState("")
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
@@ -149,8 +167,10 @@ function HistoryPanelInner({ turns, loading, error, sessionId, onClose, onCopy, 
                 turn={turn}
                 expanded={expanded.has(turn.id)}
                 sessionId={sessionId}
+                favorited={favoritedTexts.has(turn.prompt.trim())}
                 onToggleExpanded={toggleExpanded}
                 onCopy={onCopy}
+                onSaveFavorite={onSaveFavorite}
                 t={t}
                 lang={lang}
               />

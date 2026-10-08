@@ -3,6 +3,8 @@ import { projectName, samePath } from "../../display"
 import type { Language, Strings } from "../../i18n"
 import type { Project } from "../../types"
 import { useSortedProjects } from "../../hooks/useSortedProjects"
+import { normalizeProjectPath } from "../../utils/paths"
+import { formatProjectSummary, type ProjectSummary } from "../../utils/project-summary"
 
 // memo: قائمة المشاريع ممكن تكون عشرات العناصر، ومع كل تحديث للـ
 // `projects` (poll, SSE)، الـ parent بيعيد الرسم فكل صف كان يتعاد رسمه
@@ -11,17 +13,22 @@ interface ProjectOptionRowsProps {
   items: Project[]
   selectedId?: string
   switchingKey: string | null
+  // ملخصات المشاريع مبنية مسبقًا في App (Map مفتاحها المسار المطبّع) —
+  // الصف بيعرض منها من غير أي حساب ثقيل أو طلب
+  summaries: ReadonlyMap<string, ProjectSummary>
+  lang: Language
   onSelect: (project: Project) => void
   t: Strings
 }
 
-function ProjectOptionRowsInner({ items, selectedId, switchingKey, onSelect, t }: ProjectOptionRowsProps) {
+function ProjectOptionRowsInner({ items, selectedId, switchingKey, summaries, lang, onSelect, t }: ProjectOptionRowsProps) {
   return (
     <div className="project-listbox" role="listbox" aria-label={t.projects}>
       {items.map((project) => {
         const key = `${project.id}:${project.worktree}`
         const isCurrent = samePath(project.worktree, selectedId)
         const isSwitching = switchingKey === project.worktree
+        const summary = formatProjectSummary(summaries.get(normalizeProjectPath(project.worktree)), t, lang)
         return (
           <button
             role="option"
@@ -35,6 +42,7 @@ function ProjectOptionRowsInner({ items, selectedId, switchingKey, onSelect, t }
             <span className="project-option-body">
               <strong>{projectName(project)}</strong>
               <small dir="ltr">{project.worktree}</small>
+              {summary ? <small className="project-option-summary">{summary}</small> : null}
             </span>
             <span className="project-option-badges">
               {isCurrent ? <span className="current-badge">{t.current}</span> : null}
@@ -55,6 +63,7 @@ interface ProjectDropdownProps {
   selectedId?: string
   switchingKey: string | null
   recentPaths: string[]
+  summaries: ReadonlyMap<string, ProjectSummary>
   onSelect: (project: Project) => void
   t: Strings
   lang: Language
@@ -63,7 +72,7 @@ interface ProjectDropdownProps {
 //
 // memo: موجود في السايدبار اللي بيتعاد رسمه مع كل تحديث للمحادثات.
 // من غير memo، القائمة والبحث كانوا بيتعاد رسمهم مع كل تغيير حالة.
-function ProjectDropdownInner({ projects, selectedId, switchingKey, recentPaths, onSelect, t, lang }: ProjectDropdownProps) {
+function ProjectDropdownInner({ projects, selectedId, switchingKey, recentPaths, summaries, onSelect, t, lang }: ProjectDropdownProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const boxRef = useRef<HTMLDivElement | null>(null)
@@ -150,7 +159,7 @@ function ProjectDropdownInner({ projects, selectedId, switchingKey, recentPaths,
           ) : sorted.length === 0 ? (
             <div className="empty-state">{t.noResultsFor} «{query}».</div>
           ) : (
-            <ProjectOptionRows items={sorted} selectedId={selectedId} switchingKey={switchingKey} onSelect={pick} t={t} />
+            <ProjectOptionRows items={sorted} selectedId={selectedId} switchingKey={switchingKey} summaries={summaries} lang={lang} onSelect={pick} t={t} />
           )}
         </div>
       ) : null}
@@ -162,11 +171,12 @@ export const ProjectDropdown = memo(ProjectDropdownInner)
 
 // memo: شاشة اختيار المشروع الكاملة — مع `memo` إعادة الرسم محصورة في
 // تغيير `projects` أو `query`، مش في كل تحديث للمحادثات النشطة.
-function ProjectPickerInner({ projects, selectedId, switchingKey, recentPaths, onSelect, t, lang }: {
+function ProjectPickerInner({ projects, selectedId, switchingKey, recentPaths, summaries, onSelect, t, lang }: {
   projects: Project[]
   selectedId?: string
   switchingKey: string | null
   recentPaths: string[]
+  summaries: ReadonlyMap<string, ProjectSummary>
   onSelect: (project: Project) => void
   t: Strings
   lang: Language
@@ -195,7 +205,7 @@ function ProjectPickerInner({ projects, selectedId, switchingKey, recentPaths, o
           ) : sorted.length === 0 ? (
             <div className="empty-state">{t.noResultsFor} «{query}».</div>
           ) : (
-            <ProjectOptionRows items={sorted} selectedId={selectedId} switchingKey={switchingKey} onSelect={onSelect} t={t} />
+            <ProjectOptionRows items={sorted} selectedId={selectedId} switchingKey={switchingKey} summaries={summaries} lang={lang} onSelect={onSelect} t={t} />
           )}
         </div>
         {switchingKey ? <div className="picker-loading"><span className="loader" /> {t.openingProject}</div> : null}

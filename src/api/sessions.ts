@@ -27,6 +27,12 @@ export function deleteSession(id: string): Promise<{ deleted: boolean }> {
   return request<{ deleted: boolean }>(`/api/session/${encodeURIComponent(id)}`, { method: "DELETE" })
 }
 
+// فرع من محادثة قائمة: بيرجّع الجلسة الجديدة المستقلة بنفس السياق — الأصل
+// ما بيتغيّرش. الضغط المزدوج بيتحرس في الـ App (حارس متزامن + حالة تحميل).
+export function branchSession(id: string, lang: "ar" | "en" = "ar"): Promise<Session> {
+  return request<Session>(`/api/session/${encodeURIComponent(id)}/branch?lang=${lang}`, { method: "POST" })
+}
+
 export function getStatuses(): Promise<Record<string, SessionStatus>> {
   return request<Record<string, SessionStatus>>("/api/session/status")
 }

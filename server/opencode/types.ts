@@ -13,6 +13,10 @@ export interface Project {
   worktree: string
   name?: string
   time: { created: number; updated: number }
+  // عدد المحادثات الجذرية في المشروع — بيتحسب أثناء بناء القائمة من نفس
+  // ليستة الجلسات المقروءة أصلًا، فالملخص بتاع المشروع ما بيكلفش نداء إضافي.
+  // (مهام Task الفرعية لا تُعدّ: المستخدم شايف محادثة واحدة.)
+  sessionCount?: number
 }
 
 export type SessionStatus = { type: "idle" } | { type: "busy" } | { type: "retry" }
@@ -206,4 +210,14 @@ export interface SessionModelRef {
   providerID: string
   modelID: string
   variant?: string
+}
+
+// طلب مفضّل — نص كامل كما حفظه المستخدم + اسم عرض قصير قابل لإعادة التسمية.
+// مفيش أي ربط بجلسة أو مشروع: حذف الجلسة اللي اتحفظ منها مايأثرش على
+// المفضّلة، والطلب يفضل قابلًا للاستخدام في أي مشروع.
+export interface FavoritePrompt {
+  id: string
+  text: string
+  label: string
+  createdAt: number
 }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { DEFAULT_MODEL_KEY, PINNED_SESSIONS_KEY, PINNED_SESSIONS_LIMIT } from "../constants"
+import { DEFAULT_MODEL_KEY, FAVORITES_KEY, PINNED_SESSIONS_KEY, PINNED_SESSIONS_LIMIT } from "../constants"
 import type { PinnedConversation, Session } from "../types"
 import {
   _resetLocalCacheForTesting,
@@ -7,6 +7,7 @@ import {
   hasLegacyPinnedFormat,
   loadDefaultModel,
   loadDefaultModels,
+  loadFavoritePrompts,
   loadPinnedConversations,
   loadPinnedModels,
   pinBelongsToProject,
@@ -14,6 +15,7 @@ import {
   pinProjectKey,
   pinsForProject,
   saveDefaultModel,
+  saveFavoritePrompts,
   savePinnedConversations,
   savePinnedModels,
   sortSessionsByCreated,
@@ -370,5 +372,44 @@ describe("pinned models", () => {
   it("round-trips through localStorage and drops junk", () => {
     savePinnedModels(["a/one", "bad-entry", "b/two", "a/one"])
     expect(loadPinnedModels()).toEqual(["a/one", "b/two"])
+  })
+})
+
+describe("favorite prompts cache", () => {
+  it("returns an empty list when nothing is stored", () => {
+    expect(loadFavoritePrompts()).toEqual([])
+  })
+
+  it("round-trips full entries through localStorage and keeps the order", () => {
+    saveFavoritePrompts([
+      { id: "fav_b", text: "التاني", label: "التاني", createdAt: 2 },
+      { id: "fav_a", text: "الأول", label: "الأول", createdAt: 1 },
+    ])
+    expect(loadFavoritePrompts().map((favorite) => favorite.text)).toEqual(["التاني", "الأول"])
+  })
+
+  it("survives a reload because the entries come back from localStorage", () => {
+    saveFavoritePrompts([{ id: "fav_a", text: "يفضل", label: "يفضل", createdAt: 1 }])
+    // نفس اللي بيحصل بعد refresh: الكاش بيتصفّى والقائمة بتُقرأ من localStorage
+    _resetLocalCacheForTesting()
+    expect(loadFavoritePrompts()).toEqual([{ id: "fav_a", text: "يفضل", label: "يفضل", createdAt: 1 }])
+  })
+
+  it("drops duplicates, empty entries, and junk on load", () => {
+    ;(globalThis as unknown as { localStorage: Storage }).localStorage.setItem(FAVORITES_KEY, JSON.stringify([
+      { id: "a", text: "نفس النص", label: "نفس النص", createdAt: 1 },
+      { id: "b", text: "نفس النص", label: "مكرر بالنص", createdAt: 2 },
+      { id: "a", text: "نص تاني", label: "مكرر بالـ id", createdAt: 3 },
+      { id: "c", text: "", label: "", createdAt: 4 },
+      "قمامة",
+    ]))
+    expect(loadFavoritePrompts().map((favorite) => favorite.id)).toEqual(["a"])
+  })
+
+  it("keeps a favorite whose label is missing by deriving it from the text", () => {
+    ;(globalThis as unknown as { localStorage: Storage }).localStorage.setItem(FAVORITES_KEY, JSON.stringify([
+      { id: "a", text: "أصلح المصادقة", createdAt: 5 },
+    ]))
+    expect(loadFavoritePrompts()[0]?.label).toBe("أصلح المصادقة")
   })
 })

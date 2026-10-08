@@ -12,6 +12,9 @@ export interface Project {
   worktree: string
   name?: string
   time: { created: number; updated: number }
+  // عدد محادثات المشروع — بيتحسب على السيرفر من نفس ليستة الجلسات المقروءة
+  // أصلًا، فالملخص المفصّل للمشروع ما بيكلفش أي طلب إضافي للعميل.
+  sessionCount?: number
 }
 
 export interface SessionStatus {
@@ -301,6 +304,15 @@ export interface HistoryTurn {
   createdAt: number
   steps: number
   files: ResultFile[]
+}
+
+// طلب مفضّل — نص كامل + اسم عرض قصير. مفيش ربط بجلسة أو مشروع، فحذف
+// الجلسة اللي اتحفظ منها مايأثرش على المفضّلة.
+export interface FavoritePrompt {
+  id: string
+  text: string
+  label: string
+  createdAt: number
 }
 
 export type GitChangeStatus = "added" | "deleted" | "modified"

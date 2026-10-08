@@ -3,6 +3,7 @@ import type { Strings } from "../../i18n"
 import type { SessionRequest, SessionStatus, ToastKind } from "../../types"
 import { describeTask } from "../../utils/task-status"
 import { useNowTick } from "../../hooks/useNowTick"
+import { BranchButton } from "./BranchButton"
 import { ConversationTitle } from "./ConversationTitle"
 import { RequestRow } from "./RequestRow"
 import { TaskStatusPanel } from "./TaskStatusPanel"
@@ -39,6 +40,12 @@ interface RequestCardProps {
   onSkip: (request: SessionRequest) => void
   onRunNow: (request: SessionRequest) => void
   onRemove: (request: SessionRequest) => void
+  // نصوص الطلبات المحفوظة في المفضّلة: نجمة الصف بتقرا منها O(1)
+  favoritedTexts: ReadonlySet<string>
+  onSaveFavorite: (text: string) => void
+  // فرع من المحادثة المفتوحة — الحالة بتمنع الضغط المزدوج
+  onBranch: () => void
+  branching: boolean
   busyAction: string | null
   status: SessionStatus | undefined
   stalled: boolean
@@ -51,7 +58,7 @@ interface RequestCardProps {
   t: Strings
 }
 
-function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle, isEditingTitle, titleDraft, renamingTitle, onStartRename, onCancelRename, onTitleDraftChange, onRenameSubmit, onTitleKeyDown, onCopy, onToast, onSkip, onRunNow, onRemove, busyAction, status, stalled, waitingOnUser, hasChanges, retryingRequestId, onRetry, onReviewChanges, onContinue, t }: RequestCardProps) {
+function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle, isEditingTitle, titleDraft, renamingTitle, onStartRename, onCancelRename, onTitleDraftChange, onRenameSubmit, onTitleKeyDown, onCopy, onToast, onSkip, onRunNow, onRemove, favoritedTexts, onSaveFavorite, onBranch, branching, busyAction, status, stalled, waitingOnUser, hasChanges, retryingRequestId, onRetry, onReviewChanges, onContinue, t }: RequestCardProps) {
   const [openId, setOpenId] = useState<string | null>(null)
   const latest = requests[requests.length - 1]
   // الطلب الشغّال هو المفتوح افتراضيًا؛ بعد ما يخلص آخر طلب هو اللي يفضل مفتوح.
@@ -78,6 +85,8 @@ function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle,
           onContinue={onContinue}
           t={t}
         />
+        {/* الفرع جنب إجراءات الحالة: متاح دايمًا ما دام فيه محادثة مفتوحة */}
+        <BranchButton branching={branching} disabled={!sessionId} onBranch={onBranch} t={t} />
       </div>
       <ul className="request-list" ref={listRef}>
         {requests.map((request) => (
@@ -92,6 +101,8 @@ function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle,
             onSkip={onSkip}
             onRunNow={onRunNow}
             onRemove={onRemove}
+            favorited={favoritedTexts.has(request.prompt.trim())}
+            onSaveFavorite={onSaveFavorite}
             busyAction={busyAction}
             t={t}
           />

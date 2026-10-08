@@ -16,6 +16,12 @@ export function modelPinsEvent(models: unknown): string {
   return `event: modelPins\ndata: ${JSON.stringify({ models })}\n\n`
 }
 
+// نفس القناة تالت مرة للطلبات المفضّلة: الحفظ من أي جهاز يوصل لكل الأجهزة
+// المفتوحة فورًا من غير poll — نفس عقدة المثبّتات بالظبط.
+export function favoritesEvent(favorites: unknown): string {
+  return `event: favorites\ndata: ${JSON.stringify({ favorites })}\n\n`
+}
+
 export class EventHub {
   private readonly clients = new Set<Response>()
 

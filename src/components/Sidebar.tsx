@@ -4,12 +4,16 @@ import { SessionItem } from "./SessionItem"
 import type { Language } from "../i18n"
 import type { Strings } from "../i18n"
 import type { Project, Session as SessionModel } from "../types"
+import type { ProjectSummary } from "../utils/project-summary"
 
 interface SidebarProps {
   showSessions: boolean
   onClose: () => void
   eventConnected: boolean
   projects: Project[]
+  // ملخصات المشاريع (شغّال/محتاج انتباه/عدد المحادثات) — بتتحسب في App من
+  // الحالات الحية الموجودة أصلًا وبتظهر جنب اسم كل مشروع في القائمة
+  summaries: ReadonlyMap<string, ProjectSummary>
   selectedProject: Project | null
   switchingProject: string | null
   recentProjects: string[]
@@ -48,6 +52,7 @@ function SidebarInner({
   onClose,
   eventConnected,
   projects,
+  summaries,
   selectedProject,
   switchingProject,
   recentProjects,
@@ -105,6 +110,7 @@ function SidebarInner({
         selectedId={selectedProject?.worktree}
         switchingKey={switchingProject}
         recentPaths={recentProjects}
+        summaries={summaries}
         onSelect={handleSelectProject}
         t={t}
         lang={lang}

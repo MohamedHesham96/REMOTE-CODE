@@ -34,6 +34,17 @@ export function registerSessionRoutes(app: Express, ctx: RouteContext): void {
     }
   })
 
+  // فرع من محادثة: جلسة جديدة مستقلة بنفس السياق — الأصل ما بيتغيّرش.
+  // idempotency الضغط المزدوج مسؤولية العميل (حارس متزامن + حالة تحميل)،
+  // وده الحدث اللي بيخلي باقي الأجهزة تشوف الفرع فورًا.
+  app.post("/api/session/:id/branch", async (request, response) => {
+    try {
+      response.status(201).json(await ctx.openCode.branchSession(request.params.id, getServerLang(request)))
+    } catch (error) {
+      ctx.connection.handleError(error, response, request)
+    }
+  })
+
   app.delete("/api/session/:id", async (request, response) => {
     try {
       const deleted = await ctx.openCode.deleteSession(request.params.id)

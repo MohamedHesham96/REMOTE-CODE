@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { addPin, forgetPins, getPins, mergePins, removePin } from "./api"
+import { addFavorite, addPin, branchSession, forgetPins, getFavorites, getPins, mergePins, removeFavorite, removePin, updateFavorite } from "./api"
 import { getAttention, getRequests, getStatuses, listPermissions, rejectQuestion, removeQueuedRequest, renameSession, replyQuestion, retryFailedRequest, runQueuedRequest, sendMessage, skipRunningRequest } from "./api"
 import { clearEtagCache } from "./api/http"
-import type { PinnedConversation, Session, SessionRequest, SessionRequests, SessionStatus } from "./types"
+import type { FavoritePrompt, PinnedConversation, Session, SessionRequest, SessionRequests, SessionStatus } from "./types"
 
 function pin(id: string, overrides: Partial<PinnedConversation> = {}): PinnedConversation {
   return {
@@ -226,6 +226,67 @@ describe("pinned conversations", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/pin/merge", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ pins: [pin("ses_a"), pin("ses_b")] }),
+    }))
+  })
+})
+
+describe("favorite prompts", () => {
+  const favorite: FavoritePrompt = { id: "fav_1", text: "Fix authentication", label: "Fix authentication", createdAt: 1 }
+
+  function respondWith(favorites: FavoritePrompt[]): ReturnType<typeof vi.fn> {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ favorites }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+    return fetchMock
+  }
+
+  it("reads the whole list from the server", async () => {
+    const fetchMock = respondWith([favorite])
+    await expect(getFavorites()).resolves.toEqual([favorite])
+    expect(fetchMock).toHaveBeenCalledWith("/api/favorites", expect.objectContaining({ credentials: "include" }))
+  })
+
+  it("saves a prompt with the request language and takes the server list back", async () => {
+    const fetchMock = respondWith([favorite])
+    await expect(addFavorite("Fix authentication", "fav_1", "en")).resolves.toEqual([favorite])
+    expect(fetchMock).toHaveBeenCalledWith("/api/favorites?lang=en", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ favorite: { text: "Fix authentication", id: "fav_1" } }),
+      credentials: "include",
+    }))
+  })
+
+  it("updates the text or the label of a favorite", async () => {
+    const fetchMock = respondWith([favorite])
+    await expect(updateFavorite("fav/1", { text: "New text", label: "New name" })).resolves.toEqual([favorite])
+    expect(fetchMock).toHaveBeenCalledWith("/api/favorites/fav%2F1?lang=ar", expect.objectContaining({
+      method: "PATCH",
+      body: JSON.stringify({ favorite: { text: "New text", label: "New name" } }),
+    }))
+  })
+
+  it("removes a favorite by its encoded id", async () => {
+    const fetchMock = respondWith([])
+    await expect(removeFavorite("fav/1", "ar")).resolves.toEqual([])
+    expect(fetchMock).toHaveBeenCalledWith("/api/favorites/fav%2F1?lang=ar", expect.objectContaining({ method: "DELETE" }))
+  })
+})
+
+describe("branch session", () => {
+  it("posts to the branch endpoint with the request language and returns the new session", async () => {
+    const branch = { id: "ses_branch", title: "Implement authentication — Branch", directory: "/srv", time: { created: 3, updated: 3 } } as Session
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(branch), {
+      status: 201,
+      headers: { "Content-Type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(branchSession("ses/original", "en")).resolves.toEqual(branch)
+    expect(fetchMock).toHaveBeenCalledWith("/api/session/ses%2Foriginal/branch?lang=en", expect.objectContaining({
+      method: "POST",
+      credentials: "include",
     }))
   })
 })

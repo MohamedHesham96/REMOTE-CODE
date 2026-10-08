@@ -893,6 +893,26 @@ export class OpenCodeService {
       })
     }
 
+    // عدد المحادثات الجذرية لكل مشروع: بيتبني من نفس ليستة الجلسات المقروءة
+    // فوق، فملخص المشروع ما بيكلفش أي نداء إضافي. المهام الفرعية (Task)
+    // مش بتتعدّ — نفس قاعدة `sessions()`: المستخدم شايف محادثة واحدة.
+    const { roots } = sessionRoots(sessions)
+    const rootIds = new Set(roots)
+    const countByDirectory = new Map<string, number>()
+    for (const session of sessions) {
+      if (!rootIds.has(session.id)) {
+        continue
+      }
+      const key = directoryKey(session.location.directory)
+      if (!projectsByDirectory.has(key)) {
+        continue
+      }
+      countByDirectory.set(key, (countByDirectory.get(key) ?? 0) + 1)
+    }
+    for (const [key, project] of projectsByDirectory) {
+      project.sessionCount = countByDirectory.get(key) ?? 0
+    }
+
     return [...projectsByDirectory.values()].sort((left, right) => right.time.updated - left.time.updated)
   }
 
@@ -965,6 +985,33 @@ export class OpenCodeService {
     const nextTitle = stripMobileSuffix(title.trim()).slice(0, 120) || serverMessage("newConversation", lang)
     await this.requireClient().session.update({ sessionID: id, title: nextTitle })
     return this.toSession(await this.requireClient().session.get({ sessionID: id }))
+  }
+
+  // فرع من محادثة قائمة: المحرك بينشئ جلسة جديدة بنفس السياق لحد نقطة
+  // معيّنة، والأصل ما بيتغيّرش خالص. الفرع جلسة جذر مستقلة (مش مهمة فرعية —
+  // المحرك نفسه بيحفظ مرجع الأصل في خاصية `fork` بتاعة الجلسة)، فبيظهر في
+  // القائمة زي أي محادثة ويتسمّى ويتعدّل بحرية من غير ما يمس الأصل.
+  async branchSession(id: string, lang: ServerLang = "ar"): Promise<Session> {
+    const client = this.requireClient()
+    const source = await client.session.get({ sessionID: id })
+    const forked = await client.session.fork({ sessionID: id })
+    const session = this.toSession(forked)
+    // اسم الفرع: عنوان الأصل + "— فرع". العنوان الافتراضي/الفاضي بيتساب
+    // عشان الجيل التلقائي يشتغل مع أول رسالة في الفرع بدل ما نختم عنوانًا
+    // عامًا مكررًا. فشل إعادة التسمية لا يسقط الفرع نفسه — الفرع اتعمل فعلًا.
+    const base = stripMobileSuffix(source.title || "")
+    if (base && !isDefaultTitle(base)) {
+      const suffix = serverMessage("branchSuffix", lang)
+      const trimmed = base.slice(0, Math.max(0, 120 - suffix.length - 3)).trimEnd()
+      const title = `${trimmed} — ${suffix}`
+      try {
+        await client.session.update({ sessionID: session.id, title })
+        session.title = title
+      } catch {
+        // الاسم اختياري — الفرع بمحتواه هو الأصل
+      }
+    }
+    return session
   }
 
   async deleteSession(id: string): Promise<boolean> {

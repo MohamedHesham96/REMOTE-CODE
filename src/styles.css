@@ -1852,3 +1852,70 @@ html[dir="ltr"] .project-option-body small, html[dir="ltr"] .result-file-body st
   html[dir="ltr"] .sidebar { right: auto; left: 0; transform: translateX(-105%); padding-top: env(safe-area-inset-top); }
   html[dir="ltr"] .sidebar.sidebar-open { transform: translateX(0); }
 }
+
+/* ── الطلبات المفضّلة ── */
+/* زرار النجمة في الكومبوزر: نفس مقاس أزرار الإرفاق (34px) عشان الصف يبقى
+   متراص، وبيتلوّن ذهبي لما يبقى فيه مفضّلات محفوظة. عداد صغير فوقه. */
+.composer-favorites-toggle { position: relative; width: 34px; height: 34px; min-height: 0; flex: 0 0 auto; align-self: center; display: flex; align-items: center; justify-content: center; padding: 0; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 1px; color: var(--muted); background: var(--surface-card); cursor: pointer; transition: color 0.18s ease, border-color 0.18s ease, transform 0.15s ease; }
+.composer-favorites-toggle:hover { color: var(--yellow); border-color: rgba(var(--yellow-rgb), 0.45); }
+.composer-favorites-toggle:active { transform: scale(0.94); }
+.composer-favorites-toggle.has-items { color: var(--yellow); border-color: rgba(var(--yellow-rgb), 0.4); }
+.favorites-toggle-count { position: absolute; top: -6px; inset-inline-end: -6px; min-width: 16px; height: 16px; display: grid; place-items: center; padding: 0 4px; border: 1px solid var(--surface-card); border-radius: 99px; background: var(--yellow); color: #221a05; font-size: 9px; font-weight: 900; line-height: 1; pointer-events: none; }
+
+/* لوحة المفضّلات: منزلقة من تحت — أنسب موضع للموبايل، والخلفية المعتمة
+   بتقفل باللمس خارج اللوحة. */
+.favorites-backdrop { position: fixed; z-index: 45; inset: 0; display: flex; align-items: flex-end; justify-content: center; background: var(--scrim); backdrop-filter: blur(4px); }
+.favorites-sheet { width: min(560px, 100vw); max-height: min(72vh, 620px); display: flex; flex-direction: column; gap: 10px; overflow-y: auto; padding: 14px 14px calc(16px + env(safe-area-inset-bottom)); border: 1px solid var(--border); border-bottom: 0; border-radius: 1px; background: var(--drawer-bg); box-shadow: var(--shadow); animation: slide-up 0.2s ease; }
+@keyframes slide-up { from { transform: translateY(24px); opacity: 0.4; } to { transform: translateY(0); opacity: 1; } }
+.favorites-sheet-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.favorites-sheet-header h3 { margin: 2px 0 0; font-size: 18px; }
+.favorites-sheet-header .icon-button { flex: 0 0 38px; }
+.favorites-sheet .empty-state { padding: 18px 8px; text-align: center; }
+.favorites-save-current { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 12px; border: 1px dashed rgba(var(--yellow-rgb), 0.55); border-radius: 1px; color: var(--text); background: rgba(var(--yellow-rgb), 0.08); font-size: 13px; font-weight: 750; cursor: pointer; }
+.favorites-save-current:hover { background: rgba(var(--yellow-rgb), 0.16); }
+.favorites-current-saved { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 12px; border: 1px solid rgba(var(--yellow-rgb), 0.4); border-radius: 1px; color: var(--yellow); background: rgba(var(--yellow-rgb), 0.07); font-size: 12px; font-weight: 700; }
+.favorites-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.favorite-item { display: flex; align-items: stretch; gap: 6px; border: 1px solid var(--border); border-radius: 1px; background: var(--surface-card); }
+.favorite-item.is-editing { display: block; padding: 10px; }
+.favorite-use { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 0; color: var(--text); background: transparent; text-align: start; cursor: pointer; }
+.favorite-use:hover { background: var(--accent-soft-bg2); }
+.favorite-star { flex: 0 0 auto; font-size: 16px; }
+.favorite-body { min-width: 0; display: grid; gap: 2px; }
+.favorite-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 800; }
+.favorite-preview { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.favorite-action { flex: 0 0 40px; display: grid; place-items: center; border: 0; border-inline-start: 1px solid var(--border); color: var(--muted); background: transparent; font-size: 15px; cursor: pointer; }
+.favorite-action:hover { color: var(--accent-strong); background: var(--accent-soft-bg2); }
+.favorite-remove:hover { color: var(--error-text); background: var(--error-bg); }
+.favorite-edit-form { display: grid; gap: 8px; }
+.favorite-field { display: grid; gap: 4px; }
+.favorite-field > span { color: var(--muted); font-size: 11px; font-weight: 750; }
+.favorite-field input, .favorite-field textarea { width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 1px; color: var(--text); background: var(--surface-input); font: inherit; font-size: 13px; resize: vertical; }
+.favorite-edit-actions { display: flex; gap: 8px; }
+.favorite-edit-actions .button { flex: 1; min-height: 40px; }
+
+/* ── فرع المحادثة ── */
+.branch-session { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; min-height: 34px; padding: 7px 12px; border: 1px solid var(--accent-border); border-radius: 1px; color: var(--accent-strong); background: var(--accent-soft-bg2); font-size: 11px; font-weight: 800; cursor: pointer; transition: border-color 0.18s ease, background 0.18s ease, transform 0.15s ease; }
+.branch-session:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft-bg3); transform: translateY(-1px); }
+.branch-session:active:not(:disabled) { transform: scale(0.97); }
+.branch-session:disabled { cursor: not-allowed; opacity: 0.6; }
+.branch-session.is-branching { border-style: dashed; }
+.branch-session-icon { font-size: 14px; line-height: 1; }
+
+/* نجمات الحفظ: صف الطلب والسجل */
+.request-action-favorite.is-on { color: var(--yellow); border-color: rgba(var(--yellow-rgb), 0.45); background: rgba(var(--yellow-rgb), 0.14); cursor: default; }
+.request-action-favorite:disabled { opacity: 1; }
+.history-question-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.history-favorite.is-on { color: var(--yellow); border-color: rgba(var(--yellow-rgb), 0.5); background: rgba(var(--yellow-rgb), 0.12); cursor: default; }
+.history-favorite:disabled { opacity: 1; }
+
+/* ── ملخص المشروع ── */
+/* سطر إضافي تحت المسار: يشرح حالة المشروع من غير ما يفتحه، بلون مختلف
+   شوية عن المسار عشان يتقرأ كحالة مش عنوان. */
+.project-option-summary { overflow: hidden; color: var(--text-body); text-overflow: ellipsis; white-space: nowrap; direction: rtl; font-size: 10px; font-weight: 700; }
+html[dir="ltr"] .project-option-summary { direction: ltr; }
+
+@media (max-width: 800px) {
+  .favorites-sheet { width: 100vw; max-height: 78vh; }
+  /* زرار الفرع بعرض السطر على الموبايل: هدف لمس واضح مش زرار صغير */
+  .branch-session { width: 100%; justify-content: center; min-height: 40px; }
+}

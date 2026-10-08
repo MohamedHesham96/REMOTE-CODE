@@ -54,6 +54,11 @@ export function clientEvent(event: OpenCodeEvent): Record<string, unknown> | nul
   if (eventType === "session.created" || eventType === "session.deleted") {
     return { type: eventType, properties: event.data }
   }
+  // فرع جديد (fork) بيتعامل كجلسة جديدة: العميل بيحدّث قوائمه على الحدث
+  // ده، فالفروع اللي بتتعمل من جهاز تاني تبان من غير poll.
+  if (eventType === "session.forked") {
+    return { type: "session.created", properties: event.data }
+  }
   // v2 يفرّق التحديث (renamed/moved) — الواجهة تعرف session.updated فقط.
   // تغيير الموديل/الوكيل من الديسكتوب تحديث أيضًا (يحدّث الموديل المعروض).
   if (

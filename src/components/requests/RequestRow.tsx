@@ -124,11 +124,14 @@ interface RequestRowProps {
   onSkip: (request: SessionRequest) => void
   onRunNow: (request: SessionRequest) => void
   onRemove: (request: SessionRequest) => void
+  // النص ده محفوظ في المفضّلة؟ النجمة بتتعبّى والزرار بيتقفل (منع تكرار)
+  favorited: boolean
+  onSaveFavorite: (text: string) => void
   busyAction: string | null
   t: Strings
 }
 
-function RequestRowInner({ request, expanded, onToggle, sessionId, onCopy, onToast, onSkip, onRunNow, onRemove, busyAction, t }: RequestRowProps) {
+function RequestRowInner({ request, expanded, onToggle, sessionId, onCopy, onToast, onSkip, onRunNow, onRemove, favorited, onSaveFavorite, busyAction, t }: RequestRowProps) {
   const running = request.state === "running"
   const queued = request.state === "queued"
   // الكارت المتفائل لسه ما وصلش السيرفر، فمعندناش id نبعته له
@@ -136,6 +139,10 @@ function RequestRowInner({ request, expanded, onToggle, sessionId, onCopy, onToa
   const now = useNowTick(running && expanded)
   const steps = request.stepsCompleted ?? 0
   const elapsed = running ? formatElapsed(request.startedAt, t, now) : ""
+  // "حفظ في المفضّلة" بيظهر للطلبات المنتهية اللي ليها نص فعلًا — النسخ
+  // والتخطّي والانتظار مالهمش معنى هنا. المحفوظ بيتقفل بنجمة ممتلئة بدل ما
+  // يتكرر، والحذف من لوحة المفضّلة نفسها.
+  const canFavorite = !running && !queued && Boolean(request.prompt.trim())
   // تخطّي للطلب الشغّال، وتنفيذ حالًا وحذف من الطابور لكل طلب مستني بس
   const actions = running || queued ? (
     <span className="request-row-actions">
@@ -164,6 +171,20 @@ function RequestRowInner({ request, expanded, onToggle, sessionId, onCopy, onToa
           </button>
         </>
       ) : null}
+    </span>
+  ) : canFavorite ? (
+    <span className="request-row-actions">
+      <button
+        type="button"
+        className={`request-action request-action-favorite${favorited ? " is-on" : ""}`}
+        onClick={() => onSaveFavorite(request.prompt)}
+        disabled={favorited}
+        title={favorited ? t.favoriteSaved : t.saveAsFavorite}
+        aria-label={favorited ? t.favoriteSaved : t.saveAsFavorite}
+      >
+        <span className="request-action-icon" aria-hidden>{favorited ? "★" : "☆"}</span>
+        <span className="request-action-label">{t.saveAsFavorite}</span>
+      </button>
     </span>
   ) : null
   return (

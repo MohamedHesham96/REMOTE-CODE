@@ -91,6 +91,31 @@ const messages = {
     ar: "الحد الأقصى 5 نماذج مثبتة — ألغِ تثبيت واحد أولًا",
     en: "Maximum 5 pinned models — unpin one first",
   },
+  invalidFavorite: {
+    ar: "نص المفضّلة مطلوب",
+    en: "A favorite prompt is required",
+  },
+  favoriteTooLong: {
+    ar: "النص أطول من الحد المسموح",
+    en: "The prompt is longer than the allowed limit",
+  },
+  favoriteExists: {
+    ar: "هذا الطلب محفوظ في المفضّلة بالفعل",
+    en: "This prompt is already saved to favorites",
+  },
+  favoritesFull: {
+    ar: "الحد الأقصى 100 طلب مفضّل — احذف واحدًا أولًا",
+    en: "Maximum 100 favorite prompts — remove one first",
+  },
+  favoriteNotFound: {
+    ar: "الطلب المفضّل غير موجود",
+    en: "The favorite prompt was not found",
+  },
+  // لاحقة عنوان الفرع: العنوان الأصلي + اللاحقة دي بلغة اللي طلب الفرع
+  branchSuffix: {
+    ar: "فرع",
+    en: "Branch",
+  },
   newConversation: {
     ar: "محادثة جديدة",
     en: "New conversation",

@@ -3,6 +3,7 @@ import {
   ApiError,
   abortSession,
   base64ToUint8Array,
+  branchSession,
   createSession,
   deleteSession,
   downloadCertificate,
@@ -47,16 +48,19 @@ import { PanelErrorBoundary } from "./components/PanelErrorBoundary"
 import { PermissionCard } from "./components/PermissionCard"
 import { ComposerAttachments } from "./components/ComposerAttachments"
 import { ComposerClipboardButton } from "./components/ComposerClipboardButton"
+import { ComposerFavorites } from "./components/ComposerFavorites"
 import { ComposerInput } from "./components/ComposerInput"
 import { ProjectPicker } from "./components/projects/ProjectPicker"
 import { Sidebar } from "./components/Sidebar"
 import { TopBar } from "./components/TopBar"
 import { StickyQuestions } from "./components/requests/StickyQuestions"
 import { RequestCard } from "./components/requests/RequestCard"
+import { BranchButton } from "./components/requests/BranchButton"
 import { VoiceButton } from "./components/VoiceButton"
 import { useActivityGrace } from "./hooks/useActivityGrace"
 import { useAgentWorkflow } from "./hooks/useAgentWorkflow"
 import { useEventStream } from "./hooks/useEventStream"
+import { useFavoritePrompts, type FavoriteAction } from "./hooks/useFavoritePrompts"
 import { useGitRequests } from "./hooks/useGitRequests"
 import { usePinnedConversations } from "./hooks/usePinnedConversations"
 import { useScrollToBottom } from "./hooks/useScrollToBottom"
@@ -65,6 +69,7 @@ import { mergeActiveSessions } from "./utils/active-sessions"
 import { addAttachmentFiles, attachmentRejectionMessage, modelSupports } from "./utils/attachments"
 import { appendClipboardText } from "./utils/composer-text"
 import { normalizeProjectPath } from "./utils/paths"
+import { buildProjectSummaries } from "./utils/project-summary"
 import { forgetLastSession, isRequestsEmpty, loadDefaultModel, loadLastSessions, loadRecentProjects, saveDefaultModel, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
 import { isSettledRequest } from "./utils/task-status"
 
@@ -193,6 +198,10 @@ function App() {
   }, [])
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
+  // فرع من المحادثة: حارس متزامن ضد الضغط المزدوج (زي sendingRef) + حالة
+  // عرض بتقفل الزرار وتوريه "جارٍ الإنشاء"
+  const [branching, setBranching] = useState(false)
+  const branchingRef = useRef(false)
   // حارس متزامن ضد الإرسال المزدوج: ضغطتان سريعتان قبل إعادة الرسم
   // كانتا تتجاوزان فحص `sending` وتنشئان جلستين على السيرفر، فتظهر
   // "محادثتان نشطتان" وهي واحدة. الـ ref يتحدث فورًا بلا انتظار الـ render.
@@ -687,6 +696,22 @@ function App() {
     [permissions, activeId],
   )
 
+  // الطلبات المفضّلة: السيرفر مصدر الحقيقة والبثّ بيحدّث كل الأجهزة —
+  // نفس عقدة المثبّتات. المعالج هنا بيترجم فشل أي تعديل لتوست مفهوم.
+  const handleFavoriteError = useCallback((action: FavoriteAction, error: unknown) => {
+    const fallback = action === "save" ? t.favoriteSaveFailed : action === "edit" ? t.favoriteUpdateFailed : t.favoriteRemoveFailed
+    addToast(error instanceof Error ? error.message : fallback, "error")
+  }, [addToast, t.favoriteSaveFailed, t.favoriteUpdateFailed, t.favoriteRemoveFailed])
+  const { favorites, save: saveFavorite, edit: editFavorite, remove: removeFavorite } = useFavoritePrompts({ langRef, onError: handleFavoriteError })
+  // نصوص المحفوظ كـ Set: نجمة كل صف بتقرا منها O(1) من غير بحث خطي
+  const favoritedTexts = useMemo(() => new Set(favorites.map((favorite) => favorite.text)), [favorites])
+  // ملخص كل مشروع: بيتحسب من نفس الحالات الحية اللي بتتحدّث بالـ SSE أصلًا
+  // (النشاط والانتباه والمحادثات)، فمفيش poll جديد ولا نداء لكل مشروع.
+  const projectSummaries = useMemo(
+    () => buildProjectSummaries(projects, activity, attentionItems, selectedProject?.worktree ?? null, sessions.length),
+    [projects, activity, attentionItems, selectedProject, sessions],
+  )
+
   // نسخة مدمجة من تحديث النشاط للأحداث عالية التكرار: مهما اتنادت،
   // التنفيذ الفعلي مرة واحدة بعد 700ms من آخر نداء — تمنع عاصفة /api/activity
   const requestActivityRefresh = useCallback(() => {
@@ -742,6 +767,20 @@ function App() {
     })
   }, [markFetched])
 
+  // قائمة المشاريع (ومعاها عدد محادثات كل مشروع آخر نشاط) — تحديث خفيف
+  // عند رجوع الجهاز للواجهة بس (مع مهلة طزاجة) عشان ملخصات المشاريع تفضل
+  // صحيحة من غير أي poll دوري جديد. البيانات الحية (شغّال/انتباه) بتيجي من
+  // الـ SSE أصلًا والملخصات بتتغيّر معها فورًا.
+  const refreshProjects = useCallback(async () => {
+    try {
+      const response = await getProjects()
+      setProjects(response.projects)
+      markFetched("projects")
+    } catch {
+      // نسيب آخر قائمة معروفة — الملخصات الحية شغالة من النشاط والانتباه
+    }
+  }, [markFetched])
+
   // لما المحادثة المفتوحة تخلص، حدّث قائمة "شغال الآن" مرة واحدة لكل خلوص.
   // المحرك بيبلّغ بنهاية الشغل عبر حدث بيتحوّل لتحديث نص/طلب مش حدث idle، فالـ
   // Sidebar ولوحة المحادثات النشطة كانوا يفضلوا شايلين المحادثة "نشطة" لحد ما
@@ -774,11 +813,27 @@ function App() {
     try {
       const result = await selectProject(project)
       setSelectedProject(result.project)
+      // نفس المشروع موجود؟ نحدّث بياناته من رد السيرفر (الاسم وعدد
+      // المحادثات وآخر نشاط) عشان الملخص يفضل طازجًا مع كل فتح مشروع.
       setProjects((current) => {
-        if (current.some((candidate) => samePath(candidate.worktree, result.project.worktree))) {
+        const index = current.findIndex((candidate) => samePath(candidate.worktree, result.project.worktree))
+        if (index < 0) {
+          return [...current, result.project]
+        }
+        const existing = current[index]
+        if (!existing) {
           return current
         }
-        return [...current, result.project]
+        // الاسم ممكن يغيب من رد مشروع مش مسجّل — نحتفظ بالمعروف بدل مسحه
+        const merged = { ...existing, ...result.project, name: result.project.name || existing.name }
+        if (existing.name === merged.name
+          && existing.time.updated === merged.time.updated
+          && existing.sessionCount === merged.sessionCount) {
+          return current
+        }
+        const next = [...current]
+        next[index] = merged
+        return next
       })
       setRecentProjects((current) => {
         const next = [result.project.worktree, ...current.filter((path) => !samePath(path, result.project.worktree))].slice(0, 8)
@@ -1151,6 +1206,11 @@ function App() {
         if (!isFresh("git", 30000)) {
           staggerTimers.push(window.setTimeout(() => void refreshGitChanges(), 1400))
         }
+        // ملخصات المشاريع: عدد المحادثات وآخر نشاط لكل مشروع يتحدّثوا مع
+        // كل رجوع للواجهة (بمهلة دقيقة) — مش poll دوري
+        if (!isFresh("projects", 60000)) {
+          staggerTimers.push(window.setTimeout(() => void refreshProjects(), 1700))
+        }
         void loadModels(true)
         const id = activeIdRef.current
         if (id) {
@@ -1169,7 +1229,7 @@ function App() {
       document.removeEventListener("visibilitychange", onVisible)
       window.removeEventListener("focus", onVisible)
     }
-  }, [authState, selectedProject, refreshStatuses, refreshRequests, loadModels, refreshActivity, refreshAttention, refreshGitChanges, refreshSessions, isFresh])
+  }, [authState, selectedProject, refreshStatuses, refreshRequests, loadModels, refreshActivity, refreshAttention, refreshGitChanges, refreshSessions, refreshProjects, isFresh])
 
   const handleOpenCodeEvent = useCallback((event: ClientEvent) => {
     handleEvent(event)
@@ -1588,6 +1648,37 @@ function App() {
     })
   }
 
+  // فرع من المحادثة المفتوحة: جلسة جديدة مستقلة بنفس السياق، والأصل ما
+  // بيتغيّرش. الفرع بيتبدّل له فورًا فيكمّل منه المستخدم، والحارس المتزامن
+  // (branchingRef) بيمنع إنشاء فرعين من ضغط مزدوج قبل ما الحالة ترندر.
+  const handleBranch = useCallback(async () => {
+    const id = activeIdRef.current
+    if (!id || branchingRef.current) {
+      return
+    }
+    branchingRef.current = true
+    setBranching(true)
+    try {
+      const created = await branchSession(id, langRef.current)
+      setSessions((current) => sortSessionsByCreated([created, ...current.filter((session) => session.id !== created.id)]))
+      setActiveId(created.id)
+      activeIdRef.current = created.id
+      // نفس تدفّق فتح أي محادثة: الكارت يستبدل فورًا والـ effect بيجيب
+      // بيانات الفرع (نسخة السياق) بعده مباشرة.
+      setRequests([])
+      setRequestQuestions([])
+      setEditingSessionId(null)
+      setTitleDraft("")
+      resetComposer()
+      setShowSessions(false)
+    } catch (error: unknown) {
+      addToast(error instanceof Error ? error.message : t.branchFailed, "error")
+    } finally {
+      branchingRef.current = false
+      setBranching(false)
+    }
+  }, [addToast, resetComposer, t.branchFailed])
+
   // مراجع (refs) لأحدث نسخ من handlers عشان نبني wrappers مستقرة لـ
   // SessionItem. الـ memo على SessionItem بيشتغل على تغيّر المرجع؛ لو مررنا
   // الكولباك نفسه بتغير كل رندر، كل صف بيعيد الرسم. الـ ref handlers
@@ -1927,6 +2018,13 @@ function App() {
     composerRef.current?.focus()
   }, [])
 
+  // استخدام مفضّلة: بيملأ الكومبوزر ويرجّع التركيز له — من غير تنفيذ تلقائي،
+  // فالمستخدم هو اللي يقرر الإرسال.
+  const handleUseFavorite = useCallback((text: string) => {
+    setComposer(text)
+    composerRef.current?.focus()
+  }, [])
+
   const displayedModel: SessionModelRef | null = activeId ? currentModel : (pendingModel || projectDefaultModel || currentModel || defaultModel)
   // عنصر النموذج الكامل من القائمة: عنه بنعرف قدرات الإدخال وعنه اسم العرض.
   // البحث كان linear scan في كل render — بنحسبه مرة ونرجّع نفس المرجع.
@@ -2136,6 +2234,7 @@ function App() {
         selectedId={undefined}
         switchingKey={switchingProject}
         recentPaths={recentProjects}
+        summaries={projectSummaries}
         onSelect={handleSelectProjectSidebar}
         t={t}
         lang={lang}
@@ -2150,6 +2249,7 @@ function App() {
         onClose={handleCloseSessions}
         eventConnected={eventConnected}
         projects={projects}
+        summaries={projectSummaries}
         selectedProject={selectedProject}
         switchingProject={switchingProject}
         recentProjects={recentProjects}
@@ -2208,7 +2308,7 @@ function App() {
           <div className="workspace-scroll" ref={workspaceScrollRef} onPointerDown={releaseScrollPin}>
             {requests.length > 0 ? (
               <div className="request-stack">
-                <RequestCard requests={requests} sessionId={activeId} listRef={requestListRef} title={activeTitle} status={activeStatus} stalled={activeId ? stalledIds.has(activeId) : false} waitingOnUser={activeId !== null && (attentionConversationIds.has(activeId) || activeQuestions.length > 0 || activePermissions.length > 0)} hasChanges={gitChangedCount > 0} retryingRequestId={retryingRequestId} onRetry={handleRetryRequest} onReviewChanges={handleOpenGitChanges} onContinue={handleContinueTask} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={handleSkip} onRunNow={handleRunNow} onRemove={handleRemoveQueued} busyAction={queueAction} t={t} />
+                <RequestCard requests={requests} sessionId={activeId} listRef={requestListRef} title={activeTitle} status={activeStatus} stalled={activeId ? stalledIds.has(activeId) : false} waitingOnUser={activeId !== null && (attentionConversationIds.has(activeId) || activeQuestions.length > 0 || activePermissions.length > 0)} hasChanges={gitChangedCount > 0} retryingRequestId={retryingRequestId} favoritedTexts={favoritedTexts} onSaveFavorite={saveFavorite} onBranch={handleBranch} branching={branching} onRetry={handleRetryRequest} onReviewChanges={handleOpenGitChanges} onContinue={handleContinueTask} canRenameTitle={activeSession !== undefined} isEditingTitle={editingSessionId !== null && editingSessionId === activeId} titleDraft={titleDraft} renamingTitle={renamingTitle} onStartRename={startRenamingSession} onCancelRename={cancelRenamingSession} onTitleDraftChange={setTitleDraft} onRenameSubmit={handleRenameSession} onTitleKeyDown={handleSessionTitleKeyDown} onCopy={copyText} onToast={addToast} onSkip={handleSkip} onRunNow={handleRunNow} onRemove={handleRemoveQueued} busyAction={queueAction} t={t} />
               </div>
             ) : (
               <div className="welcome-state">
@@ -2218,6 +2318,10 @@ function App() {
                 <div className="suggestions">
                   {t.suggestions.map((suggestion) => <button key={suggestion} onClick={() => setComposer(suggestion)}>{suggestion}<span>↗</span></button>)}
                 </div>
+                {/* محادثة محفوظة بلا رسائل بعد: الفرع لسه متاح — الأصل ما
+                    بيتغيّرش والفرع بيفضل جلسة مستقلة. المسودة غير المحفوظة
+                    (activeId = null) مالها فرع. */}
+                {activeId ? <BranchButton branching={branching} disabled={false} onBranch={handleBranch} t={t} /> : null}
               </div>
             )}
             {activeId ? (
@@ -2242,6 +2346,15 @@ function App() {
                 placeholder={t.composerPlaceholder}
               />
               <div className="composer-toolbar">
+                <ComposerFavorites
+                  favorites={favorites}
+                  currentText={composer}
+                  onSaveCurrent={saveFavorite}
+                  onUse={handleUseFavorite}
+                  onEdit={editFavorite}
+                  onRemove={removeFavorite}
+                  t={t}
+                />
                 <ComposerAttachments
                   attachments={attachments}
                   supportsImage={supportsImageAttachments}
@@ -2363,6 +2476,8 @@ function App() {
               loading={historyLoading}
               error={historyError}
               sessionId={activeId}
+              favoritedTexts={favoritedTexts}
+              onSaveFavorite={saveFavorite}
               onClose={handleCloseHistory}
               onCopy={copyText}
               onRetry={loadHistory}

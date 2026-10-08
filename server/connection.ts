@@ -73,6 +73,9 @@ export class OpenCodeConnection {
         // (كل مساراتها: /pin و /pin/merge و /pin/forget و /pin/:id)
         || path === "/pin"
         || path.startsWith("/pin/")
+        // نفس الحالة للطلبات المفضّلة: ملف محلي بحت
+        || path === "/favorites"
+        || path.startsWith("/favorites/")
         || path.startsWith("/push/")
       ) {
         next()
