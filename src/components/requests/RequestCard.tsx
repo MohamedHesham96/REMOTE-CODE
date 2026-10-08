@@ -74,7 +74,12 @@ function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle,
     <section className={`task-summary task-${latest ? latest.state : "done"}`} data-phase={view.phase}>
       <div className="task-summary-top">
         <ConversationTitle title={title} canRename={canRenameTitle} isEditing={isEditingTitle} draft={titleDraft} renaming={renamingTitle} t={t} onStartRename={onStartRename} onCancelRename={onCancelRename} onDraftChange={onTitleDraftChange} onSubmit={onRenameSubmit} onKeyDown={onTitleKeyDown} />
-        <TaskStatusPanel view={view} />
+        {/* الحالة والفرع في سطر واحد: الفرع جنب لوحة حالة المهمة مباشرة عشان
+            يقرأ الدلوقتي ويروح له من غير ما ياخد سطر لوحده. */}
+        <div className="task-status-row">
+          <TaskStatusPanel view={view} />
+          <BranchButton branching={branching} disabled={!sessionId} onBranch={onBranch} t={t} />
+        </div>
         <TaskNextAction
           view={view}
           error={latest?.error}
@@ -85,8 +90,6 @@ function RequestCardInner({ requests, sessionId, listRef, title, canRenameTitle,
           onContinue={onContinue}
           t={t}
         />
-        {/* الفرع جنب إجراءات الحالة: متاح دايمًا ما دام فيه محادثة مفتوحة */}
-        <BranchButton branching={branching} disabled={!sessionId} onBranch={onBranch} t={t} />
       </div>
       <ul className="request-list" ref={listRef}>
         {requests.map((request) => (

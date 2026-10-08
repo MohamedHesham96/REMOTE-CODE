@@ -1,6 +1,5 @@
 import { memo } from "react"
 import { GitBranchIcon, LogoutIcon, SettingsIcon, SoundMuteIcon, SoundOnIcon, projectName } from "../display"
-import { nextTheme, themeLabel, THEME_META, type AppTheme } from "../theme"
 import type { Strings } from "../i18n"
 import type { Project, SessionModelRef } from "../types"
 
@@ -17,7 +16,6 @@ interface TopBarProps {
   onShowSettings: () => void
   onShowModels: () => void
   onOpenGitChanges: () => void
-  onToggleTheme: () => void
   onToggleSound: () => void
   onLogout: () => void
   activeSessionsCount: number
@@ -26,7 +24,6 @@ interface TopBarProps {
   projectPinsCount: number
   displayedModelName: string
   displayedModel: SessionModelRef | null
-  theme: AppTheme
   soundOn: boolean
   t: Strings
 }
@@ -44,7 +41,6 @@ function TopBarInner({
   onShowSettings,
   onShowModels,
   onOpenGitChanges,
-  onToggleTheme,
   onToggleSound,
   onLogout,
   activeSessionsCount,
@@ -53,12 +49,10 @@ function TopBarInner({
   projectPinsCount,
   displayedModelName,
   displayedModel,
-  theme,
   soundOn,
   t,
 }: TopBarProps) {
   const projectLabel = selectedProject ? projectName(selectedProject) : "—"
-  const nextThemeLabelText = themeLabel(nextTheme(theme), t)
   return (
     <header className="topbar">
       <div className="current-session">
@@ -113,7 +107,6 @@ function TopBarInner({
           </button>
           <button className="icon-button icon-history" onClick={onShowHistory} aria-label={t.historyAria} title={`${t.historyAria} 🕘`}>🕘</button>
           <span className="topbar-rail-divider" aria-hidden />
-          <button className="icon-button icon-theme" onClick={onToggleTheme} aria-label={`${t.themeNext}: ${nextThemeLabelText}`} title={`${t.themeNext}: ${nextThemeLabelText}`}><span aria-hidden>{THEME_META[theme].icon}</span></button>
           <button
             className={`icon-button ${soundOn ? "icon-sound" : "icon-muted"}`}
             onClick={onToggleSound}
@@ -123,7 +116,6 @@ function TopBarInner({
           >
             {soundOn ? <SoundOnIcon /> : <SoundMuteIcon />}
           </button>
-          <span className="topbar-rail-divider" aria-hidden />
           {/* ملاحظات الإصدار: مرجع ثابت لما الجديد — بجوار الإعدادات مباشرة
               لأنها فعل "معلومات عن التطبيق" وليست فعل عمل يومي. */}
           <button className="icon-button icon-releases" onClick={onShowReleases} aria-label={t.releaseNotesAria} title={`${t.releaseNotesAria} 🚀`}>🚀</button>

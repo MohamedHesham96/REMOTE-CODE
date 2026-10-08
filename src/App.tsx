@@ -2525,7 +2525,6 @@ function App() {
           onShowSettings={handleShowSettings}
           onShowModels={handleShowModels}
           onOpenGitChanges={handleOpenGitChanges}
-          onToggleTheme={toggleTheme}
           onToggleSound={toggleSound}
           onLogout={handleLogoutTop}
           activeSessionsCount={activeSessions.length}
@@ -2534,7 +2533,6 @@ function App() {
           projectPinsCount={projectPins.length}
           displayedModelName={displayedModelName}
           displayedModel={displayedModel}
-          theme={theme}
           soundOn={soundOn}
           t={t}
         />

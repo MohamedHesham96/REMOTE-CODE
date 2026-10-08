@@ -853,9 +853,6 @@ h2.session-title-editable { cursor: pointer; }
 .icon-activity:hover:not(:disabled) { color: color-mix(in srgb, var(--yellow) 78%, var(--text)); border-color: rgba(var(--yellow-rgb), 0.62); background: rgba(var(--yellow-rgb), 0.18); box-shadow: 0 4px 16px rgba(var(--yellow-rgb), 0.22); }
 .icon-git { color: var(--green); background: rgba(var(--green-rgb), 0.12); border-color: rgba(var(--green-rgb), 0.4); text-shadow: 0 0 12px rgba(var(--green-rgb), 0.4); }
 .icon-git:hover:not(:disabled) { color: color-mix(in srgb, var(--green) 78%, var(--text)); border-color: rgba(var(--green-rgb), 0.62); background: rgba(var(--green-rgb), 0.18); box-shadow: 0 4px 16px rgba(var(--green-rgb), 0.22); }
-/* المظهر لون العلامة نفسها لأنه إعداد يخصّ التطبيق كله */
-.icon-theme { color: var(--accent); background: rgba(var(--accent-rgb), 0.12); border-color: rgba(var(--accent-rgb), 0.4); text-shadow: 0 0 12px rgba(var(--accent-rgb), 0.4); }
-.icon-theme:hover:not(:disabled) { color: color-mix(in srgb, var(--accent) 78%, var(--text)); border-color: rgba(var(--accent-rgb), 0.62); background: rgba(var(--accent-rgb), 0.18); box-shadow: 0 4px 16px rgba(var(--accent-rgb), 0.22); }
 .icon-lang { color: var(--accent-blue); background: rgba(var(--accent-blue-rgb), 0.12); border-color: rgba(var(--accent-blue-rgb), 0.4); text-shadow: 0 0 12px rgba(var(--accent-blue-rgb), 0.4); }
 .icon-lang:hover:not(:disabled) { color: color-mix(in srgb, var(--accent-blue) 78%, var(--text)); border-color: rgba(var(--accent-blue-rgb), 0.62); background: rgba(var(--accent-blue-rgb), 0.18); box-shadow: 0 4px 16px rgba(var(--accent-blue-rgb), 0.22); }
 /* السجل مرجع زي المثبّتة — الاتنين «رجوع لحاجة محفوظة» — فبياخد نفس حدّ
@@ -880,15 +877,12 @@ h2.session-title-editable { cursor: pointer; }
 .icon-muted { color: var(--text-faint); background: var(--surface-card); border-color: var(--border); }
 .icon-muted:hover:not(:disabled) { color: var(--text-dimmer); border-color: var(--accent-border); background: var(--surface-tint); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16); }
 /* Theme emojis render vivid on every platform + a soft glow around the glyph */
-.icon-theme span, .theme-option-icon { filter: saturate(1.25); }
-.icon-theme span { font-size: 20px; line-height: 1; filter: saturate(1.3) drop-shadow(0 0 6px rgba(var(--accent-rgb), 0.5)); }
-.theme-option-icon { font-size: 22px; }
+.theme-option-icon { font-size: 22px; filter: saturate(1.25); }
 /* في الثيم الفاتح ألوان الأيقونات جايّة من متغيّرات الثيم نفسها فيكفيها تباينها
    على الأبيض، والاستثناء الوحيد شيل الوهج النصّي لأن التوهّج على خلفية فاتحة
    بيوسّخ الحافة بدل ما ينوّرها. */
 [data-theme="glass"] .icon-activity,
 [data-theme="glass"] .icon-git,
-[data-theme="glass"] .icon-theme,
 [data-theme="glass"] .icon-lang,
 [data-theme="glass"] .icon-history,
 [data-theme="glass"] .icon-settings,
@@ -898,7 +892,6 @@ h2.session-title-editable { cursor: pointer; }
 [data-theme="glass"] .icon-muted { text-shadow: none; }
 /* المرور في الفاتح يغمّق الأيقونة بدل ما يفتّحها */
 [data-theme="glass"] .topbar-actions .icon-button:hover:not(:disabled) { filter: brightness(0.94) saturate(1.08); }
-[data-theme="glass"] .icon-theme span { filter: saturate(1.25); }
 [data-theme="glass"] .model-pill { border-width: 1.5px; box-shadow: 0 2px 10px rgba(var(--green-rgb), 0.16); }
 [data-theme="glass"] .count-badge { background: var(--yellow); color: #fff; box-shadow: 0 2px 8px rgba(var(--yellow-rgb), 0.35); }
 /* الشارات اللي خلفيتها غامقة في الثيم الفاتح محتاجة نص أبيض بدل النص الداكن */
@@ -1590,6 +1583,10 @@ html[dir="ltr"] .request-row.request-row-running { box-shadow: inset 3px 0 0 0 v
 .task-panel[data-phase="skipped"] .task-panel-dot { border: 2px solid var(--muted); background: transparent; box-shadow: none; }
 .task-panel[data-phase="skipped"] .task-panel-label,
 .task-panel[data-phase="skipped"] .task-panel-activity { color: var(--muted); }
+/* صف الحالة: لوحة حالة المهمة وزر الفرع في سطر واحد — اللوحة بتاخد المساحة
+   المتاحة والزر أيقونة مضغوطة متمركزة جنبها. */
+.task-status-row { display: flex; align-items: center; gap: 8px; }
+.task-status-row .task-panel { flex: 1 1 auto; min-width: 0; }
 .task-next-action { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 3px 0 2px; }
 .task-next-action .button { min-height: 34px; padding: 7px 11px; font-size: 11px; }
 .task-next-action-error { align-items: stretch; flex-direction: column; padding: 8px 10px; border-inline-start: 2px solid var(--red); background: var(--error-bg); }
@@ -1873,11 +1870,6 @@ html[dir="ltr"] .request-row.request-row-running { box-shadow: inset 3px 0 0 0 v
   .request-action-label { display: none; }
 }
 
-/* على الشاشات الضيقة: أيقونة الثيم بتتبع مقاس صف الأزرار بدل مقاسها الثابت. */
-@media (max-width: 480px) {
-  .topbar-rail .icon-theme span { font-size: inherit; }
-}
-
 /* دعم اتجاه LTR للغة الإنجليزية */
 html[lang="en"] body { font-family: "Inter", "Cairo", system-ui, sans-serif; }
 html[dir="ltr"] .sidebar { border-left: 0; border-right: 1px solid var(--border); }
@@ -1939,12 +1931,15 @@ html[dir="ltr"] .project-option-body small, html[dir="ltr"] .result-file-body st
 .favorite-edit-actions .button { flex: 1; min-height: 40px; }
 
 /* ── فرع المحادثة ── */
-.branch-session { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; min-height: 34px; padding: 7px 12px; border: 1px solid var(--accent-border); border-radius: 1px; color: var(--accent-strong); background: var(--accent-soft-bg2); font-size: 11px; font-weight: 800; cursor: pointer; transition: border-color 0.18s ease, background 0.18s ease, transform 0.15s ease; }
-.branch-session:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft-bg3); transform: translateY(-1px); }
-.branch-session:active:not(:disabled) { transform: scale(0.97); }
+/* أيقونة مربّعة مضغوطة جنب حالة المهمة: بدون نص عشان ما تزحمش السطر،
+   والمعنى في aria-label و title. ارتفاعها قريب من شريحة الحالة عشان تبان
+   جزءًا من السطر مش زرار كبير لوحده. */
+.branch-session { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 28px; height: 28px; padding: 0; border: 1px solid var(--accent-border); border-radius: 1px; color: var(--accent-strong); background: var(--accent-soft-bg2); font: inherit; font-size: 14px; font-weight: 800; line-height: 1; cursor: pointer; transition: border-color 0.18s ease, background 0.18s ease, transform 0.15s ease; }
+.branch-session:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft-bg3); }
+.branch-session:active:not(:disabled) { transform: scale(0.94); }
 .branch-session:disabled { cursor: not-allowed; opacity: 0.6; }
 .branch-session.is-branching { border-style: dashed; }
-.branch-session-icon { font-size: 14px; line-height: 1; }
+.branch-session-icon { line-height: 1; }
 
 /* نجمات الحفظ: صف الطلب والسجل */
 .request-action-favorite.is-on { color: var(--yellow); border-color: rgba(var(--yellow-rgb), 0.45); background: rgba(var(--yellow-rgb), 0.14); cursor: default; }
@@ -1961,8 +1956,6 @@ html[dir="ltr"] .project-option-summary { direction: ltr; }
 
 @media (max-width: 800px) {
   .favorites-sheet { width: 100vw; max-height: 78vh; }
-  /* زرار الفرع بعرض السطر على الموبايل: هدف لمس واضح مش زرار صغير */
-  .branch-session { width: 100%; justify-content: center; min-height: 40px; }
 }
 
 /* ── تنبيه التحديث ── */
