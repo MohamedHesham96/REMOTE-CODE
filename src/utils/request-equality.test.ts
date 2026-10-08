@@ -15,6 +15,7 @@ function request(overrides: Partial<SessionRequest> = {}): SessionRequest {
     activeTool: null,
     usedTools: ["read"],
     resultFiles: [{ id: "file-1", name: "file.txt", mime: "text/plain", path: "file.txt", downloadUrl: "/file" }],
+    usage: { tokens: { input: 10, output: 5, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 15 }, cost: 0.02 },
     attachments: [{ name: "input.txt", mime: "text/plain", uri: "data:text/plain;base64,AA==" }],
     startedAt: 1,
     completedAt: 2,
@@ -34,6 +35,12 @@ describe("sameSessionRequest", () => {
     expect(sameSessionRequest(request(), request({ resultFiles: [] }))).toBe(false)
     expect(sameSessionRequest(request(), request({ attachments: [] }))).toBe(false)
     expect(sameSessionRequest(request(), request({ error: "provider failed" }))).toBe(false)
+    expect(sameSessionRequest(request(), request({ usage: { tokens: null, cost: null } }))).toBe(false)
+    expect(sameSessionRequest(request(), request({ usage: { tokens: { input: 10, output: 5, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 15 }, cost: 0.03 } }))).toBe(false)
+    expect(sameSessionRequest(
+      request({ usage: { tokens: { input: 10, output: 5, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 15 }, cost: 0.02 } }),
+      request({ usage: { tokens: { input: 10, output: 5, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 15 }, cost: 0.02 } }),
+    )).toBe(true)
   })
 })
 

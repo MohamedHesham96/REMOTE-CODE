@@ -11,6 +11,7 @@ import { describeRequest } from "../../utils/task-status"
 import { parseMarkdownBlocks } from "../../utils/markdown-table"
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react"
 import { tailPreview } from "../../utils/preview"
+import { formatCost, formatTokenCount } from "../../utils/usage"
 
 const REQUEST_STATE_LABEL: Record<RequestState, keyof Strings> = {
   queued: "inQueue",
@@ -215,9 +216,11 @@ function RequestRowInner({ request, expanded, onToggle, sessionId, onCopy, onToa
                 {elapsed ? <span className="live-stat live-time">⏱️ {elapsed}</span> : null}
               </div>
             </>
-          ) : steps > 0 ? (
+          ) : steps > 0 || request.usage.tokens !== null || request.usage.cost !== null ? (
             <div className="live-stats finished">
-              <span className="live-stat">✅ {steps} {steps === 1 ? t.executedStep : t.executedSteps}</span>
+              {steps > 0 ? <span className="live-stat">✅ {steps} {steps === 1 ? t.executedStep : t.executedSteps}</span> : null}
+              {request.usage.tokens ? <span className="live-stat" title={t.usageTotal}>🪙 {formatTokenCount(request.usage.tokens.total)} {t.usageTokensUnit}</span> : null}
+              {request.usage.cost !== null ? <span className="live-stat" title={t.usageCost}>💵 {formatCost(request.usage.cost)}</span> : null}
             </div>
           ) : null}
           {/* زرار النسخ في ترويسة الكارت: على الموبايل القاعدة بتخلّي .copy-result
@@ -225,7 +228,7 @@ function RequestRowInner({ request, expanded, onToggle, sessionId, onCopy, onToa
               جوّه ترويسة فيها العنوان والزرار مع بعض يفضل فوق دايمًا. */}
           {running && request.liveText ? <div className="final-result live-result"><div className="final-result-head"><div className="final-result-label">{t.liveResponse}</div><CopyButton className="copy-result" text={request.liveText} onCopy={onCopy} label={t.copyResult} t={t} /></div><div className="final-result-text"><ExpandableText text={request.liveText} rich fromEnd t={t} trailing={<span className="live-cursor" aria-hidden>▍</span>} /></div></div> : null}
           {request.finalResult && !running ? <div className="final-result"><div className="final-result-head"><div className="final-result-label">{t.finalResult}</div><CopyButton className="copy-result" text={request.finalResult} onCopy={onCopy} label={t.copyResult} t={t} /></div><div className="final-result-text"><ExpandableText text={request.finalResult} rich fromEnd t={t} /></div></div> : null}
-          {sessionId && request.resultFiles.length > 0 ? <ResultFilesList files={request.resultFiles} sessionId={sessionId} onToast={onToast} t={t} /> : null}
+          {sessionId && request.resultFiles.length > 0 ? <ResultFilesList files={request.resultFiles} sessionId={sessionId} onToast={onToast} onCopy={onCopy} t={t} /> : null}
           {sessionId && !running && request.resultFiles.length === 0 && request.finalResult ? <div className="result-files-hint">{t.noResultFileHint}</div> : null}
         </div>
       ) : null}

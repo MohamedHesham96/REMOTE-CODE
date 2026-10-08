@@ -1693,3 +1693,87 @@ describe("session branching", () => {
     expect(fake.updates).toEqual([{ sessionID: "ses_branch", title: "مهمة — فرع" }])
   })
 })
+
+describe("session usage aggregation", () => {
+  function assistantWithUsage(id: string, created: number, completed: number, tokens: Record<string, unknown>, cost?: number): Record<string, unknown> {
+    return {
+      id,
+      type: "assistant",
+      agent: "build",
+      model: { id: "space-bunny-free", providerID: "opencode" },
+      time: { created, completed },
+      content: [textPart("نتيجة")],
+      tokens,
+      ...(cost === undefined ? {} : { cost }),
+    }
+  }
+
+  const tokenUsage = (input: number, output: number, cacheRead = 0) => ({
+    input,
+    output,
+    reasoning: 0,
+    cache: { read: cacheRead, write: 0 },
+  })
+
+  it("aggregates per-request and session usage from engine messages", async () => {
+    const { service, fake } = createService()
+    fake.messages = [
+      userMessage("msg_u1", "الطلب الأول", 1_000),
+      assistantWithUsage("msg_a1", 1_100, 2_000, tokenUsage(100, 40, 10), 0.1),
+      userMessage("msg_u2", "الطلب الثاني", 3_000),
+      assistantWithUsage("msg_a2", 3_100, 4_000, tokenUsage(200, 60), 0.2),
+    ]
+
+    const result = await service.requests(SESSION)
+
+    expect(result.requests).toHaveLength(2)
+    expect(result.requests[0]?.usage.tokens?.total).toBe(150)
+    expect(result.requests[0]?.usage.cost).toBeCloseTo(0.1)
+    expect(result.requests[1]?.usage.tokens?.total).toBe(260)
+    expect(result.usage.requests).toBe(2)
+    expect(result.usage.tokens?.total).toBe(410)
+    expect(result.usage.cost).toBeCloseTo(0.3)
+    expect(result.usage.durationMs).toBe(1_000 + 1_000)
+  })
+
+  it("does not double count a message repeated in the engine list", async () => {
+    const { service, fake } = createService()
+    const repeated = assistantWithUsage("msg_a1", 1_100, 2_000, tokenUsage(100, 40), 0.1)
+    fake.messages = [
+      userMessage("msg_u1", "الطلب", 1_000),
+      repeated,
+      repeated,
+    ]
+
+    const result = await service.requests(SESSION)
+
+    expect(result.requests[0]?.usage.tokens?.total).toBe(140)
+    expect(result.usage.tokens?.total).toBe(140)
+    expect(result.usage.cost).toBeCloseTo(0.1)
+  })
+
+  it("reports usage as unavailable when the engine sent no numbers", async () => {
+    const { service, fake } = createService()
+    fake.messages = [
+      userMessage("msg_u1", "الطلب", 1_000),
+      assistantMessage("msg_a1", "النتيجة", 1_100, 2_000),
+    ]
+
+    const result = await service.requests(SESSION)
+
+    expect(result.requests[0]?.usage).toEqual({ tokens: null, cost: null })
+    expect(result.usage.tokens).toBeNull()
+    expect(result.usage.cost).toBeNull()
+  })
+
+  it("keeps queued requests at no usage until they run", async () => {
+    const { service } = createService()
+    await service.prompt(SESSION, "الأول")
+    await service.prompt(SESSION, "المستني")
+
+    const result = await service.requests(SESSION)
+
+    const queued = result.requests.find((request) => request.state === "queued")
+    expect(queued?.usage).toEqual({ tokens: null, cost: null })
+  })
+})

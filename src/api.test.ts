@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { addFavorite, addPin, branchSession, forgetPins, getFavorites, getPins, mergePins, removeFavorite, removePin, updateFavorite } from "./api"
-import { getAttention, getRequests, getStatuses, listPermissions, rejectQuestion, removeQueuedRequest, renameSession, replyQuestion, retryFailedRequest, runQueuedRequest, sendMessage, skipRunningRequest } from "./api"
+import { getAttention, getRequests, getStatuses, getUpdateInfo, listPermissions, rejectQuestion, removeQueuedRequest, renameSession, replyQuestion, retryFailedRequest, runQueuedRequest, sendMessage, skipRunningRequest } from "./api"
 import { clearEtagCache } from "./api/http"
 import type { FavoritePrompt, PinnedConversation, Session, SessionRequest, SessionRequests, SessionStatus } from "./types"
 
@@ -102,6 +102,7 @@ describe("parallel requests", () => {
     activeTool: null,
     usedTools: [],
     resultFiles: [],
+    usage: { tokens: null, cost: null },
     attachments: [],
     startedAt: 2,
     completedAt: 0,
@@ -119,7 +120,7 @@ describe("parallel requests", () => {
   })
 
   it("returns the stacked request cards oldest first", async () => {
-    const payload: SessionRequests = { status: { type: "busy" }, requests: [queued], questions: [], queued: 1, stalled: false, version: "busy|live|1||q|..." }
+    const payload: SessionRequests = { status: { type: "busy" }, requests: [queued], questions: [], queued: 1, stalled: false, version: "busy|live|1||q|...", usage: { tokens: null, cost: null, requests: 1, durationMs: 0 } }
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify(payload), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -311,7 +312,7 @@ describe("request efficiency", () => {
   })
 
   it("sends If-None-Match and reuses the cached payload on 304", async () => {
-    const payload: SessionRequests = { status: { type: "busy" }, requests: [], questions: [], queued: 0, stalled: false, version: "busy|live|0|||" }
+    const payload: SessionRequests = { status: { type: "busy" }, requests: [], questions: [], queued: 0, stalled: false, version: "busy|live|0|||", usage: { tokens: null, cost: null, requests: 0, durationMs: 0 } }
     const seen: Array<Record<string, string>> = []
     const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       seen.push({ ...(init?.headers as Record<string, string>) })
@@ -349,6 +350,7 @@ describe("request efficiency", () => {
       activeTool: null,
       usedTools: [],
       resultFiles: [],
+      usage: { tokens: null, cost: null },
       attachments: [],
       startedAt: 1,
       completedAt: 2,
@@ -432,5 +434,26 @@ describe("generic ETag handling in request()", () => {
     expect(second).toBe(first)
     expect(seen[1]?.["if-none-match"]).toBe('W/"perm-v1"')
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("update check", () => {
+  it("reads the update info endpoint from the server", async () => {
+    const payload = {
+      currentVersion: "1.8.1",
+      latestVersion: "1.9.0",
+      updateAvailable: true,
+      releaseUrl: "https://github.com/owner/repo/releases",
+      releaseNotes: null,
+      checkedAt: 1_000,
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getUpdateInfo()).resolves.toEqual(payload)
+    expect(fetchMock).toHaveBeenCalledWith("/api/update", expect.objectContaining({ credentials: "include" }))
   })
 })

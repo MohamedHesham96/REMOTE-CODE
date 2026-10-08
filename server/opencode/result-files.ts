@@ -135,7 +135,16 @@ export function collectResultFiles(
     const key = candidate.path
       ? `path:${pathKey(candidate.path, projectDirectory)}`
       : `url:${candidate.url}`
-    if (files.has(key)) {
+    // المسار المطلق لا يُبنى بالتخمين: يُعرض فقط لما بيانات المحرك نفسها
+    // تحتويه مطلقًا. المسار النسبي يفضل نسبيًا في الواجهة.
+    const fullPath = candidate.path && isAbsolute(candidate.path) ? candidate.path : ""
+    const existing = files.get(key)
+    if (existing) {
+      // نفس الملف وصل مرة نسبيًا ومرة مطلقًا: نحدّث المسار الكامل للعنصر
+      // المخزّن بدل تكرار الصف، من غير لمس مسار التحميل أو ترتيب القائمة.
+      if (!existing.fullPath && fullPath) {
+        existing.fullPath = fullPath
+      }
       return
     }
     const downloadUrl = candidate.path
@@ -146,6 +155,7 @@ export function collectResultFiles(
       name: candidate.name || fileFallback,
       mime: candidate.mime || mimeFromName(candidate.name),
       path: candidate.path,
+      fullPath,
       downloadUrl,
     })
   }

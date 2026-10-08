@@ -29,7 +29,7 @@ import {
   subscribePush,
   unsubscribePush,
 } from "./api"
-import type { ActiveSession, AppConfig, AuthState, ClientEvent, ComposerAttachment, ConversationQuestionRequest, GitChanges, HistoryTurn, ModelInfo, Permission, PinnedConversation, Project, Session, SessionModelRef, SessionRequest, SessionRequests, SessionStatus, Toast, ToastKind } from "./types"
+import type { ActiveSession, AppConfig, AuthState, ClientEvent, ComposerAttachment, ConversationQuestionRequest, GitChanges, HistoryTurn, ModelInfo, Permission, PinnedConversation, Project, Session, SessionModelRef, SessionRequest, SessionRequests, SessionStatus, SessionUsage, Toast, ToastKind } from "./types"
 import { isSoundEnabled, playAttentionSound, playCompletionSound, setSoundEnabled, unlockAudio, vibrate } from "./sound"
 import { applyTheme, getSavedTheme, nextTheme, saveTheme, themeLabel, THEME_META, type AppTheme } from "./theme"
 import { applyLanguage, getSavedLanguage, getStrings, saveLanguage, type Language } from "./i18n"
@@ -53,6 +53,7 @@ import { ComposerInput } from "./components/ComposerInput"
 import { ProjectPicker } from "./components/projects/ProjectPicker"
 import { Sidebar } from "./components/Sidebar"
 import { TopBar } from "./components/TopBar"
+import { UpdateBanner } from "./components/UpdateBanner"
 import { StickyQuestions } from "./components/requests/StickyQuestions"
 import { RequestCard } from "./components/requests/RequestCard"
 import { BranchButton } from "./components/requests/BranchButton"
@@ -65,6 +66,7 @@ import { useGitRequests } from "./hooks/useGitRequests"
 import { usePinnedConversations } from "./hooks/usePinnedConversations"
 import { useScrollToBottom } from "./hooks/useScrollToBottom"
 import { useSettledStatuses } from "./hooks/useSettledStatuses"
+import { useUpdateNotification } from "./hooks/useUpdateNotification"
 import { mergeActiveSessions } from "./utils/active-sessions"
 import { addAttachmentFiles, attachmentRejectionMessage, modelSupports } from "./utils/attachments"
 import { appendClipboardText } from "./utils/composer-text"
@@ -72,6 +74,7 @@ import { normalizeProjectPath } from "./utils/paths"
 import { buildProjectSummaries } from "./utils/project-summary"
 import { forgetLastSession, isRequestsEmpty, loadDefaultModel, loadLastSessions, loadRecentProjects, saveDefaultModel, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
 import { isSettledRequest } from "./utils/task-status"
+import { sameSessionUsage } from "./utils/usage"
 
 // أدراج ثقيلة تُحمّل عند الطلب فقط (code-splitting): القائمة الرئيسية
 // والشات يظهران فورًا، وهذه اللوحات تنزل عند أول فتح لها
@@ -177,6 +180,8 @@ function App() {
   const activeIdRef = useRef<string | null>(null)
   // طلبات المحادثة بالترتيب: الأقدم فوق والأحدث تحت — بتتعرض كلها في كارت واحد
   const [requests, setRequests] = useState<SessionRequest[]>([])
+  // ملخص استهلاك الجلسة المفتوحة — جزء من نفس رد الطلبات، من غير نداء إضافي
+  const [sessionUsage, setSessionUsage] = useState<SessionUsage | null>(null)
   const [requestQuestions, setRequestQuestions] = useState<ConversationQuestionRequest[]>([])
   const [rawStatuses, setRawStatuses] = useState<Record<string, SessionStatus>>({})
   // محادثات حكمها "واقفة" (كاشف الجمود في السيرفر اتقفل). مخزّنة بمعرّف
@@ -238,6 +243,8 @@ function App() {
   const [showActivity, setShowActivity] = useState(false)
   const [showPinned, setShowPinned] = useState(false)
   const [showReleases, setShowReleases] = useState(false)
+  // فحص التحديث مرة واحدة عند الدخول: الكاش يمنع التكرار، والفشل صامت
+  const { update: updateInfo, visible: updateVisible, dismiss: dismissUpdateNotice } = useUpdateNotification(authState === "signedIn")
   const [historyTurns, setHistoryTurns] = useState<HistoryTurn[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState("")
@@ -597,6 +604,7 @@ function App() {
       requestsSeq.current += 1
       setRequests([])
       setRequestQuestions([])
+      setSessionUsage(null)
       contentIdRef.current = null
       return
     }
@@ -615,6 +623,8 @@ function App() {
     contentIdRef.current = id
     setRequests(next.requests)
     setRequestQuestions(next.questions)
+    // نفس المرجع لو الأرقام ما اتغيرتش — يجنّب رندر دائرة السجل بلا داعي
+    setSessionUsage((current) => (sameSessionUsage(current, next.usage) ? current : next.usage))
     // حكم الجمود جزء من نفس الرد — من غير سطر ده كان الكارت بيفضّل يعرض
     // آخر حالة عرفها بدل الحكم الجديد.
     setStalledIds((current) => {
@@ -927,6 +937,7 @@ function App() {
     // previous task's plan never lingers while the new task loads.
     setRequests([])
     setRequestQuestions([])
+    setSessionUsage(null)
     if (authState === "signedIn" && activeId) {
       const failureMessage = getStrings(langRef.current).summaryLoadFailed
       void refreshRequests(activeId).catch((error: unknown) => addToast(error instanceof Error ? error.message : failureMessage, "error"))
@@ -1440,6 +1451,7 @@ function App() {
     setActiveId(null)
     setRequests([])
     setRequestQuestions([])
+    setSessionUsage(null)
     setStalledIds(new Set())
     setGitChanges(null)
     setAccessToken("")
@@ -1813,6 +1825,8 @@ function App() {
         activeTool: null,
         usedTools: [],
         resultFiles: [],
+        // الكارت المتفائل لسه ما وصلش المحرك — استخدام غير متاح مش صفر
+        usage: { tokens: null, cost: null },
         // المرفقات تظهر فورًا في الكارت الـ optimist قبل ما السيرفر يرجّعها
         // في /requests — بنفس الشكل اللي السيرفر بيبعته (بلا id/size).
         attachments: files.map((file) => ({ name: file.name, mime: file.mime, uri: file.uri })),
@@ -2304,6 +2318,8 @@ function App() {
           t={t}
         />
 
+        {updateVisible && updateInfo ? <UpdateBanner info={updateInfo} onView={handleShowReleases} onDismiss={dismissUpdateNotice} t={t} /> : null}
+
         <div className="workspace">
           <div className="workspace-scroll" ref={workspaceScrollRef} onPointerDown={releaseScrollPin}>
             {requests.length > 0 ? (
@@ -2476,6 +2492,7 @@ function App() {
               loading={historyLoading}
               error={historyError}
               sessionId={activeId}
+              usage={sessionUsage}
               favoritedTexts={favoritedTexts}
               onSaveFavorite={saveFavorite}
               onClose={handleCloseHistory}
@@ -2509,6 +2526,7 @@ function App() {
           <PanelErrorBoundary t={t} panelName="ReleaseNotesPanel" onClose={() => setShowReleases(false)}>
             <ReleaseNotesPanel
               releases={releases}
+              upstream={updateInfo}
               onClose={() => setShowReleases(false)}
               t={t}
               lang={lang}

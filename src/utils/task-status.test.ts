@@ -22,6 +22,7 @@ function request(overrides: Partial<SessionRequest> = {}): SessionRequest {
     activeTool: null,
     usedTools: [],
     resultFiles: [],
+    usage: { tokens: null, cost: null },
     attachments: [],
     startedAt: NOW - 60_000,
     completedAt: NOW - 30_000,

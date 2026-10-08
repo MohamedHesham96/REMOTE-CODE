@@ -71,6 +71,10 @@ export interface ResultFile {
   name: string
   mime: string
   path: string
+  // المسار الكامل يُملأ فقط عندما يكون المسار القادم من بيانات المحرك مطلقًا
+  // فعلًا. لو المصدر مسار نسبي (مشروع-نسبي) يفضل فاضي عشان الواجهة تعرض
+  // النسبي بدل ما تخترع مسارًا مطلقًا قد يكون غلطًا.
+  fullPath: string
   downloadUrl: string
 }
 
@@ -105,6 +109,32 @@ export interface HistoryTurn {
 
 export type RequestState = "queued" | "running" | "done" | "stopped" | "skipped"
 
+// استخدام الرموز كما يرجعه المحرك لكل رد assistant. المجموع بمعادلة OpenCode
+// نفسها (الإدخال + الإخراج + التفكير + قراءة الكاش + كتابة الكاش) عشان الرقم
+// المعروض يطابق إحصاءات المحرك. total يُحسب على السيرفر مرة واحدة.
+export interface TokenUsage {
+  input: number
+  output: number
+  reasoning: number
+  cacheRead: number
+  cacheWrite: number
+  total: number
+}
+
+export interface RequestUsage {
+  // null يعني المحرك لم يرجع أي أرقام رموز موثوقة لهذا الطلب — لا تقدير
+  tokens: TokenUsage | null
+  // null يعني التكلفة غير معروفة، وليس صفرًا. الصفر قيمة حقيقية لنموذج مجاني.
+  cost: number | null
+}
+
+// ملخص استهلاك الجلسة: مجموع الطلبات المنتهية والمستمرة مع عدد الطلبات
+// ومدة العمل. الطلبات المستنية في الطابور لا تُحتسب قبل أن لها رسائل فعلية.
+export interface SessionUsage extends RequestUsage {
+  requests: number
+  durationMs: number
+}
+
 // مرفق أرسله المستخدم مع الطلب (صورة/PDF/نص). بيُقرأ من `files` على رسالة
 // المستخدم عشان الواجهة تعرض اللي اتبعت بدل ما تختفي بعد لحظة الإرسال،
 // وبيغذّي `files` مباشرة قبل الانضمام للمحرك.
@@ -130,6 +160,8 @@ export interface SessionRequest {
   // الديسكتوب)، مترجمة على السيرفر. الواجهة بتعرضها واحدة واحدة بدل قائمة طويلة.
   usedTools: string[]
   resultFiles: ResultFile[]
+  // استهلاك الرموز والتكلفة لهذا الطلب من ردود المحرك الفعلية
+  usage: RequestUsage
   // مرفقات المستخدم في هذا الطلب — بتُقرأ من رسالة المستخدم عشان تفضل ظاهرة.
   attachments: RequestAttachment[]
   startedAt: number
@@ -145,6 +177,8 @@ export interface SessionRequests {
   requests: SessionRequest[]
   questions: ConversationQuestionRequest[]
   queued: number
+  // ملخص استهلاك الجلسة كله — بيتحسب من نفس رسائل المحرك المقروءة أصلًا
+  usage: SessionUsage
   // حكم كاشف الجمود: OpenCode واقف على busy من غير أي بصمة تقدّم تتغيّر
   // فوق مهلة BUSY_STALL_MS. بيتبعت صريح عشان الواجهة تعرض "متجمّدة" بدل
   // ما تستنتج الجمود من صمت — وكمان لأن effectiveStatus بيحوّل الحالة

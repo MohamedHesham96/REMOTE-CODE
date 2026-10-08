@@ -6,6 +6,7 @@ import type { PinService } from "../pins.js"
 import type { PushService } from "../push.js"
 import type { OpenCodeConnection } from "../connection.js"
 import type { EventHub } from "../sse/hub.js"
+import type { UpdateService } from "../update.js"
 
 export interface RouteContext {
   openCode: OpenCodeService
@@ -15,5 +16,6 @@ export interface RouteContext {
   push: PushService
   connection: OpenCodeConnection
   hub: EventHub
+  update: UpdateService
   pollLimiter: (request: Request, response: Response, next: NextFunction) => void
 }

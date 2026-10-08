@@ -17,10 +17,12 @@ import { consoleLang, serverMessage } from "./i18n.js"
 import { clientEvent, conversationEvent, eventSessionId, finishedRunEvent, isIdleEvent } from "./sse/filter.js"
 import { securityHeaders } from "./middleware/security.js"
 import { registerStatic } from "./static.js"
+import { UpdateService, readPackageVersion } from "./update.js"
 import { registerHealthRoutes } from "./routes/health.js"
 import { registerAuthRoutes } from "./routes/auth.js"
 import { registerConfigRoutes } from "./routes/config.js"
 import { registerCertificateRoutes } from "./routes/certificate.js"
+import { registerUpdateRoutes } from "./routes/update.js"
 import { registerProjectRoutes } from "./routes/projects.js"
 import { registerSessionRoutes } from "./routes/sessions.js"
 import { registerPinRoutes } from "./routes/pins.js"
@@ -50,12 +52,15 @@ const favorites = new FavoritePromptService()
 const push = new PushService(config.push)
 const connection = new OpenCodeConnection(openCode)
 const hub = new EventHub()
+// نسخة التطبيق تُقرأ من package.json مرة واحدة عند الإنشاء، واكتشاف المستودع
+// يتم كسولًا عند أول فحص — فالإقلاع لا ينتظر شبكة ولا git.
+const update = new UpdateService({ currentVersion: readPackageVersion() })
 
 // حد معدل سخي للنقاط الساخنة: الاستخدام الطبيعي (~15-20 poll/min لكل عميل)
 // بعيد عن السقف، لكن حلقات الخلل والعواصف بتتوقف بـ 429 + Retry-After
 const pollLimiter = createRateLimiter({ windowMs: 60_000, max: 300 })
 
-const routeContext: RouteContext = { openCode, pins, modelPins, favorites, push, connection, hub, pollLimiter }
+const routeContext: RouteContext = { openCode, pins, modelPins, favorites, push, connection, hub, update, pollLimiter }
 
 // مثبّتات: مصدر الحقيقة الوحيد، فلازم يتغيّر في كل الأجهزة والـ tabs المفتوحة.
 // البثّ من الـ service نفسه مش من الـ routes، فأي تعديل يوصل — حتى اللي
@@ -104,6 +109,9 @@ app.use("/api", requireAuthentication(config.accessToken))
 // تنزيل شهادة الـ CA لازم يكون متاح بعد التوثيق وقبل بوابة الجهوزية:
 // المستخدم بيجهّز الموبايل قبل ما OpenCode يخلص، والملف مش محتاج المحرك.
 registerCertificateRoutes(app)
+// فحص التحديث كذلك مستقل عن المحرك — لو حبسناه وراء البوابة كان رد 503
+// وفضل المستخدم بلا تنبيه لمجرد أن OpenCode لسه بيكمل إقلاعه.
+registerUpdateRoutes(app, routeContext)
 
 // أي route محتاج OpenCode فعلًا يرجّع 503 واضح بدل ما يموت أو يرمي 500 مبهم.
 // المسموح بدون OpenCode: health/login/logout/config/permission/push/events (الكاش والتوثيق).

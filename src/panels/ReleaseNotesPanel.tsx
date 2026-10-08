@@ -1,5 +1,6 @@
 import { groupReleaseChanges, type LocalizedText, type Release, type ReleaseChangeCategory } from "../releases"
 import { localeOf, type Language, type Strings } from "../i18n"
+import type { UpdateInfo } from "../types"
 
 // اختيار النص حسب اللغة الحالية — نفس نمط i18n.ts لكن للنصوص المخزّنة في
 // بيانات الإصدارات بدل قاموس الترجمة.
@@ -45,6 +46,9 @@ function releaseDateLabel(date: string, lang: Language, t: Strings): string {
 
 interface ReleaseNotesPanelProps {
   releases: Release[]
+  // إصدار أحدث اكتشفه فحص التحديث ولا وجود له في البيانات المحلية بعد.
+  // نعرض بطاقة تعريفية مختصرة له فوق السجل بدل تكرار بيانات الإصدارات.
+  upstream?: UpdateInfo | null
   onClose: () => void
   t: Strings
   lang: Language
@@ -53,7 +57,12 @@ interface ReleaseNotesPanelProps {
 // ملاحظات الإصدار: تُبنى من البيانات المولّدة في `releases-data.ts`، وكل إصدار
 // يُعرض كبطاقة تحتوي ملخّصًا وأقسامًا مصنّفة. مراجع Git ثانوية لكن قابلة
 // للفتح — لا تزاحم المحتوى الموجّه للمستخدم في العرض الافتراضي.
-export function ReleaseNotesPanel({ releases, onClose, t, lang }: ReleaseNotesPanelProps) {
+export function ReleaseNotesPanel({ releases, upstream, onClose, t, lang }: ReleaseNotesPanelProps) {
+  const upstreamVersion = upstream && upstream.updateAvailable && upstream.latestVersion ? upstream.latestVersion : ""
+  // لو النسخة الأحدث موجودة أصلًا في السجل المحلي (تطبيق محدّث بكاش قديم)
+  // نكتفي ببطاقة السجل نفسها — مفيش تكرار.
+  const showUpstream = upstreamVersion !== ""
+    && !releases.some((release) => release.version.replace(/^v/i, "") === upstreamVersion.replace(/^v/i, ""))
   return (
     <div className="drawer-backdrop" onClick={onClose}>
       <aside className="drawer release-notes-drawer" onClick={(event) => event.stopPropagation()}>
@@ -69,6 +78,19 @@ export function ReleaseNotesPanel({ releases, onClose, t, lang }: ReleaseNotesPa
         </div>
 
         <nav className="release-toc" aria-label={t.releaseNotes}>
+          {showUpstream ? (
+            <a
+              className="release-toc-item release-toc-upstream"
+              href="#release-upstream"
+              onClick={(event) => {
+                event.preventDefault()
+                document.getElementById("release-upstream")?.scrollIntoView({ behavior: "smooth", block: "start" })
+              }}
+            >
+              <span className="release-toc-version">{upstreamVersion}</span>
+              <span className="release-toc-date">{t.updateAvailableBadge}</span>
+            </a>
+          ) : null}
           {releases.map((release) => (
             <a
               className="release-toc-item"
@@ -85,13 +107,38 @@ export function ReleaseNotesPanel({ releases, onClose, t, lang }: ReleaseNotesPa
           ))}
         </nav>
 
-        {releases.length === 0 ? (
+        {releases.length === 0 && !showUpstream ? (
           <div className="empty-state">{t.releaseNotesEmpty}</div>
         ) : (
           <div className="release-timeline">
+            {showUpstream ? (
+              <article className="release-card is-latest release-upstream" id="release-upstream">
+                <header className="release-card-top">
+                  <div className="release-version-row">
+                    <span className="release-version">{upstreamVersion}</span>
+                    <span className="release-latest-badge">{t.updateAvailableBadge}</span>
+                  </div>
+                </header>
+                <div className="release-card-body">
+                  {upstream?.releaseNotes ? (
+                    <>
+                      <strong className="release-title">{upstream.releaseNotes.title}</strong>
+                      <p className="release-summary release-upstream-body">{upstream.releaseNotes.body}</p>
+                    </>
+                  ) : (
+                    <p className="release-summary">{t.updateNotesUnavailable}</p>
+                  )}
+                </div>
+                {upstream?.releaseUrl ? (
+                  <footer className="release-card-foot">
+                    <a className="button button-secondary release-upstream-link" href={upstream.releaseUrl} target="_blank" rel="noreferrer">{t.updateOpenReleases}</a>
+                  </footer>
+                ) : null}
+              </article>
+            ) : null}
             {releases.map((release, index) => {
               const groups = groupReleaseChanges(release)
-              const isLatest = index === 0
+              const isLatest = index === 0 && !showUpstream
               return (
                 <article className={`release-card${isLatest ? " is-latest" : ""}`} key={release.version} id={`release-${release.version}`}>
                   <header className="release-card-top">

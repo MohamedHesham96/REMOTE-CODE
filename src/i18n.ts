@@ -403,6 +403,30 @@ const ar = {
   releaseCategoryPerformance: "الأداء",
   releaseCategoryUiux: "الواجهة والتجربة",
   releaseCategoryTechnical: "تقني",
+  // تنبيه التحديث: يظهر فقط عند وجود نسخة أحدث حقيقية، وقابل للتأجيل
+  updateAvailableTitle: "يتوفر إصدار جديد من RemoteCode",
+  updateAvailableCopy: "اطّلِع على الجديد ثم حدّث عندما يناسبك — لا يتم أي تحديث تلقائي.",
+  updateViewRelease: "عرض الإصدار",
+  updateLater: "لاحقًا",
+  updateAvailableBadge: "متوفر الآن",
+  updateNotesUnavailable: "ستظهر ملاحظات هذا الإصدار هنا بعد التحديث.",
+  updateOpenReleases: "صفحة الإصدارات على GitHub",
+  // ملخص استهلاك الجلسة — الأرقام من المحرك نفسه، والغياب يعني "غير متاح"
+  usageTitle: "استهلاك الجلسة",
+  usageTokens: "الرموز",
+  usageInput: "رموز الإدخال",
+  usageOutput: "رموز الإخراج",
+  usageTotal: "إجمالي الرموز",
+  usageTokensUnit: "رمز",
+  usageRequests: "الطلبات",
+  usageDuration: "المدة",
+  usageCost: "التكلفة التقديرية",
+  usageUnavailable: "غير متاح",
+  hoursShort: "س",
+  daysShort: "ي",
+  // ملفات النتيجة: عرض المسار الكامل عند توفره ونسخه
+  copyPath: "نسخ المسار",
+  fullPathUnavailable: "المسار الكامل غير متاح",
 };
 
 const en: typeof ar = {
@@ -755,6 +779,27 @@ const en: typeof ar = {
   releaseCategoryPerformance: "Performance",
   releaseCategoryUiux: "UI & UX",
   releaseCategoryTechnical: "Technical",
+  updateAvailableTitle: "A new RemoteCode version is available",
+  updateAvailableCopy: "See what's new, then update when it suits you — nothing updates automatically.",
+  updateViewRelease: "View Release",
+  updateLater: "Later",
+  updateAvailableBadge: "Available now",
+  updateNotesUnavailable: "This release's notes will appear here after you update.",
+  updateOpenReleases: "Releases page on GitHub",
+  usageTitle: "Session usage",
+  usageTokens: "Tokens",
+  usageInput: "Input tokens",
+  usageOutput: "Output tokens",
+  usageTotal: "Total tokens",
+  usageTokensUnit: "tokens",
+  usageRequests: "Requests",
+  usageDuration: "Duration",
+  usageCost: "Estimated cost",
+  usageUnavailable: "Not available",
+  hoursShort: "h",
+  daysShort: "d",
+  copyPath: "Copy path",
+  fullPathUnavailable: "Full path unavailable",
 };
 
 export const strings = { ar, en };

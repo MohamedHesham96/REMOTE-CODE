@@ -1,10 +1,11 @@
 import { memo, useCallback, useMemo, useState } from "react"
 import { fileDownloadUrl } from "../api"
 import { MarkdownText } from "../components/MarkdownText"
+import { SessionUsageSummary } from "../components/SessionUsageSummary"
 import { parseMarkdownBlocks } from "../utils/markdown-table"
 import { formatDateTime } from "../display"
 import type { Language, Strings } from "../i18n"
-import type { HistoryTurn } from "../types"
+import type { HistoryTurn, SessionUsage } from "../types"
 
 interface HistoryTurnCardProps {
   turn: HistoryTurn
@@ -78,6 +79,7 @@ const HistoryTurnCard = memo(function HistoryTurnCard({ turn, expanded, sessionI
                 className="file-part file-download-link"
                 href={fileDownloadUrl(sessionId, file)}
                 download={file.name}
+                title={file.fullPath || file.path || file.name}
                 rel="noopener"
               >
                 ⬇ {file.name}
@@ -95,6 +97,8 @@ interface HistoryPanelProps {
   loading: boolean
   error: string
   sessionId: string | null
+  // ملخص استهلاك الجلسة المفتوحة — من رد الطلبات المحمّل أصلًا، من غير نداء
+  usage: SessionUsage | null
   // نصوص المحفوظ في المفضّلة — النجمة بتقرا منها O(1) لكل بطاقة
   favoritedTexts: ReadonlySet<string>
   onSaveFavorite: (text: string) => void
@@ -105,7 +109,7 @@ interface HistoryPanelProps {
   lang: Language
 }
 
-function HistoryPanelInner({ turns, loading, error, sessionId, favoritedTexts, onSaveFavorite, onClose, onCopy, onRetry, t, lang }: HistoryPanelProps) {
+function HistoryPanelInner({ turns, loading, error, sessionId, usage, favoritedTexts, onSaveFavorite, onClose, onCopy, onRetry, t, lang }: HistoryPanelProps) {
   const [query, setQuery] = useState("")
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
@@ -151,6 +155,7 @@ function HistoryPanelInner({ turns, loading, error, sessionId, favoritedTexts, o
           />
           {query ? <button className="icon-button" onClick={() => setQuery("")} aria-label={t.clearSearch}>×</button> : null}
         </div>
+        <SessionUsageSummary usage={usage} t={t} />
         {loading ? (
           <div className="picker-loading"><span className="loader" /> {t.loadingHistory}</div>
         ) : error ? (

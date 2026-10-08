@@ -1,4 +1,5 @@
 import type { ConversationQuestion, ConversationQuestionRequest, SessionRequest } from "../types"
+import { sameRequestUsage } from "./usage"
 
 function sameStrings(left: string[], right: string[]): boolean {
   return left === right || (left.length === right.length && left.every((value, index) => value === right[index]))
@@ -52,6 +53,7 @@ export function sameSessionRequest(left: SessionRequest, right: SessionRequest):
     && left.startedAt === right.startedAt
     && left.completedAt === right.completedAt
     && left.updatedAt === right.updatedAt
+    && sameRequestUsage(left.usage, right.usage)
     && left.error === right.error
     && left.retryAgent === right.retryAgent
     && sameRetryModel

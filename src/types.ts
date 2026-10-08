@@ -179,6 +179,8 @@ export interface SessionRequest {
   // الديسكتوب)، مترجمة على السيرفر. الواجهة بتعرضها واحدة واحدة.
   usedTools: string[]
   resultFiles: ResultFile[]
+  // استهلاك الرموز والتكلفة لهذا الطلب من ردود المحرك الفعلية
+  usage: RequestUsage
   // مرفقات المستخدم اللي اتبعتت مع الطلب دي (صور/ملفات) — عشان تفضل ظاهرة
   // بجانب نص الطلب بدل ما تختفي بعد الإرسال.
   attachments: RequestAttachment[]
@@ -195,6 +197,8 @@ export interface SessionRequests {
   requests: SessionRequest[]
   questions: ConversationQuestionRequest[]
   queued: number
+  // ملخص استهلاك الجلسة كله — يُحسب على السيرفر من رسائل المحرك نفسها
+  usage: SessionUsage
   // حكم كاشف الجمود في السيرفر — اتقفل عليه بعد مهلة بلا أي بصمة تقدّم
   // تتغيّر. بيتحوّل معه status لـ idle، فلو الواجهة اعتمدت على status بس
   // كانت هتعرض المهمة المجمّدة كأنها "خلصت".
@@ -213,7 +217,51 @@ export interface ResultFile {
   name: string
   mime: string
   path: string
+  // المسار المطلق كما ورد من بيانات المحرك فعلًا. غيابه يعني أن المتاح مسار
+  // نسبي فقط — والواجهة تعرضه كما هو بدل اختراع مسار مطلق غير مؤكد.
+  fullPath?: string
   downloadUrl: string
+}
+
+// استخدام الرموز كما يرجعه المحرك لكل رد assistant. المجموع محسوب على
+// السيرفر بمعادلة OpenCode الرسمية (إدخال + إخراج + تفكير + كاش).
+export interface TokenUsage {
+  input: number
+  output: number
+  reasoning: number
+  cacheRead: number
+  cacheWrite: number
+  total: number
+}
+
+export interface RequestUsage {
+  // null يعني لا توجد أرقام رموز موثوقة من المحرك — لا تقدير ولا صفر مخترع
+  tokens: TokenUsage | null
+  // null يعني التكلفة غير معروفة، وليس صفرًا. الصفر قيمة حقيقية لنموذج مجاني.
+  cost: number | null
+}
+
+export interface SessionUsage extends RequestUsage {
+  requests: number
+  durationMs: number
+}
+
+// نتيجة فحص التحديث من السيرفر. الفشل يتحول لقيم فاضية بدل خطأ — التنبيه
+// يظهر فقط عند UpdateAvailable حقيقي.
+export interface UpdateRelease {
+  title: string
+  body: string
+  url: string
+  publishedAt: string | null
+}
+
+export interface UpdateInfo {
+  currentVersion: string
+  latestVersion: string | null
+  updateAvailable: boolean
+  releaseUrl: string | null
+  releaseNotes: UpdateRelease | null
+  checkedAt: number
 }
 
 export interface AppConfig {

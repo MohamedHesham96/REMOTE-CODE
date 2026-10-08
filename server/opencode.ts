@@ -16,6 +16,7 @@ import { ensureLocalEndpoint } from "./opencode/service-launch.js"
 import { findActiveTool, toolActivity, toolSignature, usedToolActivities } from "./opencode/activity.js"
 import { unpushedCommitCount } from "./opencode/git-ahead.js"
 import { collectResultFiles } from "./opencode/result-files.js"
+import { sessionUsage, sumUsage } from "./opencode/usage.js"
 import { consoleLang, serverMessage, type ServerLang } from "./i18n.js"
 import type {
   ActiveSession,
@@ -1154,6 +1155,9 @@ export class OpenCodeService {
       this.sessionQuestions(id),
     ])
     const turns = this.turns(messages)
+    // ملخص الاستهلاك يُحسب من الرسائل المقروءة أصلًا، فلا نداء إضافي ولا
+    // عدّاد منفصل ممكن يضاعف الاحتساب عند إعادة الاتصال.
+    const usage = sessionUsage(turns)
     const lastTurn = turns[turns.length - 1]
     const rawStatus = rawStatuses[id] || { type: "idle" }
     // لو ردّنا الأخير خلص فعلًا مش لازم فضل محسوبين "شغّالين": الـ idle ضاع أو
@@ -1207,6 +1211,11 @@ export class OpenCodeService {
     const sharedTail = [
       turns.length,
       turnSig,
+      // أرقام الاستهلاك جزء من بصمة الحالة: ممكن تتغيّر مع اكتمال رسالة من
+      // غير تغيّر الأوقات ولا النص، وغيابها كان بيخلي الـ ETag يخدم بيانات
+      // استهلاك قديمة من الكاش.
+      usage.tokens?.total ?? -1,
+      usage.cost ?? -1,
       queue.map((item) => item.id).join(","),
       questions.map((question) => question.id).join(","),
       // التخطّي جزء من بصمة الحالة: علامة الطلب المتخطّى بتظهر لحظة الإيقاف،
@@ -1292,6 +1301,7 @@ export class OpenCodeService {
         activeTool: activeTool?.name ?? null,
         usedTools: usedToolActivities(turn.entries, lang),
         resultFiles: collectResultFiles(id, turn.entries, lang, this.selectedProjectDirectory),
+        usage: sumUsage(turn.entries),
         attachments: turn.attachments,
         startedAt: turn.createdAt,
         completedAt: turn.completedAt,
@@ -1315,6 +1325,8 @@ export class OpenCodeService {
         activeTool: null,
         usedTools: [],
         resultFiles: [],
+        // طلب لم يبدأ بعد: لا رموز ولا تكلفة — مش صفر مخترع
+        usage: { tokens: null, cost: null },
         attachments: (item.attachments ?? []).map((attachment) => ({
           name: attachment.name || "attachment",
           mime: attachment.uri.startsWith("data:") ? attachment.uri.slice(5).split(/[;,]/)[0] || "application/octet-stream" : mimeFromName(attachment.name || "", "application/octet-stream"),
@@ -1338,7 +1350,7 @@ export class OpenCodeService {
     // يخلي الكارت يقلب لـ "متجمّدة" من غير ما ينتظر تغيّر تاني.
     const version = [status.type, stalled ? "stalled" : "live", sharedTail].join("|")
 
-    return { status, requests, questions, queued: queue.length, stalled, version }
+    return { status, requests, questions, queued: queue.length, stalled, version, usage }
   }
 
   private assistantText(entry: SessionMessageAssistant): string {

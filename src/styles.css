@@ -1919,3 +1919,46 @@ html[dir="ltr"] .project-option-summary { direction: ltr; }
   /* زرار الفرع بعرض السطر على الموبايل: هدف لمس واضح مش زرار صغير */
   .branch-session { width: 100%; justify-content: center; min-height: 40px; }
 }
+
+/* ── تنبيه التحديث ── */
+/* شريط هادئ بين الهيدر ومساحة العمل: لا يحجب المحادثة ولا يوقف أي مهمة،
+   وبيختفي نهائيًا بعد "لاحقًا" لحد ما تظهر نسخة أحدث منه. */
+.update-banner { display: flex; align-items: center; gap: 12px; margin: 8px 18px 0; padding: 10px 14px; border: 1px solid var(--accent-border); border-radius: 1px; background: var(--accent-soft-bg2); box-shadow: var(--shadow); }
+.update-banner-mark { flex: 0 0 auto; font-size: 18px; line-height: 1; }
+.update-banner-body { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.update-banner-title { font-size: 12px; }
+.update-banner-versions { color: var(--accent-strong); font-size: 11px; font-weight: 800; }
+.update-banner-arrow { padding: 0 3px; }
+.update-banner-copy { color: var(--muted); font-size: 10px; line-height: 1.7; }
+.update-banner-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+@media (max-width: 800px) {
+  .update-banner { margin: 8px 10px 0; flex-wrap: wrap; gap: 8px; }
+  .update-banner-actions { width: 100%; }
+  .update-banner-actions .button { flex: 1; }
+}
+
+/* بطاقة الإصدار الأحدث المكتشف قبل التحديث — بلا أقسام؛ الملاحظات التفصيلية
+   تظهر في السجل بعد التحديث أو من صفحة المستودع. */
+.release-upstream-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.release-upstream-link { display: inline-flex; text-decoration: none; }
+.release-toc-upstream .release-toc-version { color: var(--accent-strong); }
+
+/* ── ملخص استهلاك الجلسة (درج السجل) ── */
+.session-usage { margin-bottom: 14px; padding: 12px 13px; border: 1px solid var(--border); border-radius: 1px; background: var(--surface-card); }
+.session-usage-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; }
+.session-usage-icon { font-size: 14px; line-height: 1; }
+.session-usage-total { margin-inline-start: auto; padding: 3px 9px; border: 1px solid var(--live-stat-border); border-radius: 1px; color: var(--live-stat-text); background: var(--live-stat-bg); font-size: 10px; font-weight: 800; }
+.session-usage-grid { display: grid; grid-template-columns: 1fr auto; gap: 5px 12px; padding: 7px 0; border-top: 1px solid var(--border); font-size: 11px; }
+.session-usage-label { color: var(--muted); font-weight: 700; }
+.session-usage-value { color: var(--text-body); font-weight: 800; }
+.session-usage-emphasis { color: var(--text); }
+
+/* ── مسار ملفات النتيجة ── */
+/* السطر معروض بقصّ بصري افتراضيًا، والضغط عليه يعرضه كاملًا؛ النسخ دائمًا
+   بالقيمة الأصلية كاملة من غير أي قص. */
+.result-file-path-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.result-file-path { min-width: 0; flex: 1; padding: 0; border: 0; overflow: hidden; color: var(--muted); background: transparent; font: inherit; font-size: 10px; direction: ltr; text-align: right; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+html[dir="ltr"] .result-file-path { text-align: left; }
+.result-file-path:hover { color: var(--accent-strong); }
+.result-file-path.is-expanded { overflow: visible; white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+.result-file-path-note { color: var(--muted); font-size: 9px; opacity: 0.8; }

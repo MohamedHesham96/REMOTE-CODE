@@ -35,6 +35,7 @@ describe("collectResultFiles", () => {
     const files = collectResultFiles("ses1", [assistant([tool("write", { input: { path: absolute } })])], "en", project)
     expect(files).toHaveLength(1)
     expect(files[0]?.name).toBe("kids-memory-game.html")
+    expect(files[0]?.fullPath).toBe(absolute)
     expect(files[0]?.downloadUrl).toContain(encodeURIComponent(absolute))
   })
 
@@ -64,6 +65,23 @@ describe("collectResultFiles", () => {
     ]
     const files = collectResultFiles("ses1", entries, "en", project)
     expect(files.map((file) => file.name)).toEqual(["a.ts"])
+    // المسار في metadata نسبي للمشروع — يُعرض كما هو بلا اختراع مطلق
+    expect(files[0]?.path).toBe("src/a.ts")
+    expect(files[0]?.fullPath).toBe("")
+  })
+
+  it("upgrades a relative entry with an absolute path seen later for the same file", () => {
+    const absolute = resolve(project, "src", "b.ts")
+    const entries = [
+      assistant([
+        tool("edit", { metadata: { files: [{ file: "src/b.ts", status: "modified" }] } }),
+        tool("write", { input: { path: absolute } }),
+      ]),
+    ]
+    const files = collectResultFiles("ses1", entries, "en", project)
+    expect(files).toHaveLength(1)
+    expect(files[0]?.path).toBe("src/b.ts")
+    expect(files[0]?.fullPath).toBe(absolute)
   })
 
   it("deduplicates the same file coming from a snapshot and a tool input", () => {
