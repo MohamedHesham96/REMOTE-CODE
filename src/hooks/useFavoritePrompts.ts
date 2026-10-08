@@ -54,8 +54,14 @@ function sameFavoriteList(left: FavoritePrompt[], right: FavoritePrompt[]): bool
 export function useFavoritePrompts({ langRef, onError }: FavoritePromptsOptions): FavoritePrompts {
   const [favorites, setFavorites] = useState<FavoritePrompt[]>(loadFavoritePrompts)
   // نسخة متزامنة لنتعامل مع النقرات السريعة: أي تعديل محلي بيكتب فيها فورًا
-  // قبل الرندر، فالنقرة اللي بعده بتشوفه من غير انتظار.
+  // قبل الرندر، فالنقرة اللي بعده بتشوفه من غير انتظار. ولازم تتبع الحالة
+  // كمان بعد أي تطبيق من السيرفر (تحميل أول/تحديث/بثّ) — من غير كده النقرة
+  // الجاية بتحسب تعديلها المتفائل من قائمة قديمة فتمسح عناصر السيرفر من
+  // الواجهة (زي كاش فاضي على جهاز جديد والسيرفر عنده مفضّلات).
   const favoritesRef = useRef(favorites)
+  useEffect(() => {
+    favoritesRef.current = favorites
+  }, [favorites])
   // الحاجز بين التعديلات المحلية وبثّ السيرفر: تعديل محلي جاري يسبّق البثّ
   // لحد ما الطلب يوصل، وبعدين أحدث قائمة من السيرفر هي اللي تفوز.
   const syncRef = useRef(createPinSyncGate())
