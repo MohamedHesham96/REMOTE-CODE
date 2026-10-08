@@ -1962,3 +1962,60 @@ html[dir="ltr"] .result-file-path { text-align: left; }
 .result-file-path:hover { color: var(--accent-strong); }
 .result-file-path.is-expanded { overflow: visible; white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
 .result-file-path-note { color: var(--muted); font-size: 9px; opacity: 0.8; }
+
+/* ── التحكم الصوتي ── */
+/* لوحة سفلية بنفس لغة درج المفضّلات: خلفية معتمة تقفل باللمس خارجها،
+   وارتفاع محدود عشان ما تتغطاش أدوات العمل. الحالات كلها بتاخد ألوانها من
+   متغيرات الثيم (accent/red/green/yellow) فبتفضل متسقة مع الوضعين الفاتح
+   والداكن وكل المظاهر. */
+.voice-agent-backdrop { position: fixed; z-index: 46; inset: 0; display: flex; align-items: flex-end; justify-content: center; background: var(--scrim); backdrop-filter: blur(4px); }
+.voice-agent-sheet { width: min(680px, 100vw); max-height: min(82vh, 720px); display: flex; flex-direction: column; gap: 12px; overflow-y: auto; padding: 16px 16px calc(18px + env(safe-area-inset-bottom)); border: 1px solid var(--border); border-bottom: 0; border-radius: 1px; background: var(--drawer-bg); box-shadow: var(--shadow); animation: slide-up 0.2s ease; }
+.voice-agent-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.voice-agent-header > div { min-width: 0; flex: 1; }
+.voice-agent-header .icon-button { flex: 0 0 38px; }
+.voice-agent-title { margin: 4px 0 0; color: var(--text-body); font-size: 15px; font-weight: 600; line-height: 1.7; }
+.voice-agent-status { display: grid; gap: 6px; }
+.voice-agent-status-chip { justify-self: start; padding: 4px 12px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-dimmer); background: var(--surface-card); font-size: 11px; font-weight: 800; }
+.voice-agent-status-chip.phase-listening { color: #fff; border-color: rgba(var(--red-rgb), 0.55); background: rgba(var(--red-rgb), 0.14); }
+.voice-agent-status-chip.phase-processing, .voice-agent-status-chip.phase-executing { color: var(--accent-strong); border-color: var(--accent-border); background: var(--accent-soft-bg2); }
+.voice-agent-status-chip.phase-awaiting { color: var(--warning-text); border-color: var(--warning-border); background: var(--warning-bg); }
+.voice-agent-status-chip.phase-success { color: var(--green-text); border-color: var(--green-border); background: var(--green-bg); }
+.voice-agent-status-chip.phase-error { color: var(--error-text); border-color: var(--error-border); background: var(--error-bg); }
+.voice-agent-status-chip.phase-unsupported, .voice-agent-status-chip.phase-permission-denied, .voice-agent-status-chip.phase-cancelled { color: var(--muted); }
+.voice-agent-transcript { min-height: 42px; margin: 0; padding: 10px 12px; border: 1px dashed var(--border); border-radius: 1px; color: var(--text); background: var(--surface-input); font-size: 14px; line-height: 1.9; overflow-wrap: anywhere; }
+.voice-agent-feedback { padding: 10px 12px; border: 1px solid var(--border); border-radius: 1px; color: var(--text-body); background: var(--surface-card); font-size: 12px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
+.voice-agent-feedback.tone-success { border-color: var(--green-border); background: var(--green-bg); color: var(--green-text); }
+.voice-agent-feedback.tone-error { border-color: var(--error-border); background: var(--error-bg); color: var(--error-text); }
+.voice-agent-feedback.tone-info { border-color: var(--accent-border); background: var(--accent-soft-bg2); }
+.voice-agent-pending { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--warning-border); border-radius: 1px; background: var(--warning-bg); }
+.voice-agent-question { margin: 0; color: var(--warning-text); font-size: 13px; font-weight: 700; line-height: 1.9; }
+.voice-agent-plan { display: grid; gap: 3px; margin: 0; padding-inline-start: 20px; color: var(--text-body); font-size: 12px; line-height: 1.8; }
+.voice-agent-candidates { display: grid; gap: 6px; }
+.voice-agent-candidate { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 1px; color: var(--text); background: var(--surface-card); font-size: 12px; font-weight: 700; text-align: start; cursor: pointer; }
+.voice-agent-candidate:hover { border-color: var(--accent-border); background: var(--accent-soft-bg2); }
+.voice-agent-candidate-index { flex: 0 0 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; color: var(--accent-strong); background: var(--accent-soft-bg); font-size: 10px; font-weight: 900; }
+.voice-agent-hint { margin: 0; color: var(--muted); font-size: 10px; }
+.voice-agent-pending-actions { display: flex; gap: 8px; }
+.voice-agent-pending-actions .button { flex: 1; min-height: 40px; }
+.voice-agent-controls { display: flex; align-items: center; gap: 10px; }
+.voice-agent-mic { flex: 1; min-height: 52px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; border: 1px solid var(--accent-border); border-radius: 1px; color: var(--text); background: var(--accent-soft-bg2); font-size: 14px; font-weight: 800; cursor: pointer; transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease; }
+.voice-agent-mic:hover:not(:disabled) { transform: translateY(-1px); border-color: var(--accent); }
+.voice-agent-mic.is-listening { color: #fff; border-color: rgba(var(--red-rgb), 0.55); background: rgba(var(--red-rgb), 0.16); animation: voice-pulse 1.15s ease-in-out infinite; }
+.voice-agent-mic:disabled { opacity: 0.6; cursor: not-allowed; }
+.voice-agent-side { display: flex; align-items: center; gap: 6px; }
+.voice-agent-help-toggle { min-height: 34px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 1px; color: var(--muted); background: var(--surface-card); font-size: 11px; font-weight: 800; cursor: pointer; }
+.voice-agent-help-toggle.is-open { color: var(--accent-strong); border-color: var(--accent-border); background: var(--accent-soft-bg2); }
+.voice-agent-esc { margin: 0; color: var(--text-faintest); font-size: 10px; text-align: center; }
+.voice-agent-help { display: grid; gap: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.voice-agent-help-note { margin: 0; color: var(--accent-strong); font-size: 12px; font-weight: 700; line-height: 1.9; }
+.voice-agent-help-toggle-label { margin: 0; color: var(--muted); font-size: 11px; font-weight: 800; }
+.voice-agent-help-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.voice-agent-help-card { padding: 10px 12px; border: 1px solid var(--border); border-radius: 1px; background: var(--surface-card); }
+.voice-agent-help-card strong { display: block; margin-bottom: 6px; color: var(--accent-strong); font-size: 11px; }
+.voice-agent-help-card ul { display: grid; gap: 3px; margin: 0; padding-inline-start: 16px; color: var(--text-body); font-size: 11px; line-height: 1.8; }
+@media (max-width: 800px) {
+  .voice-agent-sheet { width: 100vw; max-height: 86vh; }
+  .voice-agent-controls { flex-wrap: wrap; }
+  .voice-agent-mic { min-width: 100%; order: 2; }
+  .voice-agent-side { width: 100%; justify-content: space-between; order: 1; }
+}

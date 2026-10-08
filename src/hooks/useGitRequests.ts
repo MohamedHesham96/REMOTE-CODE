@@ -13,22 +13,24 @@ interface GitRequests {
   cancelRevertAll: () => void
   askCommitPush: () => void
   cancelCommitPush: () => void
-  commitPush: () => Promise<void>
-  commit: () => Promise<void>
-  pull: () => Promise<void>
-  revertAll: () => Promise<void>
-  revertFile: (file: GitChangeFile) => Promise<void>
+  commitPush: () => Promise<boolean>
+  commit: () => Promise<boolean>
+  pull: () => Promise<boolean>
+  revertAll: () => Promise<boolean>
+  revertFile: (file: GitChangeFile) => Promise<boolean>
 }
 
 // كل أزرار الـ git في الدرج بتبعت prompt للعميل (نفس نمط زرار commit & push)،
 // فبنت guard واحد مشترك: لازم المشروع يكون git وفيه ملفات ومفيش طلب شغال.
 // الدالة المشتركة بتقفل الدرج كمان — الطلب بيفتح محادثة جديدة، والدرج تاني
 // وراه مش هيفيد. التراجع عن الكل محتاج خطوة تأكيد منفصلة عشان مدمّر.
+// كل الدوال بترجّع هل الإرسال نجح — التحكم الصوتي بيستخدم النتيجة، وباقي
+// المستدعين بيتجاهلوا القيمة زي قبل كده بالظبط.
 export function useGitRequests(
   changes: GitChanges | null,
   sending: boolean,
   lang: Language,
-  send: (prompt: string) => Promise<void>,
+  send: (prompt: string) => Promise<boolean>,
 ): GitRequests {
   const [isOpen, setIsOpen] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -53,48 +55,48 @@ export function useGitRequests(
   // بيحصل على مجلد نضيف، وهو أكتر حالة بيستعملها المستخدم فيها الزر ده.
   const canPull = useCallback(() => Boolean(changes?.available) && !sending, [changes, sending])
 
-  const commitPush = useCallback(async () => {
+  const commitPush = useCallback(async (): Promise<boolean> => {
     if (!changes || !canPush()) {
-      return
+      return false
     }
     close()
     // شجرة نضيفة + commits مستنية: مفيش حاجة تتعملها commit، فالطلب
     // بيقتصر على الـ push عشان الوكيل مايدوّرش على شغل مش موجود.
-    await send(changes.files.length > 0
+    return send(changes.files.length > 0
       ? commitPushPrompt(changes.files, changes.branch, lang)
       : pushPrompt(changes.branch, lang))
   }, [canPush, changes, lang, close, send])
 
-  const commit = useCallback(async () => {
+  const commit = useCallback(async (): Promise<boolean> => {
     if (!changes || !canRequest()) {
-      return
+      return false
     }
     close()
-    await send(commitPrompt(changes.files, changes.branch, lang))
+    return send(commitPrompt(changes.files, changes.branch, lang))
   }, [canRequest, changes, lang, close, send])
 
-  const pull = useCallback(async () => {
+  const pull = useCallback(async (): Promise<boolean> => {
     if (!changes || !canPull()) {
-      return
+      return false
     }
     close()
-    await send(pullPrompt(changes.branch, lang))
+    return send(pullPrompt(changes.branch, lang))
   }, [canPull, changes, lang, close, send])
 
-  const revertAll = useCallback(async () => {
+  const revertAll = useCallback(async (): Promise<boolean> => {
     if (!changes || !canRequest()) {
-      return
+      return false
     }
     close()
-    await send(revertAllPrompt(changes.files, lang))
+    return send(revertAllPrompt(changes.files, lang))
   }, [canRequest, changes, lang, close, send])
 
-  const revertFile = useCallback(async (file: GitChangeFile) => {
+  const revertFile = useCallback(async (file: GitChangeFile): Promise<boolean> => {
     if (!canRequest()) {
-      return
+      return false
     }
     close()
-    await send(revertFilePrompt(file, lang))
+    return send(revertFilePrompt(file, lang))
   }, [canRequest, lang, close, send])
 
   const show = useCallback(() => {

@@ -72,9 +72,12 @@ import { addAttachmentFiles, attachmentRejectionMessage, modelSupports } from ".
 import { appendClipboardText } from "./utils/composer-text"
 import { normalizeProjectPath } from "./utils/paths"
 import { buildProjectSummaries } from "./utils/project-summary"
-import { forgetLastSession, isRequestsEmpty, loadDefaultModel, loadLastSessions, loadRecentProjects, saveDefaultModel, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
+import { forgetLastSession, isRequestsEmpty, loadDefaultModel, loadLastSessions, loadPinnedModels, loadRecentProjects, saveDefaultModel, saveLastSession, sessionMatches, sortSessionsByCreated } from "./utils/storage"
 import { isSettledRequest } from "./utils/task-status"
 import { sameSessionUsage } from "./utils/usage"
+import { buildVoiceContext, buildVoiceExecutors, emptyVoiceContext, type VoiceAppHandlers, type VoiceAppState } from "./voice-agent/app-bindings"
+import type { VoicePanelId } from "./voice-agent/context"
+import type { VoiceAgentBindings } from "./voice-agent/useVoiceControl"
 
 // أدراج ثقيلة تُحمّل عند الطلب فقط (code-splitting): القائمة الرئيسية
 // والشات يظهران فورًا، وهذه اللوحات تنزل عند أول فتح لها
@@ -91,6 +94,9 @@ const ReleaseNotesPanel = lazy(() => import("./panels").then((module) => ({ defa
 // اترسم، JSX الـ drawer اتبنى ومعاها الـ handlers. lazy() يخليها تتحمّل أول
 // مرة المستخدم يفتح الإعدادات بس.
 const SettingsDrawer = lazy(() => import("./panels").then((module) => ({ default: module.SettingsDrawer })))
+// لوحة التحكم الصوتي: تُحمَّل أول مرة المستخدم يفتحها — هي اللي بتملك دورة
+// حياة الميكروفون، فمقفولة = صفر مستمعين وصفر مؤقتات من الأصل.
+const VoiceControlPanel = lazy(() => import("./panels").then((module) => ({ default: module.VoiceControlPanel })))
 
 interface InstallPrompt {
   preventDefault: () => void
@@ -173,6 +179,10 @@ function App() {
   const [config, setConfig] = useState<AppConfig>(emptyConfig)
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
+  // نسخة مرجعية من المشروع المفتوح: الوكلاء بيتحققوا بها من نتيجة الفتح
+  // الفعلية من غير ما يلمسوا منطق openProject نفسه
+  const selectedProjectRef = useRef<Project | null>(null)
+  selectedProjectRef.current = selectedProject
   const [switchingProject, setSwitchingProject] = useState<string | null>(null)
   const [recentProjects, setRecentProjects] = useState<string[]>(() => loadRecentProjects())
   const [sessions, setSessions] = useState<Session[]>([])
@@ -243,6 +253,8 @@ function App() {
   const [showActivity, setShowActivity] = useState(false)
   const [showPinned, setShowPinned] = useState(false)
   const [showReleases, setShowReleases] = useState(false)
+  // لوحة التحكم الصوتي: غيابها من الشجرة = الميزة خاملة بالكامل
+  const [showVoice, setShowVoice] = useState(false)
   // فحص التحديث مرة واحدة عند الدخول: الكاش يمنع التكرار، والفشل صامت
   const { update: updateInfo, visible: updateVisible, dismiss: dismissUpdateNotice } = useUpdateNotification(authState === "signedIn")
   const [historyTurns, setHistoryTurns] = useState<HistoryTurn[]>([])
@@ -814,10 +826,12 @@ function App() {
     requestActivityRefresh()
   }, [activeId, requests, requestActivityRefresh])
 
-  const openProject = useCallback(async (project: Project, targetSessionId?: string) => {
+  // ملاحظة: الدالة بترجّع هل الفتح نجح — تُستخدم في التحكم الصوتي لتقرير
+  // الرسالة، بينما السلوك لكل المستدعين الحاليين ما اتغيّرش (القيمة بتتجاهل).
+  const openProject = useCallback(async (project: Project, targetSessionId?: string): Promise<boolean> => {
     // لو دايس على الحالي خلاص — مفيش داعي للتحميل
     if (selectedProject && samePath(project.worktree, selectedProject.worktree) && !targetSessionId) {
-      return
+      return true
     }
     setSwitchingProject(project.worktree)
     try {
@@ -881,8 +895,10 @@ function App() {
       setRequestQuestions([])
       void refreshGitChanges()
       await refreshRequests(nextActive)
+      return true
     } catch (error: unknown) {
       addToast(error instanceof Error ? error.message : t.openProjectFailed, "error")
+      return false
     } finally {
       setSwitchingProject(null)
     }
@@ -1736,6 +1752,8 @@ function App() {
   const handleShowReleases = useCallback(() => setShowReleases(true), [])
   const handleShowSettings = useCallback(() => setShowSettings(true), [])
   const handleShowModels = useCallback(() => setShowModels(true), [])
+  const handleShowVoice = useCallback(() => setShowVoice(true), [])
+  const handleCloseVoice = useCallback(() => setShowVoice(false), [])
   // `toggleLanguage` و `toggleTheme` و `toggleSound` مستقرة فوق (إلا حذفتها
   // في الأعلى عشان تتشارك مع سطر الذيل. التوب بار بياخدها مباشرة).
 
@@ -1777,10 +1795,10 @@ function App() {
   // إرسال نص كطلب — المشترك بين زرار الإرسال وزرار commit و push.
   // المرفقات بتُمرَّر صريح (مش من الحالة) عشان طلبات git ما تشيلش مرفقات
   // الكومبوزر بالغلط، ولأن النداء بيحصل بعد ما نفضّي الحالة فورًا.
-  const sendPrompt = useCallback(async (rawText: string, files: ComposerAttachment[] = []) => {
+  const sendPrompt = useCallback(async (rawText: string, files: ComposerAttachment[] = []): Promise<boolean> => {
     const text = rawText.trim()
     if ((!text && files.length === 0) || sendingRef.current) {
-      return
+      return false
     }
     sendingRef.current = true
     setSending(true)
@@ -1857,6 +1875,7 @@ function App() {
           void refreshRequests(sessionId).catch(() => undefined)
         }
       }, 6000)
+      return true
     } catch (error: unknown) {
       setRequests((current) => current.filter((request) => request.id !== optimisticId))
       // رجّع النص والمرفقات بس لو المستخدم لسه ماكتبش/ما أضافش حاجة جديدة
@@ -1865,6 +1884,7 @@ function App() {
         setAttachments((current) => (current.length > 0 ? current : files))
       }
       addToast(error instanceof Error ? error.message : getStrings(langRef.current).messageSendFailed, "error")
+      return false
     } finally {
       sendingRef.current = false
       setSending(false)
@@ -1900,9 +1920,10 @@ function App() {
     setComposer((current) => appendClipboardText(current, text))
   }
 
-  const handleAbort = async () => {
+  // بترجّع هل طلب الإيقاف نجح — نفس الملاحظة: سلوك المستدعين الحاليين كما هو.
+  const handleAbort = async (): Promise<boolean> => {
     if (!activeId) {
-      return
+      return false
     }
     const id = activeId
     abortedRef.current.add(id)
@@ -1913,9 +1934,11 @@ function App() {
       // حدّث الحالة فورًا عشان تختفي من "النشطة"
       setSettledStatus(id, { type: "idle" })
       void refreshActivity()
+      return true
     } catch (error: unknown) {
       abortedRef.current.delete(id)
       addToast(error instanceof Error ? error.message : t.abortFailed, "error")
+      return false
     }
   }
 
@@ -2064,7 +2087,9 @@ function App() {
     setProjectDefaultModel(ref)
   }, [selectedProject])
 
-  const handleSelectModel = async (model: ModelInfo, variant?: string) => {
+  // بترجّع هل التبديل نجح — التحكم الصوتي بيستخدم النتيجة للرسالة،
+  // والمستدعين الحاليين بيتجاهلوا القيمة (سلوكهم ما اتغيّرش).
+  const handleSelectModel = async (model: ModelInfo, variant?: string): Promise<boolean> => {
     const cleanVariant = (variant || "").trim()
     const ref: SessionModelRef = { providerID: model.providerID, modelID: model.id, ...(cleanVariant ? { variant: cleanVariant } : {}) }
     // الموديل ده عنده خيارات variety — نسيب الدروير مفتوح عشان المستخدم يختار منهم
@@ -2079,11 +2104,11 @@ function App() {
         setShowModels(false)
       }
       // الليبل اتغيّر وشايفه بعينك — من غير toast
-      return
+      return true
     }
     if (isBusy) {
       addToast(t.waitBeforeModelChange, "error")
-      return
+      return false
     }
     const key = `${ref.providerID}/${ref.modelID}`
     setSwitchingKey(key)
@@ -2096,8 +2121,10 @@ function App() {
       }
       // الليبل اتغيّر وشايفه بعينك — من غير toast
       await refreshRequests(sessionId).catch(() => undefined)
+      return true
     } catch (error: unknown) {
       addToast(error instanceof Error ? error.message : t.modelChangeFailed, "error")
+      return false
     } finally {
       setSwitchingKey(null)
     }
@@ -2215,6 +2242,157 @@ function App() {
   // (memoized) عشان كل صف يعمل bail-out لما بياناته ما تتغيرش، بدل ما
   // الـ App كله يعيد رسم 50+ صف في كل setState.
 
+  // ── التحكم الصوتي ──
+  // جسر واحد بين التطبيق ووكيل الصوت: نفس الحالة الحية ونفس المعالجات
+  // الموجودة، من غير أي نسخة موازية. التعبئة بتحصل وقت فتح اللوحة فقط،
+  // والوكلاء بيقروا المراجع وقت النداء (مش وقت البناء) فالتنفيذ المتعدد
+  // الخطوات بيشوف دايمًا أحدث سياق.
+  const voiceStateRef = useRef<VoiceAppState | null>(null)
+  const voiceHandlersRef = useRef<VoiceAppHandlers | null>(null)
+  if (showVoice) {
+    voiceStateRef.current = {
+      authState,
+      selectedProject,
+      projects,
+      recentProjects,
+      sessions,
+      activeId,
+      isBusy,
+      waitingOnUser: activeId !== null && (attentionConversationIds.has(activeId) || activeQuestions.length > 0 || activePermissions.length > 0),
+      requestsCount: requests.length,
+      requestsRunning: requests.some((request) => request.state === "running"),
+      requestsQueued: hasQueuedRequests,
+      requestsStalled: activeId ? stalledIds.has(activeId) : false,
+      running: activeSessions,
+      attentionItems,
+      permissions,
+      questions: requestQuestions,
+      models,
+      modelsLoading,
+      currentModel,
+      defaultModel,
+      projectDefaultModel,
+      pendingModel,
+      pinnedModelKeys: loadPinnedModels(),
+      gitChanges,
+      sending,
+      theme,
+      language: lang,
+      soundOn,
+      switchingProject: switchingProject !== null,
+      panels: {
+        sessions: showSessions,
+        settings: showSettings,
+        models: showModels,
+        history: showHistory,
+        activity: showActivity,
+        attention: showAttention,
+        pinned: showPinned,
+        releases: showReleases,
+        git: gitRequests.isOpen,
+      },
+      rememberedSessionId: selectedProject ? loadLastSessions()[normalizeProjectPath(selectedProject.worktree)] ?? null : null,
+    }
+    voiceHandlersRef.current = {
+      openProject: (project) => openProjectRef.current(project),
+      selectSession: (id) => selectSessionRef.current(id),
+      newConversation: () => handleNewSessionRef.current(),
+      stopTask: () => handleAbort(),
+      changeModel: (ref, info) => info ? handleSelectModel(info, ref.variant) : Promise.resolve(false),
+      getActiveId: () => activeIdRef.current,
+      getSelectedWorktree: () => selectedProjectRef.current?.worktree ?? null,
+      setTheme: (value) => setTheme(value),
+      setLanguage: (value) => setLang(value),
+      setSound: (enabled) => {
+        if (soundOn !== enabled) {
+          toggleSound()
+        }
+      },
+      openPanel: (panel: VoicePanelId) => {
+        switch (panel) {
+          case "activity":
+            setShowActivity(true)
+            break
+          case "attention":
+            handleShowAttention()
+            break
+          case "history":
+            setShowHistory(true)
+            break
+          case "pinned":
+            setShowPinned(true)
+            break
+          case "git":
+            handleOpenGitChanges()
+            break
+          case "settings":
+            setShowSettings(true)
+            break
+          case "models":
+            setShowModels(true)
+            break
+          case "releases":
+            setShowReleases(true)
+            break
+          case "sessions":
+            setShowSessions(true)
+            break
+        }
+      },
+      // نفس ترتيب VOICE_PANEL_ORDER في voice-agent/context.ts — قائمة واحدة
+      // بتوصف "إيه اللي فوق" للرجوع
+      closeTopPanel: () => {
+        if (gitRequests.isOpen) { gitRequests.close(); return true }
+        if (showModels) { setShowModels(false); return true }
+        if (showSettings) { setShowSettings(false); return true }
+        if (showReleases) { setShowReleases(false); return true }
+        if (showPinned) { setShowPinned(false); return true }
+        if (showHistory) { setShowHistory(false); return true }
+        if (showAttention) { closeAttention(); return true }
+        if (showActivity) { setShowActivity(false); return true }
+        if (showSessions) { setShowSessions(false); return true }
+        return false
+      },
+      revealRequests: () => {
+        // عرض الطلبات = إغلاق كل الألواح ثم تثبيت الشاشة على آخر طلب في
+        // المحادثة المفتوحة — نفس طريقة العرض اليومية بدون أي نسخ محتوى
+        setShowSessions(false)
+        setShowSettings(false)
+        setShowModels(false)
+        setShowHistory(false)
+        setShowActivity(false)
+        closeAttention()
+        setShowPinned(false)
+        setShowReleases(false)
+        gitRequests.close()
+        window.setTimeout(() => {
+          pinToBottom(() => undefined)
+        }, 80)
+      },
+      gitActions: {
+        revertAll: () => gitRequests.revertAll(),
+        commitPush: () => gitRequests.commitPush(),
+        pull: () => gitRequests.pull(),
+      },
+    }
+  } else {
+    voiceStateRef.current = null
+    voiceHandlersRef.current = null
+  }
+  const voiceBindings = useMemo<VoiceAgentBindings>(() => ({
+    getContext: () => {
+      const state = voiceStateRef.current
+      return state ? buildVoiceContext(state) : emptyVoiceContext()
+    },
+    executors: buildVoiceExecutors(() => {
+      const handlers = voiceHandlersRef.current
+      if (!handlers) {
+        throw new Error("Voice handlers are unavailable while the panel is closed")
+      }
+      return handlers
+    }),
+  }), [])
+
   if (authState === "loading") {
     return <div className="center-screen"><div className="loader" /><p>{t.connectingToOpencode}</p></div>
   }
@@ -2301,6 +2479,7 @@ function App() {
           onShowReleases={handleShowReleases}
           onShowSettings={handleShowSettings}
           onShowModels={handleShowModels}
+          onShowVoice={handleShowVoice}
           onOpenGitChanges={handleOpenGitChanges}
           onToggleTheme={toggleTheme}
           onToggleLanguage={toggleLanguage}
@@ -2576,6 +2755,21 @@ function App() {
               soundOn={soundOn}
               onTestSound={testSound}
               onToggleSound={toggleSound}
+            />
+          </PanelErrorBoundary>
+        </Suspense>
+      ) : null}
+
+      {showVoice && voiceBindings ? (
+        <Suspense fallback={<PanelFallback />}>
+          <PanelErrorBoundary t={t} panelName="VoiceControlPanel" onClose={handleCloseVoice}>
+            <VoiceControlPanel
+              t={t}
+              lang={lang}
+              voiceLanguage={voiceLanguage}
+              bindings={voiceBindings}
+              onClose={handleCloseVoice}
+              onVoiceLanguageChange={(value) => setVoiceLanguage(value)}
             />
           </PanelErrorBoundary>
         </Suspense>

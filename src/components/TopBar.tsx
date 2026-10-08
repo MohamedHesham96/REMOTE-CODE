@@ -16,6 +16,7 @@ interface TopBarProps {
   onShowReleases: () => void
   onShowSettings: () => void
   onShowModels: () => void
+  onShowVoice: () => void
   onOpenGitChanges: () => void
   onToggleTheme: () => void
   onToggleLanguage: () => void
@@ -45,6 +46,7 @@ function TopBarInner({
   onShowReleases,
   onShowSettings,
   onShowModels,
+  onShowVoice,
   onOpenGitChanges,
   onToggleTheme,
   onToggleLanguage,
@@ -100,6 +102,16 @@ function TopBarInner({
         <div className="topbar-actions">
           <button className="icon-button attention-button" onClick={onShowAttention} aria-label={`${t.needsAttention}${needsAttentionCount > 0 ? ` (${needsAttentionCount})` : ""}`} title={t.needsAttention}>
             <span aria-hidden>!</span>{needsAttentionCount > 0 ? <span className="attention-count-badge">{needsAttentionCount}</span> : null}
+          </button>
+          {/* التحكم الصوتي: ميكروفون بأوامر طبيعية — جنب زر الانتباه لأنه
+              طبقة تفاعل مع المحرك، مش إعداد. data-voice-trigger بيستخدمه
+              زر الاسترجاع في اللوحة عشان التركيز يرجع هنا مع الإغلاق. */}
+          <button className="icon-button icon-voice" onClick={onShowVoice} aria-label={t.voiceControl} title={t.voiceControlOpen} data-voice-trigger>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" />
+              <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+              <line x1="12" y1="19" x2="12" y2="22" />
+            </svg>
           </button>
           <button className="icon-button activity-button icon-activity" onClick={onShowActivity} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activeSessionsCount > 0 ? <span className="count-badge">{activeSessionsCount}</span> : null}</button>
           {/* ترتيب الأزرار مقصود: زر الـ git جنب زر "النشطة" عشان متابعة الملفات

@@ -1,53 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { deviceSpeechLanguage, getSpeechRecognitionCtor, type SpeechRecognitionInstanceLike } from "../voice-agent/speech"
 import { mergeTranscript, reduceVoiceTranscript, requiresFinalConfidence, type RecognizedSegment, type VoiceTranscriptState } from "../voice"
-
-// أنواع Web Speech API مش موجودة كاملة في lib.dom القياسية بتاعة TypeScript
-// (الموجودة فيها كائنات النتائج بس: SpeechRecognitionResult وما شابه)،
-// والمتصفحات بتعرّف المُنشئ تحت اسمين: SpeechRecognition الحديث نسبيًا و
-// webkitSpeechRecognition اللي كل المحركات ما زالت بتقدمه. التعريف تحت هو
-// أدنى حد التشغيل عايزه — مش واجهة كاملة للـ API.
-interface SpeechRecognitionInstanceLike {
-  lang: string
-  continuous: boolean
-  interimResults: boolean
-  maxAlternatives: number
-  onresult: ((event: SpeechRecognitionResultEventLike) => void) | null
-  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null
-  onend: (() => void) | null
-  start: () => void
-  stop: () => void
-  abort: () => void
-}
-
-interface SpeechRecognitionResultEventLike {
-  resultIndex: number
-  results: SpeechRecognitionResultList
-}
-
-interface SpeechRecognitionErrorEventLike {
-  error: string
-}
-
-type SpeechRecognitionCtorLike = new () => SpeechRecognitionInstanceLike
-
-interface WindowWithSpeechRecognition {
-  SpeechRecognition?: SpeechRecognitionCtorLike
-  webkitSpeechRecognition?: SpeechRecognitionCtorLike
-}
-
-// الكشف مرة واحدة على الواجهة: لو المُنشئ مش موجود نتجاهل الميزة نهائيًا
-// بدل ما نحاول ونفشل في كل ضغطة.
-function getSpeechRecognitionCtor(): SpeechRecognitionCtorLike | undefined {
-  const enhancedWindow = window as unknown as WindowWithSpeechRecognition
-  return enhancedWindow.SpeechRecognition ?? enhancedWindow.webkitSpeechRecognition
-}
-
-// لغة الجهاز الفعلية (navigator.language) — هي الأصدق للتعرف على الصوت:
-// بتعكس اللغة اللي المستخدم بيتكلم بيها فعلاً، مش لغة واجهة التطبيق.
-function deviceLanguage(): string | undefined {
-  const value = navigator.language?.trim()
-  return value || undefined
-}
 
 // وضع القفل: المتصفح ممكن يقفل الجلسة لوحده (صمت طويل، أو حد داخلي للمدة).
 // بدل ما نسيب المايك يقفل، بنبدأ جلسة جديدة بنفس اللغة. التأخير الصغير
@@ -141,7 +94,7 @@ export function useVoiceInput({ language, baseText, onText, onError }: UseVoiceI
     // زي ما هو وقت الإعادة في وضع القفل.
     failedRef.current = false
     const recognition = new Ctor()
-    recognition.lang = optionsRef.current.language ?? deviceLanguage() ?? "en-US"
+    recognition.lang = optionsRef.current.language ?? deviceSpeechLanguage() ?? "en-US"
     // continuous=true دايمًا عشان المتصفح ما يقفلش عند أول وقفة قصيرة في وسط
     // الكلام — كده المستخدم يقدر يكمّل جملته براحته. الإغلاق في الوضع غير
     // المقفول بيتم بمؤقت الصمت (بعد آخر كلمة بمهلة)، وفي وضع القفل بيتم
