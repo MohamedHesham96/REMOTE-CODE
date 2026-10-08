@@ -1,7 +1,7 @@
 import { memo } from "react"
 import { GitBranchIcon, LogoutIcon, SettingsIcon, SoundMuteIcon, SoundOnIcon, projectName } from "../display"
 import { nextTheme, themeLabel, THEME_META, type AppTheme } from "../theme"
-import type { Language, Strings } from "../i18n"
+import type { Strings } from "../i18n"
 import type { Project, SessionModelRef } from "../types"
 
 interface TopBarProps {
@@ -16,10 +16,8 @@ interface TopBarProps {
   onShowReleases: () => void
   onShowSettings: () => void
   onShowModels: () => void
-  onShowVoice: () => void
   onOpenGitChanges: () => void
   onToggleTheme: () => void
-  onToggleLanguage: () => void
   onToggleSound: () => void
   onLogout: () => void
   activeSessionsCount: number
@@ -30,7 +28,6 @@ interface TopBarProps {
   displayedModel: SessionModelRef | null
   theme: AppTheme
   soundOn: boolean
-  lang: Language
   t: Strings
 }
 
@@ -46,10 +43,8 @@ function TopBarInner({
   onShowReleases,
   onShowSettings,
   onShowModels,
-  onShowVoice,
   onOpenGitChanges,
   onToggleTheme,
-  onToggleLanguage,
   onToggleSound,
   onLogout,
   activeSessionsCount,
@@ -60,7 +55,6 @@ function TopBarInner({
   displayedModel,
   theme,
   soundOn,
-  lang,
   t,
 }: TopBarProps) {
   const projectLabel = selectedProject ? projectName(selectedProject) : "—"
@@ -103,16 +97,6 @@ function TopBarInner({
           <button className="icon-button attention-button" onClick={onShowAttention} aria-label={`${t.needsAttention}${needsAttentionCount > 0 ? ` (${needsAttentionCount})` : ""}`} title={t.needsAttention}>
             <span aria-hidden>!</span>{needsAttentionCount > 0 ? <span className="attention-count-badge">{needsAttentionCount}</span> : null}
           </button>
-          {/* التحكم الصوتي: ميكروفون بأوامر طبيعية — جنب زر الانتباه لأنه
-              طبقة تفاعل مع المحرك، مش إعداد. data-voice-trigger بيستخدمه
-              زر الاسترجاع في اللوحة عشان التركيز يرجع هنا مع الإغلاق. */}
-          <button className="icon-button icon-voice" onClick={onShowVoice} aria-label={t.voiceControl} title={t.voiceControlOpen} data-voice-trigger>
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden focusable="false" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" />
-              <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
-              <line x1="12" y1="19" x2="12" y2="22" />
-            </svg>
-          </button>
           <button className="icon-button activity-button icon-activity" onClick={onShowActivity} aria-label={t.activeFromAllProjects} title={`${t.activeFromAllProjects} ⚡`}>⚡{activeSessionsCount > 0 ? <span className="count-badge">{activeSessionsCount}</span> : null}</button>
           {/* ترتيب الأزرار مقصود: زر الـ git جنب زر "النشطة" عشان متابعة الملفات
               والرجوع لأقوى محادثة شغّالة يبقوا في نفس السطر من الذهن، والمثبّتة
@@ -130,7 +114,6 @@ function TopBarInner({
           <button className="icon-button icon-history" onClick={onShowHistory} aria-label={t.historyAria} title={`${t.historyAria} 🕘`}>🕘</button>
           <span className="topbar-rail-divider" aria-hidden />
           <button className="icon-button icon-theme" onClick={onToggleTheme} aria-label={`${t.themeNext}: ${nextThemeLabelText}`} title={`${t.themeNext}: ${nextThemeLabelText}`}><span aria-hidden>{THEME_META[theme].icon}</span></button>
-          <button className="icon-button lang-button icon-lang" onClick={onToggleLanguage} aria-label={t.language} title={t.language}><span className="lang-globe" aria-hidden>🌐</span><span className={`lang-code${lang === "ar" ? "" : " lang-ar"}`}>{lang === "ar" ? "EN" : "ع"}</span></button>
           <button
             className={`icon-button ${soundOn ? "icon-sound" : "icon-muted"}`}
             onClick={onToggleSound}

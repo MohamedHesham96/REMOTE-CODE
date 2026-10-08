@@ -59,6 +59,7 @@ import { StickyQuestions } from "./components/requests/StickyQuestions"
 import { RequestCard } from "./components/requests/RequestCard"
 import { BranchButton } from "./components/requests/BranchButton"
 import { VoiceButton } from "./components/VoiceButton"
+import { VoiceFab } from "./components/VoiceFab"
 import { useActivityGrace } from "./hooks/useActivityGrace"
 import { useAgentWorkflow } from "./hooks/useAgentWorkflow"
 import { useEventStream } from "./hooks/useEventStream"
@@ -2523,10 +2524,8 @@ function App() {
           onShowReleases={handleShowReleases}
           onShowSettings={handleShowSettings}
           onShowModels={handleShowModels}
-          onShowVoice={handleShowVoice}
           onOpenGitChanges={handleOpenGitChanges}
           onToggleTheme={toggleTheme}
-          onToggleLanguage={toggleLanguage}
           onToggleSound={toggleSound}
           onLogout={handleLogoutTop}
           activeSessionsCount={activeSessions.length}
@@ -2537,7 +2536,6 @@ function App() {
           displayedModel={displayedModel}
           theme={theme}
           soundOn={soundOn}
-          lang={lang}
           t={t}
         />
 
@@ -2650,6 +2648,7 @@ function App() {
             </form>
           </div>
         </div>
+        <VoiceFab t={t} onOpen={handleShowVoice} />
       </main>
 
       {showActivity ? (
