@@ -1129,8 +1129,10 @@ html[dir="ltr"] .attention-count-badge { left: auto; right: -5px; }
 /* النص سطر كامل لوحده فوق شريط الأزرار. */
 .composer .composer-input { width: 100%; min-width: 0; min-height: 22px; overflow: hidden; border: 0; outline: 0; color: var(--text); background: transparent; line-height: 1.5; font-size: 15px; font-weight: 500; padding: 0; direction: rtl; text-align: right; white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
 .composer .composer-input:empty::before { content: attr(data-placeholder); color: var(--composer-placeholder); pointer-events: none; }
-/* شرائط المرفقات المختارة: سطر كامل فوق أزرار الشريط. */
-.attachments-strip { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+/* شرائط المرفقات المختارة: سطر كامل فوق أزرار الشريط. زرار النجمة بيتقدّم
+   في الـ DOM على الشريط، فمن غير order: -1 بياخد سطر لوحده ويتسيب معزول
+   فوق المرفقات بدل ما يقف مع باقي الأزرار. */
+.attachments-strip { order: -1; flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
 .attachment-chip { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 4px 3px 6px; border: 1px solid var(--accent-border); border-radius: 2px; background: var(--surface-card); }
 .attachment-thumb { width: 32px; height: 32px; object-fit: cover; border-radius: 2px; flex: 0 0 auto; }
 .attachment-file-icon { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: var(--muted); border: 1px solid var(--border); border-radius: 2px; background: var(--composer-bg); flex: 0 0 auto; }
